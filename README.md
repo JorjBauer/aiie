@@ -19,6 +19,54 @@ Build log:
 
   https://hackaday.io/project/19925-aiie-an-embedded-apple-e-emulator
 
+Building (on a Mac)
+===================
+
+While this isn't the purpose of the emulator, it is functional, and is
+my first test target for most of the work. With MacOS 10.11.6 and
+Homebrew, you can build and run it like this:
+
+  $ make opencv
+  $ ./aiie-opencv /path/to/disk.dsk
+
+As the name implies, this requires that OpenCV is installed and in
+/usr/local/lib. I've done that with Homebrew like this
+
+  $ brew install opencv
+
+"Why OpenCV?" you might ask. Well, it's just because I had code from
+another project lying around that directly manipulated OpenCV bitmap
+data. It's functional, and the Mac build is only about functional
+testing (for me).
+
+VM
+==
+
+The virtual machine architecture is broken in half - the virtual and
+physical pieces. There's the root VM object (vm.h), which ties
+together the MMU, virtual keyboard, and virtual display.
+
+Then there are the physical interfaces, which aren't as well
+organized. They exist as globals in globals.cpp:
+
+	   FileManager *g_filemanager = NULL;
+	   PhysicalDisplay *g_display = NULL;
+	   PhysicalKeyboard *g_keyboard = NULL;
+	   PhysicalSpeaker *g_speaker = NULL;
+	   PhysicalPaddles *g_paddles = NULL;
+
+There are the two globals that point to the VM and the virtual CPU:
+
+	   Cpu *g_cpu = NULL;
+	   VM *g_vm = NULL;
+
+And there are two global configuration values that probably belong in
+some sort of Prefs class:
+
+	   int16_t g_volume;
+	   uint8_t g_displayType;
+
+
 CPU
 ===
 
