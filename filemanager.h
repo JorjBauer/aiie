@@ -18,7 +18,7 @@ class FileManager {
 
   virtual const char *fileName(int8_t fd) = 0;
 
-  virtual int8_t readDir(const char *where, const char *suffix, char *outputFN, int8_t startIdx) = 0;
+  virtual int8_t readDir(const char *where, const char *suffix, char *outputFN, int8_t startIdx, uint16_t maxlen) = 0;
   virtual void seekBlock(int8_t fd, uint16_t block, bool isNib = false) = 0;
   virtual bool readTrack(int8_t fd, uint8_t *toWhere, bool isNib = false) = 0;
   virtual bool readBlock(int8_t fd, uint8_t *toWhere, bool isNib = false) = 0;

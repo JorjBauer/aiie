@@ -61,7 +61,7 @@ const char *OpenCVFileManager::fileName(int8_t fd)
   return cachedNames[fd];
 }
 
-int8_t OpenCVFileManager::readDir(const char *where, const char *suffix, char *outputFN, int8_t startIdx)
+int8_t OpenCVFileManager::readDir(const char *where, const char *suffix, char *outputFN, int8_t startIdx, uint8_t maxlen)
 {
   // not used in this version
   return -1;

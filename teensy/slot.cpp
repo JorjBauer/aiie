@@ -1,0 +1,1 @@
+../apple/slot.cpp
