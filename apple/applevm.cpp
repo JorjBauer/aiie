@@ -19,6 +19,10 @@ AppleVM::AppleVM()
   ((AppleMMU *)mmu)->setSlot(6, disk6);
 
   keyboard = new AppleKeyboard((AppleMMU *)mmu);
+
+  parallel = new ParallelCard();
+  ((AppleMMU *)mmu)->setSlot(1, parallel);
+
 #ifdef TEENSYDUINO
   teensyClock = new TeensyClock((AppleMMU *)mmu);
   ((AppleMMU *)mmu)->setSlot(7, teensyClock);
@@ -51,6 +55,7 @@ void AppleVM::cpuMaintenance(uint32_t cycles)
   }
 
   keyboard->maintainKeyboard(cycles);
+  parallel->update();
 }
 
 void AppleVM::Reset()

@@ -12,6 +12,7 @@
 #include "dummy-speaker.h"
 #include "opencv-paddles.h"
 #include "opencv-filemanager.h"
+#include "opencv-printer.h"
 
 #include "globals.h"
 
@@ -247,14 +248,14 @@ static void *cpu_thread(void *dummyptr) {
 #endif
 
     if (send_rst) {
-#if 0
+#if 1
       printf("Sending reset\n");
-      //   g_cpu->Reset();
+      g_cpu->Reset();
       
       // testing startup keyboard presses - perform Apple //e self-test
-      g_vm->getKeyboard()->keyDepressed(RA);
-      g_vm->Reset();
-      g_cpu->Reset();
+      //g_vm->getKeyboard()->keyDepressed(RA);
+      //g_vm->Reset();
+      //g_cpu->Reset();
       //((AppleVM *)g_vm)->insertDisk(0, "disks/DIAGS.DSK");
       
 #else
@@ -293,6 +294,7 @@ static void *cpu_thread(void *dummyptr) {
 int main(int argc, char *argv[])
 {
   g_speaker = new DummySpeaker();
+  g_printer = new OpenCVPrinter();
 
   // create the filemanager - the interface to the host file system.
   g_filemanager = new OpenCVFileManager();

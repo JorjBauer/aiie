@@ -11,8 +11,7 @@
 
 class Slot {
  public:
-  Slot();
-  ~Slot();
+  virtual ~Slot() {};
 
   virtual void Reset() = 0; // for use at cold-boot
 

@@ -1,6 +1,8 @@
 apple2e.rom
 disk.rom
+parallel.rom
 *~
 *.o
 apple/applemmu-rom.h
 apple/diskii-rom.h
+apple/parallel-rom.h
