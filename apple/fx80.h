@@ -29,10 +29,24 @@ class TeensyPrinter;
 class OpenCVPrinter;
 #endif
 
+enum Charset {
+  CS_USA     = 0,
+  CS_France  = 1,
+  CS_Germany = 2,
+  CS_UK      = 3,
+  CS_Denmark = 4,
+  CS_Sweden  = 5,
+  CS_Italy   = 6,
+  CS_Spain   = 7,
+  CS_Japan   = 8
+};
+
 class Fx80 {
  public:
   Fx80();
   ~Fx80();
+
+  void Reset();
 
   void input(uint8_t c);
 
@@ -70,6 +84,8 @@ class Fx80 {
 
   // 9 pixel-rows of (FX80_MAXWIDTH) bits (stuffed in 8-bit bytes)
   uint8_t rowOfBits[(FX80_MAXWIDTH/8)*9];
+
+  Charset charsetEnabled;
 };
 
 #endif
