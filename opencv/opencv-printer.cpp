@@ -43,7 +43,7 @@ void OpenCVPrinter::update()
 void OpenCVPrinter::addLine(uint8_t *rowOfBits)
 {
   isDirty = true;
-  for (int yoff=0; yoff<8; yoff++) {
+  for (int yoff=0; yoff<9; yoff++) {
     // 960 pixels == 120 bytes -- FIXME
     for (int i=0; i<(NATIVEWIDTH/8); i++) {
       uint8_t bv = rowOfBits[yoff*120+i];
