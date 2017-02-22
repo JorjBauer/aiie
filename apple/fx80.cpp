@@ -43,6 +43,7 @@ void Fx80::Reset()
   escapeModeExpectingBytes = -1;
   escapeModeLengthByteCount = 0;
   escapeModeLength = 0;
+  italicsMode = false;
 }
 
 void Fx80::handleEscape(uint8_t c)
@@ -76,6 +77,12 @@ void Fx80::handleEscape(uint8_t c)
   case 38: // FIXME: define chars in RAM
   case 42: // FIXME: set vertical tabs
   case 43: // FIXME: set form length (default: 66 lines, 11 inches)
+    break;
+  case 52: // italics on
+    italicsMode = true;
+    break;
+  case 53: // italics off
+    italicsMode = false;
     break;
   case 64: // Reset
     Reset();
@@ -265,6 +272,10 @@ void Fx80::addCharacter(uint8_t c)
       c = intlCharsetMap[charsetEnabled][11];
       break;
     }
+  }
+
+  if (italicsMode) {
+    c += 128;
   }
 
   uint8_t width = Fx80Font[c * 19];

@@ -86,6 +86,7 @@ class Fx80 {
   uint8_t rowOfBits[(FX80_MAXWIDTH/8)*9];
 
   Charset charsetEnabled;
+  bool italicsMode;
 };
 
 #endif
