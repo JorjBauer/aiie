@@ -31,6 +31,7 @@ Fx80::~Fx80()
 void Fx80::Reset()
 {
   charsetEnabled = CS_USA;
+  fontMode = FM_Pica;
 
   clearLine();
   escapeMode = false;
@@ -88,16 +89,27 @@ void Fx80::handleEscape(uint8_t c)
     Reset();
     break;
   case 68: // FIXME: reset current tabs, pitch
-  case 69: // FIXME: emphasized mode on
-  case 70: // FIXME: emphasized mode off
+    break;
+  case 69: // emphasized mode on
+    fontMode |= FM_Emphasized;
+    break;
+  case 70: // emphasized mode off
+    fontMode &= ~FM_Emphasized;
+    break;
   case 71: // FIXME: double-strike on
   case 72: // FIXME: double-strike off
   case 73: // FIXME: enable printing chr[0..31] except control codes
   case 74: // FIXME: line feed immediately, n/216th of an inch
-  case 77: // FIXME: elite mode (12cpi)
+    break;
+  case 77: // elite mode (12cpi)
+    fontMode |= FM_Elite;
+    break;
   case 78: // FIXME: turn on skip-over perforation
   case 79: // FIXME: turn off skip-over perforation
-  case 80: // FIXME: disable elite; enable pica mode (unless compressed is enabled)
+    break;
+  case 80: // disable elite; enable pica mode (unless compressed is enabled)
+    fontMode &= ~FM_Elite;
+    break;
   case 81: // FIXME: cancel print buffer, set right margin
     break;
   case 82: // FIXME: select international charset
@@ -107,7 +119,11 @@ void Fx80::handleEscape(uint8_t c)
   case 83: // FIXME: script mode on
   case 84: // FIXME: script mode off
   case 85: // FIXME: unidirecitonal mode on/off
-  case 87: // FIXME: expanded mode
+    break;
+  case 87: // expanded mode (1=on; 0=off)
+    escapeModeExpectingBytes = 1;
+    escapeModeActive = c;
+    break;
   case 98: // FIXME: set vertical tab
   case 105: // FIXME: immediate mode on
   case 106: // FIXME: immediate reverse linefeed 1/216"
@@ -144,8 +160,13 @@ void Fx80::handleActiveEscapeMode(uint8_t c)
 
     break;
   case 82:
-    printf("setting charset to %d\n", c);
     charsetEnabled = (Charset) (c % 9);
+    break;
+  case 87:
+    if (c == 1) 
+      fontMode |= FM_Expanded;
+    else if (c == 0)
+      fontMode &= ~FM_Expanded;
     break;
   default:
     printf("unhandled active escape mode %d\n", c);
@@ -290,27 +311,103 @@ void Fx80::addCharacter(uint8_t c)
   charPtr++;
 
   for (uint8_t row=0; row<9; row++) {
-    // Don't print beyond end of line!
+    uint16_t rowData = (charPtr[2*row] << 1) | (charPtr[2*row+1]>>7);
+    float xoffTo = 0;
+    for (uint8_t xoff = 0; xoff <= 8; xoff++) {
 
-    for (uint8_t xoff = 0; xoff < 8; xoff++) {
-
+      // Don't print beyond end of line!
       if (carriageDot+xoff >= FX80_MAXWIDTH)
 	continue;
 
-      uint16_t byteIdx = (carriageDot+xoff) / 8 + (FX80_MAXWIDTH/8) * row;
-      uint8_t bitIdx = (carriageDot+xoff) % 8;
+      float pw = pixelWidthOfSelectedFont();
+
+      // Figure out where we're drawing *to*
+      xoffTo += pw;
+      uint16_t byteIdx = (carriageDot+xoffTo) / 8 + (FX80_MAXWIDTH/8) * row;
+      uint8_t bitIdx = (uint8_t)((float)carriageDot+xoffTo) % 8;
 
       // We never clear bits - it's possible to overstrike, so just add more...
-      if (charPtr[2*row] & (1 << (7-xoff))) {
+      if (rowData & (1 << (8-xoff))) {
 	rowOfBits[byteIdx] |= (1 << (7-bitIdx));
       }
-      if (charPtr[2*row+1] & (1 << (7-xoff))) {
-	rowOfBits[byteIdx+1] |= (1 << (7-bitIdx));
+
+      // If we're in emphasized mode, then repeat the pixel one to the right-
+      //   without changing xOffTo, so we'll strike over
+      if (fontMode & FM_Emphasized) {
+	byteIdx = (carriageDot+xoffTo+pw) / 8 + (FX80_MAXWIDTH/8) * row;
+	bitIdx = (uint8_t)((float)carriageDot+xoffTo+pw) % 8;
+
+	// Add this bit too
+	if (rowData & (1 << (8-xoff))) {
+	  rowOfBits[byteIdx] |= (1 << (7-bitIdx));
+	}
       }
+
+      // If we're in expanded mode, then repeat the pixel offset to
+      // the right one dot - while changing xOffTo, moving the print head
+      if (fontMode & FM_Expanded) {
+	xoffTo += pw;
+	byteIdx = (carriageDot+xoffTo) / 8 + (FX80_MAXWIDTH/8) * row;
+	bitIdx = (uint8_t)((float)carriageDot+xoffTo) % 8;
+
+	// Add this bit too
+	if (rowData & (1 << (8-xoff))) {
+	  rowOfBits[byteIdx] |= (1 << (7-bitIdx));
+	}
+      }
+      
     }
   }
 
-  carriageDot += 12; // FIXME
+  carriageDot += characterWidthOfSelectedFont(c);
+}
+
+  // Determine our dot spacing. We have 960 dots across a page, and we
+  // want to align the various font types so they are similar to the
+  // original:
+  //
+  // Pica: 60 col/inch; 10 chars/inch  -- 85 chars across a page
+  // Elite: 72 col/inch; 12 chars/inch -- 102 chars across a page
+  // Compressed: 17.16 chars/inch      -- 145.86 chars across a page
+  // Expanded - double width w/ repeating columns
+  //
+  // If we use 12 dots across for one Pica character, that gives us 80
+  // characters. I'm going to call that close enough, although it's
+  // not quite right; otherwise we have to quadruple the width, which
+  // just makes the buffers too big for this project.
+
+// This is how wide one of the pixels is at the given spacing.
+float Fx80::pixelWidthOfSelectedFont()
+{
+  float ret;
+
+  if (fontMode & FM_Elite)
+    ret = (10.0/12.0);
+  else if (fontMode & FM_Compressed)
+    ret = (7.0/12.0);
+  else /*if (fontMode & FM_Pica)*/
+    ret = (12.0/12.0);
+
+  // Don't double for expanded mode; we do that inline
+
+  return ret;
+}
+
+uint8_t Fx80::characterWidthOfSelectedFont(uint8_t c)
+{
+  uint8_t ret;
+  
+  if (fontMode & FM_Elite)
+    ret = 10;
+  else if (fontMode & FM_Compressed)
+    ret = 7;
+  else /*if (fontMode & FM_Pica)*/
+    ret = 12;
+
+  if (fontMode & FM_Expanded)
+    ret *= 2;
+
+  return ret;
 }
 
 void Fx80::lineFeed()

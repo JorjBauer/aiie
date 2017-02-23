@@ -41,6 +41,16 @@ enum Charset {
   CS_Japan   = 8
 };
 
+// These are bit flags for font modes
+enum {
+  FM_Pica       = 1,
+  FM_Elite      = 2,
+  FM_Compressed = 4,
+  FM_Expanded   = 8,
+  FM_Emphasized = 16
+};
+
+
 class Fx80 {
  public:
   Fx80();
@@ -57,6 +67,8 @@ class Fx80 {
   void clearLine();
 
   void addCharacter(uint8_t c);
+  float pixelWidthOfSelectedFont();
+  uint8_t characterWidthOfSelectedFont(uint8_t c);
 
   void handleEscape(uint8_t c);
   void handleActiveEscapeMode(uint8_t c);
@@ -86,6 +98,7 @@ class Fx80 {
   uint8_t rowOfBits[(FX80_MAXWIDTH/8)*9];
 
   Charset charsetEnabled;
+  uint8_t fontMode;
   bool italicsMode;
 };
 
