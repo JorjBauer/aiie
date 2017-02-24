@@ -9,6 +9,9 @@ class PhysicalSpeaker {
 
   virtual void toggleAtCycle(uint32_t c) = 0;
   virtual void maintainSpeaker(uint32_t c) = 0;
+  virtual void beginMixing() = 0;
+  virtual void mixOutput(uint8_t v) = 0;
+  virtual bool currentState() = 0;
 
 };
 

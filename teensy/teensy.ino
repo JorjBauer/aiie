@@ -219,8 +219,9 @@ void runCPU()
 #endif
   }
 
-  g_speaker->maintainSpeaker(g_cpu->cycles);
+  g_speaker->beginMixing();
   ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
+  g_speaker->maintainSpeaker(g_cpu->cycles);
 }
 
 // FIXME: move these memory-related functions elsewhere...

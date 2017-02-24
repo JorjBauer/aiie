@@ -10,6 +10,7 @@ class TeensySpeaker : public PhysicalSpeaker {
 
   virtual void toggleAtCycle(uint32_t c);
   virtual void maintainSpeaker(uint32_t c);
+  virtual bool currentState();
 
  private:
   bool speakerState;

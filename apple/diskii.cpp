@@ -411,12 +411,12 @@ const char *DiskII::DiskName(int8_t num)
 void DiskII::loadROM(uint8_t *toWhere)
 {
 #ifdef TEENSYDUINO
-  Serial.println("loading slot rom");
+  Serial.println("loading DiskII rom");
   for (uint16_t i=0; i<=0xFF; i++) {
     toWhere[i] = pgm_read_byte(&romData[i]);
   }
 #else
-  printf("loading slot rom\n");
+  printf("loading DiskII rom\n");
   memcpy(toWhere, romData, 256);
 #endif
 }

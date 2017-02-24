@@ -218,6 +218,14 @@ another project lying around that directly manipulated OpenCV bitmap
 data. It's functional, and the Mac build is only about functional
 testing (for me).
 
+Mockingboard
+============
+
+Mockingboard support is slowly taking shape, based on the schematic in
+the Apple II Documentation Project:
+
+https://mirrors.apple2.org.za/Apple%20II%20Documentation%20Project/Interface%20Cards/Audio/Sweet%20Microsystems%20Mockingboard/Schematics/Mockingboard%20Schematic.gif
+
 VM
 ==
 

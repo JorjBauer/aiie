@@ -4,7 +4,7 @@ CXXFLAGS=-Wall -I .. -I . -I apple -I opencv -O3
 
 TSRC=cpu.cpp util/testharness.cpp
 
-OPENCVOBJS=cpu.o opencv/dummy-speaker.o opencv/opencv-display.o opencv/opencv-keyboard.o opencv/opencv-paddles.o opencv/opencv-filemanager.o apple/appledisplay.o apple/applekeyboard.o apple/applemmu.o apple/applevm.o apple/diskii.o apple/nibutil.o RingBuffer.o globals.o opencv/aiie.o apple/parallelcard.o apple/fx80.o opencv/opencv-printer.o
+OPENCVOBJS=cpu.o opencv/dummy-speaker.o opencv/opencv-display.o opencv/opencv-keyboard.o opencv/opencv-paddles.o opencv/opencv-filemanager.o apple/appledisplay.o apple/applekeyboard.o apple/applemmu.o apple/applevm.o apple/diskii.o apple/nibutil.o RingBuffer.o globals.o opencv/aiie.o apple/parallelcard.o apple/fx80.o opencv/opencv-printer.o apple/mockingboard.o apple/sy6522.o apple/ay8910.o
 
 ROMS=apple/applemmu-rom.h apple/diskii-rom.h apple/parallel-rom.h
 

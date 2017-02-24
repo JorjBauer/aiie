@@ -31,3 +31,8 @@ void TeensySpeaker::maintainSpeaker(uint32_t c)
     analogWriteDAC0(speakerState ? g_volume : 0); // max: 4095
   }
 }
+
+bool TeensySpeaker::currentState()
+{
+  return speakerState;
+}
