@@ -98,6 +98,7 @@ bool BIOS::runUntilDone()
     case ACT_DISPLAYTYPE:
       g_displayType++;
       g_displayType %= 4; // FIXME: abstract max #
+      ((AppleDisplay*)g_display)->displayTypeChanged();
       break;
     case ACT_DEBUG:
       debugMode++;
@@ -143,7 +144,7 @@ bool BIOS::runUntilDone()
  done:
   // Undo whatever damage we've done to the screen
   g_display->redraw();
-  g_display->blit();
+  g_display->blit({0, 0, 279, 191});
 
   // return true if any persistent setting changed that we want to store in eeprom
   return volumeDidChange;

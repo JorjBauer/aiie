@@ -3,13 +3,15 @@
 
 #include <string.h> // strncpy
 
+#include "vmdisplay.h" // FIXME: for AiieRect
+
 class PhysicalDisplay {
  public:
   PhysicalDisplay() { overlayMessage[0] = '\0'; }
   virtual ~PhysicalDisplay() {};
 
   virtual void redraw() = 0; // total redraw, assuming nothing
-  virtual void blit() = 0;   // redraw just the VM display area
+  virtual void blit(AiieRect r) = 0;   // redraw just the VM display area
 
   virtual void drawDriveDoor(uint8_t which, bool isOpen) = 0;
   virtual void drawDriveStatus(uint8_t which, bool isRunning) = 0;

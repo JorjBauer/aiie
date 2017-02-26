@@ -22,8 +22,6 @@ class ParallelCard : public Slot {
   virtual uint8_t readSwitches(uint8_t s);
   virtual void writeSwitches(uint8_t s, uint8_t v);
   virtual void loadROM(uint8_t *toWhere);
-  
-  void update();
 
  private:
   Fx80 *fx80;

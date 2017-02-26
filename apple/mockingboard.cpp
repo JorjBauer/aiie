@@ -38,9 +38,7 @@ uint8_t Mockingboard::read(uint16_t address)
        (address >= 0x80 &&
 	address <= 0x8F) ) {
     uint8_t idx = (address & 0x80 ? 1 : 0);
-    if (idx == 0) { // FIXME: just debugging; remove this 'if'
-      return sy6522[idx].read(address & 0x0F);
-    }
+    return sy6522[idx].read(address & 0x0F);
   }
 
   return 0xFF;
@@ -54,16 +52,13 @@ void Mockingboard::write(uint16_t address, uint8_t val)
        (address >= 0x80 &&
 	address <= 0x8F) ) {
     uint8_t idx = (address & 0x80 ? 1 : 0);
-    if (idx == 0) { // FIXME: just debugging; remove this 'if'
-      return sy6522[idx].write(address & 0x0F, val);
-    }
+    return sy6522[idx].write(address & 0x0F, val);
   }
 }
   
 void Mockingboard::update(uint32_t cycles)
 {
   sy6522[0].update(cycles);
-  // debugging: disabled the second update for the moment
-  //  sy6522[1].update(cycles);
+  sy6522[1].update(cycles);
 }
 

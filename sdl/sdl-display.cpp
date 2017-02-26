@@ -1,16 +1,5 @@
 #include <ctype.h> // isgraph
-#include "opencv-display.h"
-
-#include "opencv2/core/core.hpp"
-#include "opencv2/imgproc/imgproc.hpp"
-#include "opencv2/highgui/highgui.hpp"
-#include "opencv2/calib3d/calib3d.hpp"
-#include "opencv2/features2d/features2d.hpp"
-
-using namespace cv;
-using namespace std;
-
-#define WINDOWNAME "Aiie!"
+#include "sdl-display.h"
 
 #include "bios-font.h"
 #include "display-bg.h"
@@ -37,22 +26,33 @@ const uint8_t loresPixelColors[16][3] = { { 0, 0, 0 }, // black
 					  { 255, 255, 255 } // white
 };
 
-OpenCVDisplay::OpenCVDisplay()
+SDLDisplay::SDLDisplay()
 {
-  pixels = new Mat(240*2, 320*2, CV_8UC3);
+  // FIXME: abstract constants
+  screen = SDL_CreateWindow("Aiie!",
+			    SDL_WINDOWPOS_UNDEFINED,
+			    SDL_WINDOWPOS_UNDEFINED,
+			    320*2, 240*2,
+			    SDL_WINDOW_SHOWN);
 
-  namedWindow(WINDOWNAME, CV_WINDOW_AUTOSIZE);
+  // SDL_RENDERER_SOFTWARE because, at least on my Mac, this has some
+  // serious issues with hardware accelerated drawing (flashing and crashing).
+  renderer = SDL_CreateRenderer(screen, -1, SDL_RENDERER_SOFTWARE);
+  SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // set to white
+  SDL_RenderClear(renderer); // clear it to the selected color
+  SDL_RenderPresent(renderer); // perform the render
 }
 
-OpenCVDisplay::~OpenCVDisplay()
+SDLDisplay::~SDLDisplay()
 {
-  delete pixels; pixels = NULL;
+  SDL_Quit();
 }
 
-void OpenCVDisplay::redraw()
+void SDLDisplay::redraw()
 {
   // primarily for the device, where it's in and out of the
   // bios. Draws the background image.
+  printf("redraw background\n");
 
   for (int y=0; y<240; y++) {
     for (int x=0; x<320; x++) {
@@ -67,8 +67,11 @@ void OpenCVDisplay::redraw()
   }
 }
 
-void OpenCVDisplay::drawDriveStatus(uint8_t which, bool isRunning)
+void SDLDisplay::drawDriveStatus(uint8_t which, bool isRunning)
 {
+  // FIXME: this is a draw from another thread. Can't do that with SDL.
+  return;
+
   // location of status indicator for left drive
   uint16_t xoff = 125;
   uint16_t yoff = 213;
@@ -85,7 +88,7 @@ void OpenCVDisplay::drawDriveStatus(uint8_t which, bool isRunning)
 
 }
 
-void OpenCVDisplay::drawDriveDoor(uint8_t which, bool isOpen)
+void SDLDisplay::drawDriveDoor(uint8_t which, bool isOpen)
 {
   // location of drive door for left drive
   uint16_t xoff = 55;
@@ -107,7 +110,7 @@ void OpenCVDisplay::drawDriveDoor(uint8_t which, bool isOpen)
   }
 }
 
-void OpenCVDisplay::drawBatteryStatus(uint8_t percent)
+void SDLDisplay::drawBatteryStatus(uint8_t percent)
 {
   uint16_t xoff = 300;
   uint16_t yoff = 222;
@@ -137,6 +140,7 @@ void OpenCVDisplay::drawBatteryStatus(uint8_t percent)
       r = (float)p[0] * alpha + (bgr * (1.0 - alpha));
       g = (float)p[1] * alpha + (bgg * (1.0 - alpha));
       b = (float)p[2] * alpha + (bgb * (1.0 - alpha));
+
       drawPixel(x+xoff, y+yoff, r, g, b);
     }
   }
@@ -146,11 +150,12 @@ void OpenCVDisplay::drawBatteryStatus(uint8_t percent)
 #define BASEX 36
 #define BASEY 26
 
-void OpenCVDisplay::blit(AiieRect r)
+void SDLDisplay::blit(AiieRect r)
 {
   uint8_t *videoBuffer = g_vm->videoBuffer; // FIXME: poking deep
-  for (uint8_t y=r.top; y<=r.bottom; y++) {
-    for (uint16_t x=r.left; x<=r.right; x++) {
+
+  for (uint8_t y=0; y<192; y++) {
+    for (uint16_t x=0; x<280; x++) {
       uint16_t pixel = (y*320+x)/2;
       uint8_t colorIdx;
       if (x & 1) {
@@ -158,13 +163,11 @@ void OpenCVDisplay::blit(AiieRect r)
       } else {
 	colorIdx = videoBuffer[pixel] >> 4;
       }
-
-      // OpenCV is using BGR. This pixel-doubles both axes.
       for (uint8_t xoff=0; xoff<2; xoff++) {
 	for (uint8_t yoff=0; yoff<2; yoff++) {
-	  pixels->at<uchar>(y*2+yoff+BASEY, (x*2+xoff+BASEX)*3 + 0) = (loresPixelColors[colorIdx][2]) & 0xFF;
-	  pixels->at<uchar>(y*2+yoff+BASEY, (x*2+xoff+BASEX)*3 + 1) = (loresPixelColors[colorIdx][1]) & 0xFF;
-	  pixels->at<uchar>(y*2+yoff+BASEY, (x*2+xoff+BASEX)*3 + 2) = (loresPixelColors[colorIdx][0]) & 0xFF;
+	  // FIXME: validate BPP >= 3?
+	  SDL_SetRenderDrawColor(renderer, loresPixelColors[colorIdx][0], loresPixelColors[colorIdx][1], loresPixelColors[colorIdx][2], 255);
+	  SDL_RenderDrawPoint(renderer, x*2+xoff+BASEX, y*2+yoff+BASEY);
 	}
       }
     }
@@ -174,40 +177,42 @@ void OpenCVDisplay::blit(AiieRect r)
     drawString(M_SELECTDISABLED, 1, 240 - 16 - 12, overlayMessage);
   }
 
-    
-  imshow(WINDOWNAME, *pixels);
+  SDL_RenderPresent(renderer);
 }
 
-void OpenCVDisplay::drawPixel(uint16_t x, uint8_t y, uint16_t color)
+inline void putpixel(SDL_Renderer *renderer, int x, int y, uint8_t r, uint8_t g, uint8_t b)
 {
-  uint8_t 
+  SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+  SDL_RenderDrawPoint(renderer, x, y);
+}
+
+void SDLDisplay::drawPixel(uint16_t x, uint8_t y, uint16_t color)
+{
+  uint8_t
     r = (color & 0xF800) >> 8,
     g = (color & 0x7E0) >> 3,
     b = (color & 0x1F) << 3;
 
+
   // Pixel-doubling
   for (int yoff=0; yoff<2; yoff++) {
     for (int xoff=0; xoff<2; xoff++) {
-      pixels->at<uchar>(y*2+yoff, (x*2+xoff)*3 + 0) = b;
-      pixels->at<uchar>(y*2+yoff, (x*2+xoff)*3 + 1) = g;
-      pixels->at<uchar>(y*2+yoff, (x*2+xoff)*3 + 2) = r;
+      putpixel(renderer, xoff+x*2, yoff+y*2, r, g, b);
     }
   }
 }
 
-void OpenCVDisplay::drawPixel(uint16_t x, uint8_t y, uint8_t r, uint8_t g, uint8_t b)
+void SDLDisplay::drawPixel(uint16_t x, uint8_t y, uint8_t r, uint8_t g, uint8_t b)
 {
   // Pixel-doubling
   for (int yoff=0; yoff<2; yoff++) {
     for (int xoff=0; xoff<2; xoff++) {
-      pixels->at<uchar>(y*2+yoff, (x*2+xoff)*3 + 0) = b;
-      pixels->at<uchar>(y*2+yoff, (x*2+xoff)*3 + 1) = g;
-      pixels->at<uchar>(y*2+yoff, (x*2+xoff)*3 + 2) = r;
+      putpixel(renderer, xoff+x*2, yoff+y*2, r, g, b);
     }
   }
 }
 
-void OpenCVDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
+void SDLDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
 {
   int8_t xsize = 8,
     ysize = 0x0C,
@@ -252,7 +257,7 @@ void OpenCVDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
 
 }
 
-void OpenCVDisplay::drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str)
+void SDLDisplay::drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str)
 {
   int8_t xsize = 8; // width of a char in this font
   
@@ -262,7 +267,7 @@ void OpenCVDisplay::drawString(uint8_t mode, uint16_t x, uint8_t y, const char *
   }
 }
 
-void OpenCVDisplay::debugMsg(const char *msg)
+void SDLDisplay::debugMsg(const char *msg)
 {
   printf("%s\n", msg);
 }

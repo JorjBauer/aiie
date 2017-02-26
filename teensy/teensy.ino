@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <TimerOne.h>
 #include <ff.h> // uSDFS
 #include <SPI.h>
 #include <EEPROM.h>
@@ -17,8 +16,6 @@
 #define BATTERYPIN A19
 #define SPEAKERPIN A21
 
-//#define DEBUGCPU
-
 #include "globals.h"
 #include "teensy-crash.h"
 
@@ -28,7 +25,7 @@ volatile float startMicros;
 FATFS fatfs;      /* File system object */
 BIOS bios;
 
-uint8_t videoBuffer[320*240/2];
+uint8_t videoBuffer[DISPLAYWIDTH*DISPLAYHEIGHT/2];
 
 enum {
   D_NONE        = 0,
@@ -100,7 +97,8 @@ void setup()
   analogReference(EXTERNAL); // 3.3v external, instead of 1.7v internal
   analogReadRes(8); // We only need 8 bits of resolution (0-255) for battery & paddles
   analogReadAveraging(4); // ?? dunno if we need this or not.
-
+  analogWriteResolution(12);
+  
   pinMode(SPEAKERPIN, OUTPUT); // analog speaker output, used as digital volume control
   pinMode(BATTERYPIN, INPUT);
 
@@ -146,7 +144,7 @@ void setup()
   g_vm->Reset();
 
   g_display->redraw();
-  g_display->blit();
+//  g_display->blit();
 
   Serial.println("Reading prefs");
   readPrefs(); // read from eeprom and set anything we need setting
@@ -155,73 +153,14 @@ void setup()
 
   startMicros = 0;
   nextInstructionMicros = micros();
-  Timer1.initialize(3);
-  Timer1.attachInterrupt(runCPU);
-  Timer1.start();
-}
 
-/* We're running the timer that calls this at 1/3 "normal" speed, and
- * then asking runCPU to run 48 steps (individual opcodes executed) of
- * the CPU before returning. Then we figure out how many cycles
- * elapsed during that run, and keep track of how many cycles we now
- * have to "drain off" (how many extra ran during this attempt -- we
- * expected at least 3, but might have gotten more).  Then the next
- * call here from the interrupt subtracts 3 cycles, on the assumption
- * that 3 have passed, and we're good to go.
- *
- * This approach is reasonable: the 6502 instruction set takes an
- * average of 4 clock cycles to execute. This compromise keeps us from
- * chewing up the entire CPU on interrupt overhead, allowing us to
- * focus on refreshing the LCD as fast as possible while sacrificing
- * some small timing differences. Experimentally, paddle values seem
- * to still read well up to 48 steps. At 2*48, the paddles drift at
- * the low end, meaning there's probably an issue with timing.
- */
-void runCPU()
-{
-  //  static bool outputState = false;
-  //  outputState = !outputState;
-  //  digitalWrite(56, outputState);
+  // Debugging: insert a disk on startup...
+  //  ((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/UTIL/mock2dem.dsk", false);
+  ((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/JORJ/disk_s6d1.dsk", false);
+  // ((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/GAMES/ALIBABA.DSK", false);
 
-  if (micros() >= nextInstructionMicros) {
-#ifdef DEBUGCPU
-    g_cpu->Run(1);
-#else
-    g_cpu->Run(24);
-#endif
-
-    // The CPU of the Apple //e ran at 1.023 MHz. Adjust when we think
-    // the next instruction should run based on how long the execution
-    // was ((1000/1023) * numberOfCycles) - which is about 97.8%.
-
-#ifdef DEBUGCPU
-    // ... have to slow down so the printing all works
-    nextInstructionMicros = startMicros + (float)g_cpu->cycles * 50;
-#else
-    nextInstructionMicros = startMicros + (float)g_cpu->cycles * 0.978;
-#endif
-
-#ifdef DEBUGCPU
-  {
-    uint8_t p = g_cpu->flags;
-    Serial.printf("OP: $%02x A: %02x  X: %02x  Y: %02x  PC: $%04x  SP: %02x  Flags: %c%cx%c%c%c%c%c\n",
-	   g_vm->getMMU()->read(g_cpu->pc),
-	   g_cpu->a, g_cpu->x, g_cpu->y, g_cpu->pc, g_cpu->sp,
-	   p & (1<<7) ? 'N':' ',
-	   p & (1<<6) ? 'V':' ',
-	   p & (1<<4) ? 'B':' ',
-	   p & (1<<3) ? 'D':' ',
-	   p & (1<<2) ? 'I':' ',
-	   p & (1<<1) ? 'Z':' ',
-	   p & (1<<0) ? 'C':' '
-	   );
-  }
-#endif
-  }
-
-  g_speaker->beginMixing();
-  ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
-  g_speaker->maintainSpeaker(g_cpu->cycles);
+  pinMode(56, OUTPUT);
+  pinMode(57, OUTPUT);
 }
 
 // FIXME: move these memory-related functions elsewhere...
@@ -252,9 +191,6 @@ int heapSize(){
 
 void biosInterrupt()
 {
-  // Shut down the CPU
-  Timer1.stop();
-
   // wait for the interrupt button to be released
   while (digitalRead(RESETPIN) == LOW)
     ;
@@ -280,18 +216,35 @@ void biosInterrupt()
 
   // Poll the keyboard before we start, so we can do selftest on startup
   g_keyboard->maintainKeyboard();
-
-  // Restart the CPU
-  Timer1.start();
 }
 
+bool debugState = false;
+bool debugLCDState = false;
 
 void loop()
 {
-  static uint16_t ctr = -1;
 
-  /* testing the fault handler? uncomment this and it'll crash. */
-  //  *((int*)0x0) = 1;
+  if (micros() >= nextInstructionMicros) {
+    debugState = !debugState;
+    digitalWrite(56, debugState);
+
+    g_cpu->Run(24);
+
+    // Only update the speaker and CPU when we've moved the CPU forward (or there's nothing to do).
+    g_speaker->beginMixing();
+    ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
+    g_speaker->maintainSpeaker(g_cpu->cycles);
+
+    // The CPU of the Apple //e ran at 1.023 MHz. Adjust when we think
+    // the next instruction should run based on how long the execution
+    // was ((1000/1023) * numberOfCycles) - which is about 97.8%.
+
+    nextInstructionMicros = startMicros + (float)g_cpu->cycles * 0.978;
+
+    // Don't update the LCD if we had to run the CPU: if we need
+    // multiple concurrent runs to catch up, then we want to catch up.
+    return;
+  }
 
   static unsigned long nextBattCheck = 0;
   static int batteryLevel = 0; // static for debugging code! When done
@@ -320,64 +273,69 @@ void loop()
     ((AppleVM *)g_vm)->batteryLevel( batteryLevel );
   }
 
-  if ((++ctr & 0xFF) ==  0) {
-    if (digitalRead(RESETPIN) == LOW) {
-      // This is the BIOS interrupt. We immediately act on it.
-      biosInterrupt();
-    } 
+  if (digitalRead(RESETPIN) == LOW) {
+    // This is the BIOS interrupt. We immediately act on it.
+    biosInterrupt();
+  } 
 
-    if (g_vm->vmdisplay->needsRedraw()) {
-      // make sure to clear the flag before drawing; there's no lock
-      // on didRedraw, so the other thread might update it
-      g_vm->vmdisplay->didRedraw();
-      g_display->blit();
+  if (g_vm->vmdisplay->needsRedraw()) {
+    digitalWrite(57, HIGH);
+    AiieRect what = g_vm->vmdisplay->getDirtyRect();
+    // Clear the flag before redrawing. Not specifically required
+    // any longer now that we're not running out of an interrupt,
+    // but still safe.
+    g_vm->vmdisplay->didRedraw();
+    g_display->blit(what);
+    digitalWrite(57, LOW);
+  }
+  
+  g_keyboard->maintainKeyboard();
+
+  doDebugging();
+}
+
+void doDebugging()
+{
+  char buf[25];
+  switch (debugMode) {
+  case D_SHOWFPS:
+    // display some FPS data
+    static uint32_t startAt = millis();
+    static uint32_t loopCount = 0;
+    loopCount++;
+    time_t lenSecs;
+    lenSecs = (millis() - startAt) / 1000;
+    if (lenSecs >= 5) {
+      sprintf(buf, "%lu FPS", loopCount / lenSecs);
+      g_display->debugMsg(buf);
+      startAt = millis();
+      loopCount = 0;
     }
-
-    g_keyboard->maintainKeyboard();
-
-    {
-      char buf[25];
-      switch (debugMode) {
-      case D_SHOWFPS:
-	// display some FPS data
-	static uint32_t startAt = millis();
-	static uint32_t loopCount = 0;
-	loopCount++;
-	time_t lenSecs;
-	lenSecs = (millis() - startAt) / 1000;
-	if (lenSecs >= 5) {
-	  sprintf(buf, "%lu FPS", loopCount / lenSecs);
-	  g_display->debugMsg(buf);
-	  startAt = millis();
-	  loopCount = 0;
-	}
-	break;
-      case D_SHOWMEMFREE:
-	sprintf(buf, "%lu %u", FreeRamEstimate(), heapSize());
-	g_display->debugMsg(buf);
-	break;
-      case D_SHOWPADDLES:
-	sprintf(buf, "%u %u", g_paddles->paddle0(), g_paddles->paddle1());
-	g_display->debugMsg(buf);
-	break;
-      case D_SHOWPC:
-	sprintf(buf, "%X", g_cpu->pc);
-	g_display->debugMsg(buf);
-	break;
-      case D_SHOWCYCLES:
-	sprintf(buf, "%lX", g_cpu->cycles);
-	g_display->debugMsg(buf);
-	break;
-      case D_SHOWBATTERY:
-	sprintf(buf, "BAT %d", analogRead(BATTERYPIN));
-	g_display->debugMsg(buf);
-	break;
-      case D_SHOWTIME:
-	sprintf(buf, "%.2d:%.2d:%.2d", hour(), minute(), second());
-	g_display->debugMsg(buf);
-	break;
-      }
-    }
+    break;
+  case D_SHOWMEMFREE:
+    sprintf(buf, "%lu %u", FreeRamEstimate(), heapSize());
+    g_display->debugMsg(buf);
+    break;
+  case D_SHOWPADDLES:
+    sprintf(buf, "%u %u", g_paddles->paddle0(), g_paddles->paddle1());
+    g_display->debugMsg(buf);
+    break;
+  case D_SHOWPC:
+    sprintf(buf, "%X", g_cpu->pc);
+    g_display->debugMsg(buf);
+    break;
+  case D_SHOWCYCLES:
+    sprintf(buf, "%lX", g_cpu->cycles);
+    g_display->debugMsg(buf);
+    break;
+  case D_SHOWBATTERY:
+    sprintf(buf, "BAT %d", analogRead(BATTERYPIN));
+    g_display->debugMsg(buf);
+    break;
+  case D_SHOWTIME:
+    sprintf(buf, "%.2d:%.2d:%.2d", hour(), minute(), second());
+    g_display->debugMsg(buf);
+    break;
   }
 }
 
@@ -419,12 +377,8 @@ void readPrefs()
   g_volume = 0;
 }
 
-// Writes to EEPROM slow down the Teensy 3.6's CPU to 120MHz automatically. Disable our timer 
-// while we're doing it and we'll just see a pause.
 void writePrefs()
 {
-  Timer1.stop();
-
   Serial.println("writing prefs");
 
   prefs p;
@@ -436,6 +390,4 @@ void writePrefs()
   for (uint8_t i=0; i<sizeof(prefs); i++) {
     EEPROM.write(i, *pp++);
   }
-
-  Timer1.start();
 }

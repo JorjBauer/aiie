@@ -60,8 +60,6 @@ class Fx80 {
 
   void input(uint8_t c);
 
-  void update();
-
  private:
   void lineFeed();
   void clearLine();

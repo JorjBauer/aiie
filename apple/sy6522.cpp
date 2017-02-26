@@ -57,7 +57,6 @@ uint8_t SY6522::read(uint8_t address)
 
   void SY6522::write(uint8_t address, uint8_t val)
 {
-  printf("SY6522: %X = %02X\n", address, val);
   switch (address) {
   case SY_ORB:
     val &= DDRB;

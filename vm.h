@@ -8,9 +8,12 @@
 #include "vmdisplay.h"
 #include "vmkeyboard.h"
 
+#define DISPLAYWIDTH 320
+#define DISPLAYHEIGHT 240
+
 class VM {
  public:
-  VM() { mmu=NULL; vmdisplay = NULL; videoBuffer = (uint8_t *)calloc(320*240/2, 1); hasIRQ = false;}
+  VM() { mmu=NULL; vmdisplay = NULL; videoBuffer = (uint8_t *)calloc(DISPLAYWIDTH * DISPLAYHEIGHT / 2, 1); hasIRQ = false;}
   virtual ~VM() { if (mmu) delete mmu; if (vmdisplay) delete vmdisplay; free(videoBuffer); }
 
   virtual void SetMMU(MMU *mmu) { this->mmu = mmu; }

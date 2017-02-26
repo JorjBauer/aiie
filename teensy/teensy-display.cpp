@@ -366,7 +366,7 @@ void TeensyDisplay::drawNextPixel(uint16_t color)
   setPixel(color);
 }
 
-void TeensyDisplay::blit()
+void TeensyDisplay::blit(AiieRect r)
 {
   uint8_t *videoBuffer = g_vm->videoBuffer; // FIXME: poking deep
 
@@ -375,12 +375,12 @@ void TeensyDisplay::blit()
   #define VOFFSET 13
 
   // Define the horizontal area that we're going to draw in
-  LCD_Write_COM_DATA(0x45, HOFFSET); // offset by 20 to center it...
-  LCD_Write_COM_DATA(0x46, 279+HOFFSET);
+  LCD_Write_COM_DATA(0x45, HOFFSET+r.left); // offset by 20 to center it...
+  LCD_Write_COM_DATA(0x46, HOFFSET+r.right);
 
   // position the "write" address
-  LCD_Write_COM_DATA(0x4e,0+VOFFSET); // row
-  LCD_Write_COM_DATA(0x4f,HOFFSET); // col
+  LCD_Write_COM_DATA(0x4e,VOFFSET+r.top); // row
+  LCD_Write_COM_DATA(0x4f,HOFFSET+r.left); // col
 
   // prepare the LCD to receive data bytes for its RAM
   LCD_Write_COM(0x22);
@@ -388,12 +388,11 @@ void TeensyDisplay::blit()
   // send the pixel data
   sbi(P_RS, B_RS);
   uint16_t pixel;
-  for (uint8_t y=0; y<192; y++) { // Drawing 192 of the 240 rows
-    pixel = y * (320/2)-1;
-    for (uint16_t x=0; x<280; x++) { // Drawing 280 of the 320 pixels
+  for (uint8_t y=r.top; y<=r.bottom; y++) {
+    for (uint16_t x=r.left; x<=r.right; x++) {
+      pixel = y * (DISPLAYWIDTH/2) + (x/2);
       uint8_t colorIdx;
       if (!(x & 0x01)) {
-	pixel++;
 	colorIdx = videoBuffer[pixel] >> 4;
       } else {
 	colorIdx = videoBuffer[pixel] & 0x0F;

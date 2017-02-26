@@ -60,7 +60,6 @@ void AppleVM::cpuMaintenance(uint32_t cycles)
   }
 
   keyboard->maintainKeyboard(cycles);
-  parallel->update();
   mockingboard->update(cycles);
 }
 

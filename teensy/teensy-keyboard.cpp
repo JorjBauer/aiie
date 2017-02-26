@@ -228,4 +228,11 @@ void TeensyKeyboard::maintainKeyboard()
       }
     }
   }
+
+  // For debugging: also allow USB serial to act as a keyboard
+  if (Serial.available()) {
+    int c = Serial.read();
+    vmkeyboard->keyDepressed(c);
+    vmkeyboard->keyReleased(c);
+  }
 }

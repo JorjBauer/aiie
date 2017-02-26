@@ -43,8 +43,3 @@ void ParallelCard::loadROM(uint8_t *toWhere)
   memcpy(toWhere, romData, 256);
 #endif
 }
-
-void ParallelCard::update()
-{
-  fx80->update();
-}

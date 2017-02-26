@@ -429,12 +429,3 @@ void Fx80::emitLine()
   g_printer->addLine(rowOfBits);
 }
 
-void Fx80::update()
-{
-  // The onscreen window needs to update regularly, and we probably
-  // want to periodically flush the Teensy buffer.
-  if (g_printer) {
-    g_printer->update();
-  }
-}
-

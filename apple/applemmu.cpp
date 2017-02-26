@@ -373,7 +373,7 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
 
 
   case 0xC030: // SPEAKER
-    g_speaker->toggleAtCycle(g_cpu->cycles);
+    g_speaker->toggle();
     break;
 
   case 0xC050: // CLRTEXT

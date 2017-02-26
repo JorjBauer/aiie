@@ -5,12 +5,12 @@
 #include <pthread.h>
 
 #include "applevm.h"
-#include "opencv-display.h"
-#include "opencv-keyboard.h"
-#include "dummy-speaker.h"
-#include "opencv-paddles.h"
-#include "opencv-filemanager.h"
-#include "opencv-printer.h"
+#include "sdl-display.h"
+#include "sdl-keyboard.h"
+#include "sdl-speaker.h"
+#include "sdl-paddles.h"
+#include "sdl-filemanager.h"
+#include "sdl-printer.h"
 
 #include "globals.h"
 
@@ -178,20 +178,18 @@ static void *cpu_thread(void *dummyptr) {
 
 int main(int argc, char *argv[])
 {
-  g_speaker = new DummySpeaker();
-  g_printer = new OpenCVPrinter();
+  SDL_Init(SDL_INIT_EVERYTHING);
+
+  g_speaker = new SDLSpeaker();
+  g_printer = new SDLPrinter();
 
   // create the filemanager - the interface to the host file system.
-  g_filemanager = new OpenCVFileManager();
+  g_filemanager = new SDLFileManager();
 
-  // Construct the interface to the host display. This will need the
-  // VM's video buffer in order to draw the VM, but we don't have that
-  // yet. (The OpenCV display looks it up dynamically every blit() call, which 
-  // we'll probably change as we get the Teensy version working.)
-  g_display = new OpenCVDisplay();
+  g_display = new SDLDisplay();
 
   // paddles have to be created after g_display created the window
-  g_paddles = new OpenCVPaddles();
+  g_paddles = new SDLPaddles();
 
   // Next create the virtual CPU. This needs the VM's MMU in order to run, but we don't have that yet.
   g_cpu = new Cpu();
@@ -201,7 +199,7 @@ int main(int argc, char *argv[])
   // hardware (MMU, video driver, floppy, paddles, whatever).
   g_vm = new AppleVM();
 
-  g_keyboard = new OpenCVKeyboard(g_vm->getKeyboard());
+  g_keyboard = new SDLKeyboard(g_vm->getKeyboard());
 
   // Now that the VM exists and it has created an MMU, we tell the CPU how to access memory through the MMU.
   g_cpu->SetMMU(g_vm->getMMU());
@@ -234,7 +232,7 @@ int main(int argc, char *argv[])
   }
 
   while (1) {
-    static uint8_t ctr = 0;
+    static uint32_t ctr = 0;
     if (++ctr == 0) {
       printf("hit: %llu; miss: %llu; pct: %f\n", hitcount, misscount, (double)misscount / (double)(misscount + hitcount));
     }
@@ -249,8 +247,8 @@ int main(int argc, char *argv[])
       g_display->blit(what);
     }
 
+    g_printer->update();
     g_keyboard->maintainKeyboard();
-
     g_display->drawBatteryStatus(100);
 
 #ifdef SHOWFPS

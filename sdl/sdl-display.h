@@ -1,13 +1,11 @@
-#ifndef __OPENCV_DISPLAY_H
-#define __OPENCV_DISPLAY_H
+#ifndef __SDL_DISPLAY_H
+#define __SDL_DISPLAY_H
 
 #include <stdlib.h>
 
-#include "opencv2/core/core.hpp"
-#include "opencv2/imgproc/imgproc.hpp"
-#include "opencv2/highgui/highgui.hpp"
-#include "opencv2/calib3d/calib3d.hpp"
-#include "opencv2/features2d/features2d.hpp"
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_mutex.h>
+#include <SDL2/SDL_events.h>
 
 #include "physicaldisplay.h"
 
@@ -18,10 +16,10 @@ enum {
   M_SELECTDISABLED = 3
 };
 
-class OpenCVDisplay : public PhysicalDisplay {
+class SDLDisplay : public PhysicalDisplay {
  public:
-  OpenCVDisplay();
-  virtual ~OpenCVDisplay();
+  SDLDisplay();
+  virtual ~SDLDisplay();
 
   virtual void blit(AiieRect r);
   virtual void redraw();
@@ -37,8 +35,8 @@ class OpenCVDisplay : public PhysicalDisplay {
   virtual void debugMsg(const char *msg);
 
  private:
-
-  cv::Mat *pixels;
+  SDL_Window *screen;
+  SDL_Renderer *renderer;
 };
 
 #endif

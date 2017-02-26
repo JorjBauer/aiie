@@ -9,6 +9,8 @@
 
 TeensyPrinter::TeensyPrinter()
 {
+#if 0
+  // debugging
   ser = new SoftwareSerial(RXPIN, TXPIN, false);
   ser->begin(19200);
   char buf[6] = { 27, '@',          // init command '@'
@@ -16,6 +18,7 @@ TeensyPrinter::TeensyPrinter()
 		  0                 // terminator
   };
   ser->print(buf);
+#endif
 }
 
 TeensyPrinter::~TeensyPrinter()
@@ -29,6 +32,9 @@ void TeensyPrinter::update()
 
 void TeensyPrinter::addLine(uint8_t *rowOfBits)
 {
+  if (!ser)
+    return;
+
   static uint8_t linebuf[WIDTH/8]; // output data for one line of pixels
   
   // The rowOfBits is a set of *rows* of bits. The printer needs *columns*.

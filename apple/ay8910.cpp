@@ -3,6 +3,46 @@
 
 #include "globals.h"
 
+// Map our linear 4-bit amplitude to 8-bit output level
+static const uint8_t volumeLevels[16] = { 0x00, 0x04, 0x05, 0x07, 
+					  0x0B, 0x10, 0x16, 0x23,
+					  0x2B, 0x44, 0x5A, 0x73,
+					  0x92, 0xB0, 0xD9, 0xFF };
+
+// Envelope constants
+enum {
+  AY_ENV_HOLD   = 1,
+  AY_ENV_ALT    = 2,
+  AY_ENV_ATTACK = 4,
+  AY_ENV_CONT   = 8
+};
+
+/* Envelope handling
+ * (Per General Instruments AY-3-8910 documentation.)
+ *
+ * Envelope period is set in the 16-bit value r[0x0C]:r[0x0B] (where 0 = 1).
+ * The resulting frequency is from 0.12Hz to 7812.5 Hz.
+ *
+ * The shape of the envelope is selected by r[0x0D] and uses the
+ * constants above.
+ *
+ * If AY_ENV_HOLD is set, then when the envelope reaches terminal (0
+ * or 15) it stays there.
+ *
+ * If AY_ENV_ALT is set, the direction reverses each time it reaches
+ * terminal. (If both AY_ENV_HOLD and AY_ENV_ALT are set, then the
+ * envelope counter returns to its initial count before holding.)
+ *
+ * If AY_ENV_ATTACK is set, the counter is ascending (0-to-15); otherwise 
+ * it is descending (15-to-0).
+ *
+ * If AY_ENV_CONT is *clear* (0), then the counter resets to 0 after
+ * one cycle and holds there. If it is 1, it does whatever HOLD
+ * says. (So AY_ENV_CONT==0 takes priority over AY_ENV_HOLD).
+ *
+ *
+ */ 
+
 AY8910::AY8910()
 {
   Reset();
@@ -10,12 +50,16 @@ AY8910::AY8910()
 
 void AY8910::Reset()
 {
-  printf("AY8910 reset\n");
   curRegister = 0;
+
+  // FIXME: what are the right default values?
   for (uint8_t i=0; i<16; i++)
-    r[i] = 0xFF;
+    r[i] = 0x00;
   waveformFlipTimer[0] = waveformFlipTimer[1] = waveformFlipTimer[2] = 0;
   outputState[0] = outputState[1] = outputState[2] = 0;
+  envCounter = 0;
+  envelopeTimer = envelopeTime = 0;
+  envDirection = 1;
 }
 
 uint8_t AY8910::read(uint8_t reg)
@@ -31,7 +75,7 @@ void AY8910::write(uint8_t reg, uint8_t PortA)
 {
   // Bit 2 (1 << 2 == 0x04) is wired to the Reset pin. If it goes low,
   // we reset the virtual chip.
-  if ((reg & 0x04) == 0) {
+  if ((reg & NRSET) == 0) {
     Reset();
     return;
   }
@@ -42,30 +86,52 @@ void AY8910::write(uint8_t reg, uint8_t PortA)
   reg &= ~0x04;
 
   switch (reg) {
-  case 0: // bDir==0 && BC1 == 0 (IAB)
+  case IAB: // bDir==0 && BC1 == 0 (IAB)
     // Puts the DA bus in high-impedance state. Nothing for us to do?
     return;
-  case 1: // bDir==0 && BC1 == 1 (DTB)
+  case DTB: // bDir==0 && BC1 == 1 (DTB)
     // Contents of the currently addressed register are put in DA. FIXME?
     return;
-  case 2: // bDir==1 && BC1 == 0 (DWS)
+  case DWS: // bDir==1 && BC1 == 0 (DWS)
     // Write current PortA to PSG
-    printf("Set register %d to %X\n", reg, PortA);
     r[curRegister] = PortA;
-    if (curRegister <= 1) {
+    if (curRegister <= CHAN_A_COARSE) {
       cycleTime[0] = cycleTimeForPSG(0);
-    } else if (curRegister <= 3) {
+      waveformFlipTimer[0] = g_cpu->cycles + cycleTime[0];
+    } else if (curRegister <= CHAN_B_COARSE) {
       cycleTime[1] = cycleTimeForPSG(1);
-    } else if (curRegister <= 5) {
+      waveformFlipTimer[1] = g_cpu->cycles + cycleTime[1];
+    } else if (curRegister <= CHAN_C_COARSE) {
       cycleTime[2] = cycleTimeForPSG(2);
-    } else if (curRegister == 7) {
-      cycleTime[0] = cycleTimeForPSG(0);
-      cycleTime[1] = cycleTimeForPSG(1);
-      cycleTime[2] = cycleTimeForPSG(2);
+      waveformFlipTimer[2] = g_cpu->cycles + cycleTime[2];
+    } else if (curRegister == ENAB) {
+      if (r[ENAB] & ENAB_N_TONEA) {
+	cycleTime[0] = waveformFlipTimer[0] = 0;
+      } else {
+	cycleTime[0] = cycleTimeForPSG(0);
+	waveformFlipTimer[0] = g_cpu->cycles + cycleTime[0];
+      }
+      if (r[ENAB] & ENAB_N_TONEB) {
+	cycleTime[1] = waveformFlipTimer[1] = 0;
+      } else {
+	cycleTime[1] = cycleTimeForPSG(1);
+	waveformFlipTimer[1] = g_cpu->cycles + cycleTime[1];
+      }
+      if (r[ENAB] & ENAB_N_TONEC) {
+	cycleTime[2] = waveformFlipTimer[2] = 0;
+      } else {
+	cycleTime[2] = cycleTimeForPSG(2);
+	waveformFlipTimer[2] = g_cpu->cycles + cycleTime[2];
+      }
+    } else if (curRegister >= ENV_PERIOD_FINE && curRegister <= ENV_SHAPE) {
+      // Envelope control -- period or shape
+      // FIXME: should envCounter be initialized to the start position?
+      envDirection = (r[ENV_SHAPE] & AY_ENV_ATTACK) ? 1 : -1;
+      envelopeTime = calculateEnvelopeTime();
+      envelopeTimer = 0; // reset so it will pick up @ next tick
     }
-
     return;
-  case 3: // bDir==1 && BC1 == 1 (INTAK)
+  case INTAK: // bDir==1 && BC1 == 1 (INTAK)
     // Select current register
     curRegister = PortA & 0xF;
     return;
@@ -97,33 +163,108 @@ uint16_t AY8910::cycleTimeForPSG(uint8_t psg)
   return (32 * regVal) / 4;
 }
 
+// Similar calculation: this one, for the envelope timer.
+// FIXME: I *think* this is right. Not sure. Needs validation.
+uint32_t AY8910::calculateEnvelopeTime()
+{
+  uint16_t regVal = (r[0x0C] << 8) | (r[0x0B]);
+  if (regVal == 0) regVal++;
+
+  return (512 * regVal) / 4;
+}
+
 void AY8910::update(uint32_t cpuCycleCount)
 {
+#if 0
+  // Debugging: print state of the 16 registers
+  printf("AY8910: ");
+  for (int i=0; i<16; i++) {
+    printf("%02X ", r[i]);
+  }
+  printf("%04X %04X %04X\n", cycleTime[0], cycleTime[1], cycleTime[2]);
+#endif
+  
+  // update the envelope timer if it's time
+  if (envelopeTime != 0) {
+    if (!envelopeTimer) {
+      // timer wasn't set, so start it running
+      envelopeTimer = cpuCycleCount + envelopeTime;
+    }
+    if (envelopeTimer <= cpuCycleCount) {
+      // time to update the envelopeCounter.
+
+      switch (r[ENV_SHAPE]) {
+	// Continue / Attack / Alternate / Hold bits
+      case 0x00: // 0 / 0 / x / x -- descend once, stay @ bottom
+      case 0x01: // 0 / 0 / x / x
+      case 0x02: // 0 / 0 / x / x
+      case 0x03: // 0 / 0 / x / x
+      case 0x04: // 0 / 1 / x / x -- ascend once, jump to bottom
+      case 0x05: // 0 / 1 / x / x
+      case 0x06: // 0 / 1 / x / x
+      case 0x07: // 0 / 1 / x / x
+      case 0x09: // 1 / 0 / 0 / 1 -- descend once, stay @ bottom
+      case 0x0b: // 1 / 0 / 1 / 1 -- descend once, jump to top
+      case 0x0d: // 1 / 1 / 0 / 1 -- ascend once, stay @ top
+      case 0x0f: // 1 / 1 / 1 / 1 -- ascend once, jump to bottom
+
+	// In all these cases, we go from start to finish once. In all
+	// cases except 0x0b and 0x0d, when we're done, we go low.
+
+	envCounter += envDirection;
+	if (envDirection > 0) {
+	  // We were ascending: did we hit 16? If so, stop & go terminal
+	  if (envCounter == 16) {
+	    envDirection = 0;
+	    // One ascending case (0x0b) goes high after; all others are low
+	    envCounter = (r[ENV_SHAPE] == 0x0b ? 0x0F : 0x00);
+	  }
+	} else if (envDirection < 0) {
+	  // We were descending: did we hit 0? If so, stop & go terminal
+	  if (envCounter == 0) {
+	    envDirection = 0;
+	    // One descending case (0x0d) goes high after; all others are low
+	    envCounter = (r[ENV_SHAPE] == 0x0d ? 0x0F : 0x00);
+	  }
+	}
+      }
+
+      // Set up the envelope timer for the next transition
+      // FIXME: can set this to 0 if envDirection is 0, but have to be careful about setup of timer again when envDirection is re-set
+      envelopeTimer += envelopeTime;
+    }
+  }
+
   // For any waveformFlipTimer that is > 0: if cpuCycleCount is larger
   // than the timer, we'll flip state. (It's a square wave!)
 
   for (uint8_t i=0; i<3; i++) {
     uint32_t cc = cycleTime[i];
 
-    if (cc == 0) {
-      waveformFlipTimer[i] = 0;
-    } else {
-      if (!waveformFlipTimer[i]) {
-	// start a cycle, if necessary
-	waveformFlipTimer[i] = cpuCycleCount + cc;
-      }
-
-      if (waveformFlipTimer[i] && waveformFlipTimer[i] <= cpuCycleCount) {
+    if (cc) {
+      if (waveformFlipTimer[i] <= cpuCycleCount) {
 	// flip when it's time to flip
 	waveformFlipTimer[i] += cc;
 	outputState[i] = !outputState[i];
       }
+    } else {
+      outputState[i] = 0;
     }
-    // If any of the square waves is on, then we want to be on.
-    
-    // r[i+8] is the amplitude control.
-    // FIXME: if r[i+8] & 0x10, then it's an envelope-specific amplitude
-    g_speaker->mixOutput(outputState[i] ? (r[i+8] & 0x0F) : 0x00);
+
+    // Figure out what output comes from this channel and send it to
+    // the speaker. The output is controlled by outputState[i] (from
+    // the square wave, above); the amplitude control line for this
+    // output (r[i+8], below) and the tone/noise selection (FIXME:
+    // currently unimplemented).
+
+    uint8_t amplitude = r[i+8] & 0xF;
+    // ... and if bit 0x10 is on, it's controlled by the envelope counter.
+    if (r[i+8] & 0x10) 
+      amplitude = envCounter;
+
+    g_speaker->mixOutput(outputState[i] ? volumeLevels[amplitude] : 0x00);
+
   }
+
 }
 

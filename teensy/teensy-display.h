@@ -34,7 +34,7 @@ class TeensyDisplay : public PhysicalDisplay {
   TeensyDisplay();
   virtual ~TeensyDisplay();
   
-  virtual void blit();
+  virtual void blit(AiieRect r);
   virtual void redraw();
 
   void clrScr();
