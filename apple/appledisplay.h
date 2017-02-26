@@ -68,6 +68,8 @@ class AppleDisplay : public VMDisplay{
 
   const unsigned char *xlateChar(uint8_t c, bool *invert);
 
+  void redraw40ColumnText();
+
  private:
   volatile bool dirty;
   AiieRect dirtyRect;

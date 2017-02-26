@@ -457,6 +457,45 @@ void AppleDisplay::Draw14HiresPixelsAt(uint16_t addr)
   }
 }
 
+void AppleDisplay::redraw40ColumnText()
+{
+  bool invert;
+
+  uint16_t start = ((*switches) & S_PAGE2) ? 0x800 : 0x400;
+  uint8_t row, col;
+  col = -1; // will force us to deinterlaceAddress()
+  
+  // Every time through this loop, we increment the column. That's going to be correct most of the time.
+  // Sometimes we'll get beyond the end (40 columns), and wind up on another line 8 rows down.
+  // Sometimes we'll get beyond the end, and we'll wind up in unused RAM.
+  // But this is an optimization (for speed) over just calling DrawCharacter() for every one.
+  for (uint16_t addr = start; addr <= start + 0x3FF; addr++,col++) {
+    if (col > 39 || row > 23) {
+      // Could be blanking space; we'll try to re-confirm...
+      deinterlaceAddress(addr, &row, &col);      
+    }
+
+    // Only draw onscreen locations
+    if (col <= 39 && row <= 23) {
+      const uint8_t *cptr = xlateChar(mmu->read(addr), &invert);
+      
+      for (uint8_t y2 = 0; y2<8; y2++) {
+	uint8_t d = *(cptr + y2);
+	for (uint8_t x2 = 0; x2 < 7; x2++) {
+	  if (d & 1) {
+	    uint8_t val = (invert ? c_black : textColor);
+	    drawPixel(val, col*7+x2, row*8+y2);
+	  } else {
+	    uint8_t val = (invert ? textColor : c_black);
+	    drawPixel(val, col*7+x2, row*8+y2);
+	  }
+	  d >>= 1;
+	}
+      }
+    }
+  }
+}
+
 void AppleDisplay::modeChange()
 {
   if ((*switches) & S_TEXT) {
@@ -470,14 +509,7 @@ void AppleDisplay::modeChange()
 	}
       }
     } else {
-      uint16_t start = ((*switches) & S_PAGE2) ? 0x800 : 0x400;
-      for (uint16_t addr = start; addr <= start + 0x3FF; addr++) {
-	uint8_t row, col;
-	deinterlaceAddress(addr, &row, &col);
-	if (col <= 39 && row <= 23) {
-	  DrawCharacterAt(mmu->read(addr), col, row);
-	}
-      }
+      redraw40ColumnText();
     }
 
     return;
