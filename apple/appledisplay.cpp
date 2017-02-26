@@ -14,12 +14,33 @@
 */
 
 
+
+#define extendDirtyRect(x,y) {    \
+    if (dirtyRect.left > x) {     \
+      dirtyRect.left = x;         \
+    }                             \
+    if (dirtyRect.right < x) {    \
+      dirtyRect.right = x;        \
+    }                             \
+    if (dirtyRect.top > y) {      \
+      dirtyRect.top = y;          \
+    }                             \
+    if (dirtyRect.bottom < y) {   \
+      dirtyRect.bottom = y;       \
+    }                             \
+}
+
 #include "globals.h"
 
 AppleDisplay::AppleDisplay(uint8_t *vb) : VMDisplay(vb)
 {
   this->switches = NULL;
   this->dirty = true;
+  this->dirtyRect.left = this->dirtyRect.top = 0;
+  this->dirtyRect.right = 279;
+  this->dirtyRect.bottom = 191;
+
+  textColor = g_displayType == m_monochrome?c_green:c_white;
 }
 
 AppleDisplay::~AppleDisplay()
@@ -221,18 +242,16 @@ void AppleDisplay::Draw80CharacterAt(uint8_t c, uint8_t x, uint8_t y, uint8_t of
   // even-align the drawing on the left side so we don't overwrite
   // every other one on the left or right side.
 
-  uint16_t fgColor = g_displayType == m_monochrome?c_green:c_white;
-
   for (uint8_t y2 = 0; y2<8; y2++) {
     uint8_t d = *(cptr + y2);
     for (uint8_t x2 = 0; x2 <= 7; x2+=2) {
       uint16_t basex = ((x * 2 + offset) * 7) & 0xFFFE; // even aligned
       bool pixelOn = ( (d & (1<<x2)) | (d & (1<<(x2+1))) );
       if (pixelOn) {
-	uint8_t val = (invert ? c_black : fgColor);
+	uint8_t val = (invert ? c_black : textColor);
 	drawPixel(val, (basex+x2)/2, y*8+y2);
       } else {
-	uint8_t val = (invert ? fgColor : c_black);
+	uint8_t val = (invert ? textColor : c_black);
 	drawPixel(val, (basex+x2)/2, y*8+y2);
       }
     }
@@ -244,18 +263,17 @@ void AppleDisplay::DrawCharacterAt(uint8_t c, uint8_t x, uint8_t y)
   bool invert;
   const uint8_t *cptr = xlateChar(c, &invert);
 
-  uint16_t fgColor = g_displayType == m_monochrome?c_green:c_white;
-
   for (uint8_t y2 = 0; y2<8; y2++) {
     uint8_t d = *(cptr + y2);
     for (uint8_t x2 = 0; x2 < 7; x2++) {
-      if (d & (1 << x2)) {
-	uint8_t val = (invert ? c_black : fgColor);
+      if (d & 1) {
+	uint8_t val = (invert ? c_black : textColor);
 	drawPixel(val, x*7+x2, y*8+y2);
       } else {
-	uint8_t val = (invert ? fgColor : c_black);
+	uint8_t val = (invert ? textColor : c_black);
 	drawPixel(val, x*7+x2, y*8+y2);
       }
+      d >>= 1;
     }
   }
 }
@@ -462,7 +480,6 @@ void AppleDisplay::modeChange()
       }
     }
 
-    dirty = true;
     return;
   }
 
@@ -525,7 +542,6 @@ void AppleDisplay::modeChange()
       }
     }
   }
-  dirty = true;
 }
 
 void AppleDisplay::Draw80LoresPixelAt(uint8_t c, uint8_t x, uint8_t y, uint8_t offset)
@@ -578,12 +594,29 @@ void AppleDisplay::DrawLoresPixelAt(uint8_t c, uint8_t x, uint8_t y)
 
 void AppleDisplay::draw2Pixels(uint16_t two4bitColors, uint16_t x, uint8_t y)
 {
-  videoBuffer[(y * 320 + x) /2] = two4bitColors;
+  if (!dirty) {
+    dirty = true;
+    dirtyRect.left = x; dirtyRect.right = x + 1;
+    dirtyRect.top = dirtyRect.bottom = y;
+  } else {
+    extendDirtyRect(x, y);
+    extendDirtyRect(x+1, y);
+  }
+
+  videoBuffer[(y * DISPLAYWIDTH + x) /2] = two4bitColors;
 }
 
-void AppleDisplay::drawPixel(uint8_t color4bit, uint16_t x, uint8_t y)
+inline void AppleDisplay::drawPixel(uint8_t color4bit, uint16_t x, uint8_t y)
 {
-  uint16_t idx = (y * 320 + x) / 2;
+  if (!dirty) {
+    dirty = true;
+    dirtyRect.left = dirtyRect.right = x;
+    dirtyRect.top = dirtyRect.bottom = y;
+  } else {
+    extendDirtyRect(x, y);
+  }
+
+  uint16_t idx = (y * DISPLAYWIDTH + x) / 2;
   if (x & 1) {
     videoBuffer[idx] = (videoBuffer[idx] & 0xF0) | color4bit;
   } else {
@@ -594,7 +627,17 @@ void AppleDisplay::drawPixel(uint8_t color4bit, uint16_t x, uint8_t y)
 void AppleDisplay::setSwitches(uint16_t *switches)
 {
   dirty = true;
+  dirtyRect.left = 0;
+  dirtyRect.right = 279;
+  dirtyRect.top = 0;
+  dirtyRect.bottom = 191;
+
   this->switches = switches;
+}
+
+AiieRect AppleDisplay::getDirtyRect()
+{
+  return dirtyRect;
 }
 
 bool AppleDisplay::needsRedraw()
@@ -604,7 +647,10 @@ bool AppleDisplay::needsRedraw()
 
 void AppleDisplay::didRedraw()
 {
-  // FIXME: there's a drawing bug somewhere that's not getting the dirty flag set right.
-  //  dirty = false;
+  dirty = false;
 }
 
+void AppleDisplay::displayTypeChanged()
+{
+  textColor = g_displayType == m_monochrome?c_green:c_white;
+}

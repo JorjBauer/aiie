@@ -43,6 +43,7 @@ class AppleDisplay : public VMDisplay{
   virtual ~AppleDisplay();
   virtual bool needsRedraw();
   virtual void didRedraw();
+  virtual AiieRect getDirtyRect();
 
   void modeChange(); // FIXME: rename 'redraw'?
   void setSwitches(uint16_t *switches);
@@ -50,6 +51,7 @@ class AppleDisplay : public VMDisplay{
   void writeLores(uint16_t address, uint8_t v);
   void writeHires(uint16_t address, uint8_t v);
 
+  void displayTypeChanged();
  private:
 
   bool deinterlaceAddress(uint16_t address, uint8_t *row, uint8_t *col);
@@ -68,8 +70,11 @@ class AppleDisplay : public VMDisplay{
 
  private:
   volatile bool dirty;
+  AiieRect dirtyRect;
 
   uint16_t *switches; // pointer to the MMU's switches
+
+  uint16_t textColor;
 };
 
 #endif
