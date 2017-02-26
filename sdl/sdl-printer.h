@@ -35,7 +35,6 @@ class SDLPrinter : public PhysicalPrinter {
   SDL_Window *window;
   SDL_Renderer *renderer;
   bool _hackyBitmap[WIDTH * HEIGHT];
-
 };
 
 #endif

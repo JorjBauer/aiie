@@ -17,19 +17,8 @@ SDLPrinter::SDLPrinter()
 
   memset((void *)_hackyBitmap, 0, sizeof(_hackyBitmap));
 
-  window = SDL_CreateWindow(WINDOWNAME,
-                            SDL_WINDOWPOS_UNDEFINED,
-                            SDL_WINDOWPOS_UNDEFINED,
-                            WIDTH, HEIGHT,
-                            SDL_WINDOW_SHOWN);
-
-  // SDL_RENDERER_SOFTWARE because, at least on my Mac, this has some
-  // serious issues with hardware accelerated drawing (flashing and
-  // crashing).
-  renderer = SDL_CreateRenderer(window, -1, 0);
-  SDL_SetRenderDrawColor(renderer, 0, 0, 255, 255);
-  SDL_RenderClear(renderer); // clear it to the selected color
-  SDL_RenderPresent(renderer); // perform the render
+  window = NULL;
+  renderer = NULL;
 }
 
 SDLPrinter::~SDLPrinter()
@@ -40,6 +29,16 @@ void SDLPrinter::update()
 {
   if (isDirty) {
     isDirty = false; // set early in case there's a race
+
+    if (!window) {
+      window = SDL_CreateWindow(WINDOWNAME,
+				SDL_WINDOWPOS_UNDEFINED,
+				SDL_WINDOWPOS_UNDEFINED,
+				WIDTH, HEIGHT,
+				SDL_WINDOW_SHOWN);
+      
+      renderer = SDL_CreateRenderer(window, -1, 0);
+    }
 
     for (int y=0; y<HEIGHT; y++) {
       for (int x=0; x<WIDTH; x++) {
