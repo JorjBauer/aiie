@@ -27,12 +27,11 @@ class AppleVM : public VM {
   const char *DiskName(uint8_t drivenum);
   void ejectDisk(uint8_t drivenum);
   void insertDisk(uint8_t drivenum, const char *filename, bool drawIt = true);
-  void batteryLevel(uint8_t zeroToOneHundred);
 
   virtual VMKeyboard *getKeyboard();
 
- protected:
   DiskII *disk6;
+ protected:
   VMKeyboard *keyboard;
   ParallelCard *parallel;
   Mockingboard *mockingboard;

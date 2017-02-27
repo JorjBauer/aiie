@@ -3,6 +3,7 @@
 #include <SPI.h>
 #include <EEPROM.h>
 #include <TimeLib.h>
+#include <TimerOne.h>
 #include "bios.h"
 #include "cpu.h"
 #include "applevm.h"
@@ -161,6 +162,10 @@ void setup()
 
   pinMode(56, OUTPUT);
   pinMode(57, OUTPUT);
+
+  Timer1.initialize(3);
+  Timer1.attachInterrupt(runCPU);
+  Timer1.start();
 }
 
 // FIXME: move these memory-related functions elsewhere...
@@ -191,6 +196,8 @@ int heapSize(){
 
 void biosInterrupt()
 {
+  Timer1.stop();
+
   // wait for the interrupt button to be released
   while (digitalRead(RESETPIN) == LOW)
     ;
@@ -216,35 +223,57 @@ void biosInterrupt()
 
   // Poll the keyboard before we start, so we can do selftest on startup
   g_keyboard->maintainKeyboard();
+
+  Timer1.start();
 }
 
 bool debugState = false;
 bool debugLCDState = false;
 
-void loop()
+void runCPU()
 {
-
   if (micros() >= nextInstructionMicros) {
     debugState = !debugState;
     digitalWrite(56, debugState);
-
+    
     g_cpu->Run(24);
-
-    // Only update the speaker and CPU when we've moved the CPU forward (or there's nothing to do).
+    
+    // These are timing-critical, for the audio and paddles.
+    // There's also a keyboard repeat in here that hopefully is 
+    // minimal overhead...
     g_speaker->beginMixing();
     ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
     g_speaker->maintainSpeaker(g_cpu->cycles);
 
+    
     // The CPU of the Apple //e ran at 1.023 MHz. Adjust when we think
     // the next instruction should run based on how long the execution
     // was ((1000/1023) * numberOfCycles) - which is about 97.8%.
-
     nextInstructionMicros = startMicros + (float)g_cpu->cycles * 0.978;
-
-    // Don't update the LCD if we had to run the CPU: if we need
-    // multiple concurrent runs to catch up, then we want to catch up.
-    return;
   }
+}
+
+void loop()
+{
+  if (digitalRead(RESETPIN) == LOW) {
+    // This is the BIOS interrupt. We immediately act on it.
+    biosInterrupt();
+  } 
+
+  ((AppleVM*)g_vm)->disk6->fillDiskBuffer();
+
+  g_keyboard->maintainKeyboard();
+
+  debugLCDState = !debugLCDState;
+  digitalWrite(57, debugLCDState);
+
+  doDebugging();
+
+
+  g_vm->vmdisplay->needsRedraw();
+  AiieRect what = g_vm->vmdisplay->getDirtyRect();
+  g_vm->vmdisplay->didRedraw();
+  g_display->blit(what);
 
   static unsigned long nextBattCheck = 0;
   static int batteryLevel = 0; // static for debugging code! When done
@@ -270,28 +299,8 @@ void loop()
       batteryLevel = 216;
 
     batteryLevel = map(batteryLevel, 205, 216, 0, 100);
-    ((AppleVM *)g_vm)->batteryLevel( batteryLevel );
+    g_display->drawBatteryStatus(batteryLevel);
   }
-
-  if (digitalRead(RESETPIN) == LOW) {
-    // This is the BIOS interrupt. We immediately act on it.
-    biosInterrupt();
-  } 
-
-  if (g_vm->vmdisplay->needsRedraw()) {
-    digitalWrite(57, HIGH);
-    AiieRect what = g_vm->vmdisplay->getDirtyRect();
-    // Clear the flag before redrawing. Not specifically required
-    // any longer now that we're not running out of an interrupt,
-    // but still safe.
-    g_vm->vmdisplay->didRedraw();
-    g_display->blit(what);
-    digitalWrite(57, LOW);
-  }
-  
-  g_keyboard->maintainKeyboard();
-
-  doDebugging();
 }
 
 void doDebugging()
@@ -380,6 +389,7 @@ void readPrefs()
 void writePrefs()
 {
   Serial.println("writing prefs");
+  Timer1.stop();
 
   prefs p;
   uint8_t *pp = (uint8_t *)&p;
@@ -390,4 +400,6 @@ void writePrefs()
   for (uint8_t i=0; i<sizeof(prefs); i++) {
     EEPROM.write(i, *pp++);
   }
+
+  Timer1.start();
 }

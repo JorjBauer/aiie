@@ -63,7 +63,7 @@ class AppleMMU : public MMU {
  private:
   AppleDisplay *display;
   uint16_t switches;
- public: // debuggign
+ public: // 'public' for debugging
   bool auxRamRead;
   bool auxRamWrite;
   bool bank1;

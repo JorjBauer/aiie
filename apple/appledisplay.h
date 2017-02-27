@@ -52,6 +52,7 @@ class AppleDisplay : public VMDisplay{
   void writeHires(uint16_t address, uint8_t v);
 
   void displayTypeChanged();
+
  private:
 
   bool deinterlaceAddress(uint16_t address, uint8_t *row, uint8_t *col);
@@ -68,7 +69,10 @@ class AppleDisplay : public VMDisplay{
 
   const unsigned char *xlateChar(uint8_t c, bool *invert);
 
-  void redraw40ColumnText();
+  void redraw40ColumnText(uint8_t startingY);
+  void redraw80ColumnText(uint8_t startingY);
+  void redrawHires();
+  void redrawLores();
 
  private:
   volatile bool dirty;

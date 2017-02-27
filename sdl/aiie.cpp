@@ -237,6 +237,9 @@ int main(int argc, char *argv[])
       printf("hit: %llu; miss: %llu; pct: %f\n", hitcount, misscount, (double)misscount / (double)(misscount + hitcount));
     }
 
+    // fill disk buffer when needed
+    ((AppleVM*)g_vm)->disk6->fillDiskBuffer();
+
     // Make this a little friendlier, and the expense of some framerate?
     // usleep(10000);
     if (g_vm->vmdisplay->needsRedraw()) {

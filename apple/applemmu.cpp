@@ -112,13 +112,21 @@ void AppleMMU::write(uint16_t address, uint8_t v)
 
   if (address >= 0x400 &&
       address <= 0x7FF) {
-    display->writeLores(address, v);
+
+    // If it's mixed mode, or if it's not HIRES mode, then force a redraw
+    if (!(switches & S_HIRES) || (switches & S_MIXED)) {
+      // Force a redraw
+      display->modeChange();
+    }
     return;
   }
 
   if (address >= 0x2000 &&
       address <= 0x5FFF) {
-    display->writeHires(address, v);
+    if (switches & S_HIRES) {
+      // Force a redraw
+      display->modeChange();
+    }
   }
 }
 
@@ -385,6 +393,8 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
   case 0xC051: // SETTEXT
     if (!(switches & S_TEXT)) {
       switches |= S_TEXT;
+      // also make sure we're *out* of HIRES mode.
+      switches &= ~S_HIRES;
       resetDisplay();
     }
     return FLOATING;

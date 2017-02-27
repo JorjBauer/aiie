@@ -23,8 +23,11 @@ AppleVM::AppleVM()
   parallel = new ParallelCard();
   ((AppleMMU *)mmu)->setSlot(1, parallel);
 
+  mockingboard = NULL;
+  /*
   mockingboard = new Mockingboard();
   ((AppleMMU *)mmu)->setSlot(4, mockingboard);
+  */
 
 #ifdef TEENSYDUINO
   teensyClock = new TeensyClock((AppleMMU *)mmu);
@@ -39,7 +42,8 @@ AppleVM::~AppleVM()
 #endif
   delete disk6;
   delete parallel;
-  delete mockingboard;
+  if (mockingboard)
+    delete mockingboard;
 }
 
 // fixme: make member vars
@@ -60,7 +64,8 @@ void AppleVM::cpuMaintenance(uint32_t cycles)
   }
 
   keyboard->maintainKeyboard(cycles);
-  mockingboard->update(cycles);
+  if (mockingboard)
+    mockingboard->update(cycles);
 }
 
 void AppleVM::Reset()
@@ -81,11 +86,6 @@ void AppleVM::Monitor()
   ((AppleMMU *)mmu)->readSwitches(0xC054); // make sure we're in page 1                                                      
   ((AppleMMU *)mmu)->readSwitches(0xC056); // and that hires is off                                                          
   ((AppleMMU *)mmu)->readSwitches(0xC051); // and text mode is on                                                            
-}
-
-void AppleVM::batteryLevel(uint8_t zeroToOneHundred)
-{
-  g_display->drawBatteryStatus(zeroToOneHundred);
 }
 
 const char *AppleVM::DiskName(uint8_t drivenum)

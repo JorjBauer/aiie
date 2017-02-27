@@ -25,15 +25,18 @@ DiskII::DiskII(AppleMMU *mmu)
 
   curTrack = 0;
   trackDirty = false;
+  trackToRead = -1;
 
   writeMode = false;
   writeProt = false; // FIXME: expose an interface to this
-  writeLatch = 0x00;
+  readWriteLatch = 0x00;
 
   disk[0] = disk[1] = -1;
   indicatorIsOn[0] = indicatorIsOn[1] = 0;
   selectedDisk = 0;
   diskType[0] = diskType[1] = dosDisk;
+
+  indicatorNeedsDrawing = true; // set to true whenever the display needs to redraw...
 }
 
 DiskII::~DiskII()
@@ -49,7 +52,7 @@ void DiskII::Reset()
 
   writeMode = false;
   writeProt = false; // FIXME: expose an interface to this
-  writeLatch = 0x00;
+  readWriteLatch = 0x00;
 
   ejectDisk(0);
   ejectDisk(1);
@@ -71,12 +74,12 @@ uint8_t DiskII::readSwitches(uint8_t s)
 
   case 0x08: // drive off
     indicatorIsOn[selectedDisk] = 99;
-    g_display->drawDriveStatus(selectedDisk, false);
+    indicatorNeedsDrawing = true;
     flushTrack();
     break;
   case 0x09: // drive on
     indicatorIsOn[selectedDisk] = 100;
-    g_display->drawDriveStatus(selectedDisk, true);
+    indicatorNeedsDrawing = true;
     break;
 
   case 0x0A: // select drive 1
@@ -87,7 +90,7 @@ uint8_t DiskII::readSwitches(uint8_t s)
     break;
 
   case 0x0C: // shift one read or write byte
-    writeLatch = readOrWriteByte();
+    readWriteLatch = readOrWriteByte();
     break;
 
   case 0x0D: // load data register (latch)
@@ -95,9 +98,9 @@ uint8_t DiskII::readSwitches(uint8_t s)
     // UTA2E, p. 9-14
     if (!writeMode && indicatorIsOn[selectedDisk]) {
       if (isWriteProtected())
-	writeLatch |= 0x80;
+	readWriteLatch |= 0x80;
       else
-	writeLatch &= 0x7F;
+	readWriteLatch &= 0x7F;
     }
     break;
 
@@ -120,16 +123,16 @@ uint8_t DiskII::readSwitches(uint8_t s)
   if (!indicatorIsOn[selectedDisk]) {
     //    printf("Unexpected read while disk isn't on?\n");
     indicatorIsOn[selectedDisk] = 100;
-    g_display->drawDriveStatus(selectedDisk, true);
+    indicatorNeedsDrawing = true;
   }
   if (indicatorIsOn[selectedDisk] > 0 && indicatorIsOn[selectedDisk] < 100) {
     indicatorIsOn[selectedDisk]--;
     // slowly spin it down...
   }
 
-  // Any even address read returns the writeLatch (UTA2E Table 9.1,
+  // Any even address read returns the readWriteLatch (UTA2E Table 9.1,
   // p. 9-12, note 2)
-  return (s & 1) ? FLOATING : writeLatch;
+  return (s & 1) ? FLOATING : readWriteLatch;
 }
 
 void DiskII::writeSwitches(uint8_t s, uint8_t v)
@@ -176,7 +179,7 @@ void DiskII::writeSwitches(uint8_t s, uint8_t v)
 
   // All writes update the latch
   if (writeMode) {
-    writeLatch = v;
+    readWriteLatch = v;
   }
 }
 
@@ -302,7 +305,7 @@ void DiskII::select(int8_t which)
 
   if (which != selectedDisk) {
     indicatorIsOn[selectedDisk] = 0;
-    g_display->drawDriveStatus(selectedDisk, false);
+    indicatorNeedsDrawing = true;
 
     flushTrack(); // in case it's dirty: flush before changing drives
     trackBuffer->clear();
@@ -322,8 +325,9 @@ uint8_t DiskII::readOrWriteByte()
   if (writeMode && !writeProt) {
 
     if (!trackBuffer->hasData()) {
-      // printf("some sort of error happened - trying to write to uninitialized track?\n");
-      return 0;
+      // Error: writing to empty track buffer? That's a raw write w/o
+      // knowing where we are on the disk.
+      return GAP;
     }
 
     trackDirty = true;
@@ -350,54 +354,90 @@ uint8_t DiskII::readOrWriteByte()
     // ... so if we get up to the full 1024 we've allocated, there's
     // something suspicious happening.
 
-    if (writeLatch < 0x96) {
+    if (readWriteLatch < 0x96) {
       // Can't write a de-nibblized byte...
       g_display->debugMsg("DII: bad write");
       return 0;
     }
 
-    trackBuffer->replaceByte(writeLatch);
+    trackBuffer->replaceByte(readWriteLatch);
 
     return 0;
   }
 
-  // If we're being asked to read a byte from the current track,
-  // that's okay - even if it's dirty. As long as we don't change
-  // tracks.
+  // trackToRead is -1 when we have a filled buffer, or we have no data at all.
+  // trackToRead is != -1 when we're flushing our buffer and re-filling it.
+  // 
+  // Don't fill it right here, b/c we don't want to bog down the CPU
+  // thread/ISR.
+  if ((trackToRead != -1) || !trackBuffer->hasData()) {
+    // Need to read in a track of data and nibblize it. We'll return 0xFF
+    // until that completes.
+    trackDirty = false; // effectively flush; forget that we had any data :)
 
-  if (!trackBuffer->hasData()) {
-    trackDirty = false;
-    trackBuffer->clear();
+    // This might update trackToRead with a different track than the
+    // one we're reading. When we finish the read, we'll need to check
+    // to be sure that we're still trying to read the same track that
+    // we started with.
+    trackToRead = curTrack;
 
-    if (diskType[selectedDisk] == nibDisk) {
-      // Read one nibblized sector at a time and jam it in trackBuf
-      // directly.  We don't read the whole track at once only because
-      // of RAM constraints on the Teensy. There's no reason we
-      // couldn't, though, if RAM weren't at a premium.
-
-      for (int i=0; i<16; i++) {
-	g_filemanager->seekBlock(disk[selectedDisk], curTrack * 16 + i, diskType[selectedDisk] == nibDisk);
-	if (!g_filemanager->readBlock(disk[selectedDisk], rawTrackBuffer, diskType[selectedDisk] == nibDisk)) {
-	  // FIXME: error handling?
-	  return 0;
-	}
-	trackBuffer->addBytes(rawTrackBuffer, 416);
-      }
-    } else {
-      // It's a .dsk / .po disk image. Read the whole track in to rawTrackBuffer and nibblize it.
-	g_filemanager->seekBlock(disk[selectedDisk], curTrack * 16, diskType[selectedDisk] == nibDisk);
-	if (!g_filemanager->readTrack(disk[selectedDisk], rawTrackBuffer, diskType[selectedDisk] == nibDisk)) {
-	  // FIXME: error handling?
-	  return 0;
-	}
-
-	nibblizeTrack(trackBuffer, rawTrackBuffer, diskType[selectedDisk], curTrack);
-    }
-
-    trackBuffer->setPeekCursor(0);
+    // While we're waiting for the sector to come around, we'll return
+    // GAP bytes.
+    return GAP;
   }
 
   return trackBuffer->peekNext();
+}
+
+void DiskII::fillDiskBuffer()
+{
+  // No work to do if trackToRead is -1
+  if (trackToRead == -1)
+    return;
+
+  int8_t trackWeAreReading = trackToRead;
+  int8_t diskWeAreUsing = selectedDisk;
+
+  trackBuffer->clear();
+  trackBuffer->setPeekCursor(0);
+
+  if (diskType[diskWeAreUsing] == nibDisk) {
+    // Read one nibblized sector at a time and jam it in trackBuf
+    // directly.  We don't read the whole track at once only because
+    // of RAM constraints on the Teensy. There's no reason we
+    // couldn't, though, if RAM weren't at a premium.
+    
+    for (int i=0; i<16; i++) {
+      g_filemanager->seekBlock(disk[diskWeAreUsing], trackWeAreReading * 16 + i, diskType[diskWeAreUsing] == nibDisk);
+      if (!g_filemanager->readBlock(disk[diskWeAreUsing], rawTrackBuffer, diskType[diskWeAreUsing] == nibDisk)) {
+	// FIXME: error handling?
+	trackToRead = -1;
+	return;
+      }
+      trackBuffer->addBytes(rawTrackBuffer, 416);
+    }
+  } else {
+    // It's a .dsk / .po disk image. Read the whole track in to
+    // rawTrackBuffer and nibblize it.
+    g_filemanager->seekBlock(disk[diskWeAreUsing], trackWeAreReading * 16, diskType[diskWeAreUsing] == nibDisk);
+    if (!g_filemanager->readTrack(disk[diskWeAreUsing], rawTrackBuffer, diskType[diskWeAreUsing] == nibDisk)) {
+      // FIXME: error handling?
+      trackToRead = -1;
+      return;
+    }
+
+    nibblizeTrack(trackBuffer, rawTrackBuffer, diskType[diskWeAreUsing], curTrack);
+  }
+
+  // Make sure we're still intending to read the track we just read
+  if (trackWeAreReading != trackToRead ||
+      diskWeAreUsing != selectedDisk) {
+    // Abort and let it start over next time
+    return;
+  }
+
+  // Buffer is full, we're done - reset trackToRead and that will let the reads reach the CPU!
+  trackToRead = -1;
 }
 
 const char *DiskII::DiskName(int8_t num)

@@ -473,6 +473,7 @@ void TeensyDisplay::drawDriveDoor(uint8_t which, bool isOpen)
 
   uint16_t xoff = 55;
   uint16_t yoff = 216;
+  return; // debugging: disabling this for testing
 
   // location for right drive
 
@@ -506,12 +507,13 @@ void TeensyDisplay::drawDriveStatus(uint8_t which, bool isRunning)
   // and right drive                                                            
   if (which == 1)
     xoff += 135;
-
+#if 0
   for (int y=0; y<2; y++) {
     for (int x=0; x<6; x++) {
       drawPixel(x + xoff, y + yoff, isRunning ? 0xF800 : 0x8AA9);
     }
   }
+#endif
 }
 
 void TeensyDisplay::drawBatteryStatus(uint8_t percent)

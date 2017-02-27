@@ -31,6 +31,8 @@ class DiskII : public Slot {
   const char *DiskName(int8_t num);
   void flushTrack();
 
+  void fillDiskBuffer(); // called from main loop
+
  private:
   void step(uint8_t phase);
 
@@ -46,7 +48,7 @@ class DiskII : public Slot {
  private:
   uint8_t curTrack;
   bool trackDirty; // does this track need flushing to disk?
-  uint8_t writeLatch;
+  uint8_t readWriteLatch;
   RingBuffer *trackBuffer; // nibblized data
   uint8_t *rawTrackBuffer; // not nibblized data
   
@@ -55,10 +57,12 @@ class DiskII : public Slot {
   AppleMMU *mmu;
 
   int8_t disk[2];
-  uint8_t indicatorIsOn[2];
+  volatile uint8_t indicatorIsOn[2];
   uint8_t diskType[2];
 
-  int8_t selectedDisk;
+  volatile int8_t selectedDisk;
+  volatile bool indicatorNeedsDrawing;
+  volatile int8_t trackToRead; // -1 when we're idle; not -1 when we need to read a track.
 };
 
 #endif

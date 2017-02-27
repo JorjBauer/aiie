@@ -102,84 +102,6 @@ bool AppleDisplay::deinterlaceHiresAddress(uint16_t address, uint8_t *row, uint1
   return true;
 }
 
-
-void AppleDisplay::writeLores(uint16_t address, uint8_t v)
-{
-  if (address >= 0x800 && !((*switches) & S_80COL)) {
-    if (!((*switches) & S_PAGE2)) {
-      // writing to page2 text/lores, but that's not displayed right now, so nothing to do
-      return;
-    }
-  } 
-
-  uint8_t row, col;
-  deinterlaceAddress(address, &row, &col);
-
-  if (col <= 39) {
-    if ((*switches) & S_TEXT ||
-	(((*switches) & S_MIXED) && row >= 20)) {
-      if ((*switches) & S_80COL) {
-	Draw80CharacterAt(v, col, row, ((*switches) & S_PAGE2) ? 0 : 1);
-      } else {
-	DrawCharacterAt(v, col, row);
-      }
-    }
-  }
-
-  if (!((*switches) & S_TEXT) &&
-      !((*switches) & S_HIRES)) {
-    if (col <= 39) {
-      if (row < 20 ||
-	  (! ((*switches) & S_MIXED))) {
-	// low-res graphics mode. Each character has two 4-bit 
-	// values in it: first half is the "top" pixel, and second "bottom".
-	if (((*switches) & S_80COL) && ((*switches) & S_DHIRES)) {
-	  Draw80LoresPixelAt(v, col, row, ((*switches) & S_PAGE2) ? 0 : 1);
-	} else {
-	  DrawLoresPixelAt(v, col, row);
-	}
-      }
-    }
-  }
-  dirty = true;
-}
-
-void AppleDisplay::writeHires(uint16_t address, uint8_t v)
-{
-  if ((*switches) & S_HIRES) {
-    if ((*switches) & S_DHIRES) {
-      // Double hires: make sure we're drawing to the page that's visible.
-      // If S_80STORE is on, then it's $2000 (and S_PAGE2 controls main/aux bank r/w).
-      // If S_80STORE is off, then it's $4000 (and RAMRD/RAMWT are used).
-
-      if (((*switches) & S_80STORE) && address >= 0x4000 && address <= 0x5FFF)
-	return;
-      if ( !((*switches) & S_80STORE) && address >= 0x2000 && address <= 0x3FFF)
-	return;
-
-      Draw14DoubleHiresPixelsAt(address);
-      dirty = true;
-
-      return;
-    }
-
-    // If it's a write to single hires but the 80store byte is on, then what do we do?
-    if ((*switches) & S_80STORE) {
-      // FIXME
-      return;
-    }
-
-    // Make sure we're writing to the page that's visible before we draw
-    if (address >= 0x2000 && address <= 0x3FFF && ((*switches) & S_PAGE2)) 
-      return;
-    if (address >= 0x4000 && address <= 0x5FFF && !((*switches) & S_PAGE2)) 
-      return;
-    
-    Draw14HiresPixelsAt(address & 0xFFFE);
-    dirty = true;
-  }
-}
-
 // return a pointer to the right glyph, and set *invert appropriately
 const unsigned char *AppleDisplay::xlateChar(uint8_t c, bool *invert)
 {
@@ -225,60 +147,7 @@ const unsigned char *AppleDisplay::xlateChar(uint8_t c, bool *invert)
   /* NOTREACHED */
 }
   
-void AppleDisplay::Draw80CharacterAt(uint8_t c, uint8_t x, uint8_t y, uint8_t offset)
-{
-  bool invert;
-  const uint8_t *cptr = xlateChar(c, &invert);
-
-  // Even characters are in bank 0 ram. Odd characters are in bank 1 ram.
-  // Technically, this would need 560 columns to work correctly - and I 
-  // don't have that, so it's going to be a bit wonky. 
-  // 
-  // First pass: draw two pixels on top of each other, clearing only
-  // if both are black. This would be blocky but probably passable if
-  // it weren't for the fact that characters are 7 pixels wide, so we
-  // wind up sharing a half-pixel between two characters. So we'll
-  // render these as 3-pixel-wide characters and make sure they always
-  // even-align the drawing on the left side so we don't overwrite
-  // every other one on the left or right side.
-
-  for (uint8_t y2 = 0; y2<8; y2++) {
-    uint8_t d = *(cptr + y2);
-    for (uint8_t x2 = 0; x2 <= 7; x2+=2) {
-      uint16_t basex = ((x * 2 + offset) * 7) & 0xFFFE; // even aligned
-      bool pixelOn = ( (d & (1<<x2)) | (d & (1<<(x2+1))) );
-      if (pixelOn) {
-	uint8_t val = (invert ? c_black : textColor);
-	drawPixel(val, (basex+x2)/2, y*8+y2);
-      } else {
-	uint8_t val = (invert ? textColor : c_black);
-	drawPixel(val, (basex+x2)/2, y*8+y2);
-      }
-    }
-  }
-}
-
-void AppleDisplay::DrawCharacterAt(uint8_t c, uint8_t x, uint8_t y)
-{
-  bool invert;
-  const uint8_t *cptr = xlateChar(c, &invert);
-
-  for (uint8_t y2 = 0; y2<8; y2++) {
-    uint8_t d = *(cptr + y2);
-    for (uint8_t x2 = 0; x2 < 7; x2++) {
-      if (d & 1) {
-	uint8_t val = (invert ? c_black : textColor);
-	drawPixel(val, x*7+x2, y*8+y2);
-      } else {
-	uint8_t val = (invert ? textColor : c_black);
-	drawPixel(val, x*7+x2, y*8+y2);
-      }
-      d >>= 1;
-    }
-  }
-}
-
-void AppleDisplay::Draw14DoubleHiresPixelsAt(uint16_t addr)
+inline void AppleDisplay::Draw14DoubleHiresPixelsAt(uint16_t addr)
 {
   // We will consult 4 bytes (2 in main, 2 in aux) for any single-byte
   // write. Align to the first byte in that series based on what
@@ -333,7 +202,7 @@ void AppleDisplay::Draw14DoubleHiresPixelsAt(uint16_t addr)
 // because between two bytes there is a shared bit.
 // FIXME: what happens when the high bit of the left doesn't match the right? Which high bit does 
 // the overlap bit get?
-void AppleDisplay::Draw14HiresPixelsAt(uint16_t addr)
+inline void AppleDisplay::Draw14HiresPixelsAt(uint16_t addr)
 {
   uint8_t row;
   uint16_t col;
@@ -457,7 +326,80 @@ void AppleDisplay::Draw14HiresPixelsAt(uint16_t addr)
   }
 }
 
-void AppleDisplay::redraw40ColumnText()
+void AppleDisplay::redraw80ColumnText(uint8_t startingY)
+{
+  uint8_t row, col;
+  col = -1; // will force us to deinterlaceAddress()
+  bool invert;
+  const uint8_t *cptr;
+
+  // FIXME: is there ever a case for 0x800, like in redraw40ColumnText?
+  uint16_t start = 0x400;
+
+  // Every time through this loop, we increment the column. That's going to be correct most of the time.
+  // Sometimes we'll get beyond the end (40 columns), and wind up on another line 8 rows down.
+  // Sometimes we'll get beyond the end, and we'll wind up in unused RAM.
+  // But this is an optimization (for speed) over just calling DrawCharacter() for every one.
+  for (uint16_t addr = start; addr <= start + 0x3FF; addr++,col++) {
+    if (col > 39 || row > 23) {
+      // Could be blanking space; we'll try to re-confirm...
+      deinterlaceAddress(addr, &row, &col);      
+    }
+
+    // Only draw onscreen locations
+    if (row >= startingY && col <= 39 && row <= 23) {
+      // Even characters are in bank 0 ram. Odd characters are in bank
+      // 1 ram.  Technically, this would need 560 columns to work
+      // correctly - and I don't have that, so it's going to be a bit
+      // wonky.
+      // 
+      // First pass: draw two pixels on top of each other, clearing
+      // only if both are black. This would be blocky but probably
+      // passable if it weren't for the fact that characters are 7
+      // pixels wide, so we wind up sharing a half-pixel between two
+      // characters. So we'll render these as 3-pixel-wide characters
+      // and make sure they always even-align the drawing on the left
+      // side so we don't overwrite every other one on the left or
+      // right side.
+
+      // Draw the first of two characters
+      cptr = xlateChar(mmu->readDirect(addr, 1), &invert);
+      for (uint8_t y2 = 0; y2<8; y2++) {
+	uint8_t d = *(cptr + y2);
+	for (uint8_t x2 = 0; x2 <= 7; x2+=2) {
+	  uint16_t basex = ((col * 2) * 7) & 0xFFFE; // even aligned
+	  bool pixelOn = ( (d & (1<<x2)) | (d & (1<<(x2+1))) );
+	  if (pixelOn) {
+	    uint8_t val = (invert ? c_black : textColor);
+	    drawPixel(val, (basex+x2)/2, row*8+y2);
+	  } else {
+	    uint8_t val = (invert ? textColor : c_black);
+	    drawPixel(val, (basex+x2)/2, row*8+y2);
+	  }
+	}
+      }
+
+      // Draw the second of two characters
+      cptr = xlateChar(mmu->readDirect(addr, 0), &invert);
+      for (uint8_t y2 = 0; y2<8; y2++) {
+	uint8_t d = *(cptr + y2);
+	for (uint8_t x2 = 0; x2 <= 7; x2+=2) {
+	  uint16_t basex = ((col * 2 + 1) * 7) & 0xFFFE; // even aligned -- +1 for the second character
+	  bool pixelOn = ( (d & (1<<x2)) | (d & (1<<(x2+1))) );
+	  if (pixelOn) {
+	    uint8_t val = (invert ? c_black : textColor);
+	    drawPixel(val, (basex+x2)/2, row*8+y2);
+	  } else {
+	    uint8_t val = (invert ? textColor : c_black);
+	    drawPixel(val, (basex+x2)/2, row*8+y2);
+	  }
+	}
+      }
+    }
+  }
+}
+
+void AppleDisplay::redraw40ColumnText(uint8_t startingY)
 {
   bool invert;
 
@@ -476,7 +418,7 @@ void AppleDisplay::redraw40ColumnText()
     }
 
     // Only draw onscreen locations
-    if (col <= 39 && row <= 23) {
+    if (row >= startingY && col <= 39 && row <= 23) {
       const uint8_t *cptr = xlateChar(mmu->read(addr), &invert);
       
       for (uint8_t y2 = 0; y2<8; y2++) {
@@ -496,84 +438,54 @@ void AppleDisplay::redraw40ColumnText()
   }
 }
 
-void AppleDisplay::modeChange()
+void AppleDisplay::redrawHires()
 {
-  if ((*switches) & S_TEXT) {
-    if ((*switches) & S_80COL) {
-      for (uint16_t addr = 0x400; addr <= 0x400 + 0x3FF; addr++) {
-	uint8_t row, col;
-	deinterlaceAddress(addr, &row, &col);
-	if (col <= 39 && row <= 23) {
-	  Draw80CharacterAt(mmu->readDirect(addr, 0), col, row, 1);
-	  Draw80CharacterAt(mmu->readDirect(addr, 1), col, row, 0);
-	}
-      }
-    } else {
-      redraw40ColumnText();
-    }
-
-    return;
+  uint16_t start = ((*switches) & S_PAGE2) ? 0x4000 : 0x2000;
+  if ((*switches) & S_80STORE) {
+    // Apple IIe, technical nodes #3: 80STORE must be OFF to display Page 2
+    start = 0x2000;
   }
 
-  // Not text mode - what mode are we in?
-  if ((*switches) & S_HIRES) {
-    // Hires
-    // FIXME: make this draw a row efficiently
-    // FIXME: can make more efficient by checking S_MIXED for lower bound
-    uint16_t start = ((*switches) & S_PAGE2) ? 0x4000 : 0x2000;
-    if ((*switches) & S_80STORE) {
-      // Apple IIe, technical nodes #3: 80STORE must be OFF to display Page 2
-      start = 0x2000;
+  // FIXME: check MIXED & don't redraw the lower area if it's set
+  for (uint16_t addr = start; addr <= start + 0x1FFF; addr+=2) {
+    if ((*switches) & S_DHIRES) {
+      // FIXME: inline & optimize
+      Draw14DoubleHiresPixelsAt(addr);
+    } else {
+      // FIXME: inline & optimize
+      Draw14HiresPixelsAt(addr);
     }
+  }
+}
 
-    for (uint16_t addr = start; addr <= start + 0x1FFF; addr+=2) {
-      if ((*switches) & S_DHIRES) {
-	Draw14DoubleHiresPixelsAt(addr);
-      } else {
-	Draw14HiresPixelsAt(addr);
+void AppleDisplay::redrawLores()
+{
+  // FIXME: can make more efficient by checking S_MIXED for lower bound
+  
+  if (((*switches) & S_80COL) && ((*switches) & S_DHIRES)) {
+    for (uint16_t addr = 0x400; addr <= 0x400 + 0x3ff; addr++) {
+      uint8_t row, col;
+      deinterlaceAddress(addr, &row, &col);
+      if (col <= 39 && row <= 23) {
+	Draw80LoresPixelAt(mmu->readDirect(addr, 0), col, row, 1);
+	Draw80LoresPixelAt(mmu->readDirect(addr, 1), col, row, 0);
       }
     }
   } else {
-    // Lores
-    // FIXME: can make more efficient by checking S_MIXED for lower bound
-
-    if (((*switches) & S_80COL) && ((*switches) & S_DHIRES)) {
-      for (uint16_t addr = 0x400; addr <= 0x400 + 0x3ff; addr++) {
-	uint8_t row, col;
-	deinterlaceAddress(addr, &row, &col);
-	if (col <= 39 && row <= 23) {
-	  Draw80LoresPixelAt(mmu->readDirect(addr, 0), col, row, 1);
-	  Draw80LoresPixelAt(mmu->readDirect(addr, 1), col, row, 0);
-	}
-      }
-    } else {
-      uint16_t start = ((*switches) & S_PAGE2) ? 0x800 : 0x400;
-      for (uint16_t addr = start; addr <= start + 0x3FF; addr++) {
-	uint8_t row, col;
-	deinterlaceAddress(addr, &row, &col);
-	if (col <= 39 && row <= 23) {
-	  DrawLoresPixelAt(mmu->read(addr), col, row);
-	}
-      }
-    }
-  }
-
-  if ((*switches) & S_MIXED) {
-    // Text at the bottom of the screen...
-    // FIXME: deal with 80-char properly
     uint16_t start = ((*switches) & S_PAGE2) ? 0x800 : 0x400;
     for (uint16_t addr = start; addr <= start + 0x3FF; addr++) {
       uint8_t row, col;
       deinterlaceAddress(addr, &row, &col);
-      if (col <= 39 && row >= 20 && row <= 23) {
-	if ((*switches) & S_80COL) {
-	  Draw80CharacterAt(mmu->read(addr), col, row, ((*switches) & S_PAGE2) ? 0 : 1);
-	} else {
-	  DrawCharacterAt(mmu->read(addr), col, row);
-	}
+      if (col <= 39 && row <= 23) {
+	DrawLoresPixelAt(mmu->read(addr), col, row);
       }
     }
   }
+}
+
+void AppleDisplay::modeChange()
+{
+  dirty = true;
 }
 
 void AppleDisplay::Draw80LoresPixelAt(uint8_t c, uint8_t x, uint8_t y, uint8_t offset)
@@ -626,28 +538,11 @@ void AppleDisplay::DrawLoresPixelAt(uint8_t c, uint8_t x, uint8_t y)
 
 void AppleDisplay::draw2Pixels(uint16_t two4bitColors, uint16_t x, uint8_t y)
 {
-  if (!dirty) {
-    dirty = true;
-    dirtyRect.left = x; dirtyRect.right = x + 1;
-    dirtyRect.top = dirtyRect.bottom = y;
-  } else {
-    extendDirtyRect(x, y);
-    extendDirtyRect(x+1, y);
-  }
-
   videoBuffer[(y * DISPLAYWIDTH + x) /2] = two4bitColors;
 }
 
 inline void AppleDisplay::drawPixel(uint8_t color4bit, uint16_t x, uint8_t y)
 {
-  if (!dirty) {
-    dirty = true;
-    dirtyRect.left = dirtyRect.right = x;
-    dirtyRect.top = dirtyRect.bottom = y;
-  } else {
-    extendDirtyRect(x, y);
-  }
-
   uint16_t idx = (y * DISPLAYWIDTH + x) / 2;
   if (x & 1) {
     videoBuffer[idx] = (videoBuffer[idx] & 0xF0) | color4bit;
@@ -674,6 +569,36 @@ AiieRect AppleDisplay::getDirtyRect()
 
 bool AppleDisplay::needsRedraw()
 {
+  if (dirty) {
+    // Figure out what graphics mode we're in and redraw it in its entirety.
+
+    if ((*switches) & S_TEXT) {
+      if ((*switches) & S_80COL) {
+	redraw80ColumnText(0);
+      } else {
+	redraw40ColumnText(0);
+      }
+      
+      return true;
+    }
+
+    // Not text mode - what mode are we in?
+    if ((*switches) & S_HIRES) {
+      redrawHires();
+    } else {
+      redrawLores();
+    }
+
+    // Mixed graphics modes: draw text @ bottom
+    if ((*switches) & S_MIXED) {
+      if ((*switches) & S_80COL) {
+	redraw80ColumnText(20);
+      } else {
+	redraw40ColumnText(20);
+      }
+    }
+  }
+
   return dirty;
 }
 
