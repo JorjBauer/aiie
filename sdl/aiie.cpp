@@ -232,6 +232,7 @@ int main(int argc, char *argv[])
   }
 
   while (1) {
+    static uint32_t usleepcycles = 16384; // step-down for display drawing. FIXME: this constant works well for *my* machine. Dynamically generate?
     static uint32_t ctr = 0;
     if (++ctr == 0) {
       printf("hit: %llu; miss: %llu; pct: %f\n", hitcount, misscount, (double)misscount / (double)(misscount + hitcount));
@@ -254,20 +255,32 @@ int main(int argc, char *argv[])
     g_keyboard->maintainKeyboard();
     g_display->drawBatteryStatus(100);
 
-#ifdef SHOWFPS
+    // calculate FPS & dynamically step up/down as necessary
     static time_t startAt = time(NULL);
     static uint32_t loopCount = 0;
     loopCount++;
-
-    time_t lenSecs = time(NULL) - startAt;
-    if (lenSecs >= 10) {
+    uint32_t lenSecs = time(NULL) - startAt;
+    if (lenSecs >= 5) {
+      float fps = loopCount / lenSecs;
+#ifdef SHOWFPS
       char buf[25];
-      sprintf(buf, "%lu FPS", loopCount / lenSecs);
+      sprintf(buf, "%f FPS", fps);
       g_display->debugMsg(buf);
-      startAt = time(NULL);
-      loopCount = 0;
-    }
 #endif
+      if (fps > 60) {
+	usleepcycles *= 2;
+      } else if (fps < 40) {
+	usleepcycles /= 2;
+      }
+
+      // reset the counter & we'll adjust again in 5 seconds
+      loopCount = 0;
+      startAt = time(NULL);
+    }
+    if (usleepcycles >= 2) {
+      usleep(usleepcycles);
+    }
+
 #ifdef SHOWPC
     {
       char buf[25];
