@@ -281,7 +281,7 @@ void loop()
 			       // in the appropriate block below
   if (millis() >= nextBattCheck) {
     // FIXME: what about rollover?
-    nextBattCheck = millis() + 1 * 1000; // once a minute? maybe? FIXME: Right now 1/sec
+    nextBattCheck = millis() + 30 * 1000; // check every 30 seconds
 
     // FIXME: scale appropriately.
     batteryLevel = analogRead(BATTERYPIN);

@@ -25,7 +25,7 @@ class SDLDisplay : public PhysicalDisplay {
   virtual void redraw();
 
   virtual void drawDriveDoor(uint8_t which, bool isOpen);
-  virtual void drawDriveStatus(uint8_t which, bool isRunning);
+  virtual void setDriveIndicator(uint8_t which, bool isRunning);
   virtual void drawBatteryStatus(uint8_t percent);
 
   void drawPixel(uint16_t x, uint8_t y, uint16_t color);
@@ -37,6 +37,9 @@ class SDLDisplay : public PhysicalDisplay {
  private:
   SDL_Window *screen;
   SDL_Renderer *renderer;
+
+  bool driveIndicator[2];
+  bool driveIndicatorDirty;
 };
 
 #endif

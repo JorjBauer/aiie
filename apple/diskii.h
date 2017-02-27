@@ -61,7 +61,6 @@ class DiskII : public Slot {
   uint8_t diskType[2];
 
   volatile int8_t selectedDisk;
-  volatile bool indicatorNeedsDrawing;
   volatile int8_t trackToRead; // -1 when we're idle; not -1 when we need to read a track.
 };
 

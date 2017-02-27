@@ -35,8 +35,6 @@ DiskII::DiskII(AppleMMU *mmu)
   indicatorIsOn[0] = indicatorIsOn[1] = 0;
   selectedDisk = 0;
   diskType[0] = diskType[1] = dosDisk;
-
-  indicatorNeedsDrawing = true; // set to true whenever the display needs to redraw...
 }
 
 DiskII::~DiskII()
@@ -74,12 +72,12 @@ uint8_t DiskII::readSwitches(uint8_t s)
 
   case 0x08: // drive off
     indicatorIsOn[selectedDisk] = 99;
-    indicatorNeedsDrawing = true;
+    g_display->setDriveIndicator(selectedDisk, false); // FIXME: after a spell...
     flushTrack();
     break;
   case 0x09: // drive on
     indicatorIsOn[selectedDisk] = 100;
-    indicatorNeedsDrawing = true;
+    g_display->setDriveIndicator(selectedDisk, true);
     break;
 
   case 0x0A: // select drive 1
@@ -123,11 +121,14 @@ uint8_t DiskII::readSwitches(uint8_t s)
   if (!indicatorIsOn[selectedDisk]) {
     //    printf("Unexpected read while disk isn't on?\n");
     indicatorIsOn[selectedDisk] = 100;
-    indicatorNeedsDrawing = true;
+    g_display->setDriveIndicator(selectedDisk, true);
   }
   if (indicatorIsOn[selectedDisk] > 0 && indicatorIsOn[selectedDisk] < 100) {
-    indicatorIsOn[selectedDisk]--;
     // slowly spin it down...
+    if (--indicatorIsOn[selectedDisk] == 0) {
+      g_display->setDriveIndicator(selectedDisk, false);
+    }
+
   }
 
   // Any even address read returns the readWriteLatch (UTA2E Table 9.1,
@@ -305,7 +306,7 @@ void DiskII::select(int8_t which)
 
   if (which != selectedDisk) {
     indicatorIsOn[selectedDisk] = 0;
-    indicatorNeedsDrawing = true;
+    g_display->setDriveIndicator(selectedDisk, false);
 
     flushTrack(); // in case it's dirty: flush before changing drives
     trackBuffer->clear();

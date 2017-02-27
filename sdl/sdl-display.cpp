@@ -67,25 +67,10 @@ void SDLDisplay::redraw()
   }
 }
 
-void SDLDisplay::drawDriveStatus(uint8_t which, bool isRunning)
+void SDLDisplay::setDriveIndicator(uint8_t which, bool isRunning)
 {
-  // FIXME: this is a draw from another thread. Can't do that with SDL.
-  return;
-
-  // location of status indicator for left drive
-  uint16_t xoff = 125;
-  uint16_t yoff = 213;
-
-  // and right drive
-  if (which == 1)
-    xoff += 135;
-
-  for (int y=0; y<1; y++) {
-    for (int x=0; x<6; x++) {
-      drawPixel(x + xoff, y + yoff, isRunning ? 0xF800 : 0x8AA9);
-    }
-  }
-
+  driveIndicator[which] = isRunning;
+  driveIndicatorDirty = true;
 }
 
 void SDLDisplay::drawDriveDoor(uint8_t which, bool isOpen)
@@ -175,6 +160,20 @@ void SDLDisplay::blit(AiieRect r)
 
   if (overlayMessage[0]) {
     drawString(M_SELECTDISABLED, 1, 240 - 16 - 12, overlayMessage);
+  }
+
+  if (driveIndicatorDirty) {
+    // location of status indicator for left drive
+    uint16_t xoff = 125;
+    uint16_t yoff = 213;
+    for (int which=0; which<2; which++,xoff+=135) { // +135 for right drive
+      for (int y=0; y<1; y++) {
+	for (int x=0; x<6; x++) {
+	  drawPixel(x + xoff, y + yoff, driveIndicator[which] ? 0xF800 : 0x8AA9);
+	}
+      }
+    }
+    driveIndicatorDirty = false;
   }
 
   SDL_RenderPresent(renderer);

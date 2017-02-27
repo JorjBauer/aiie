@@ -14,7 +14,7 @@ class PhysicalDisplay {
   virtual void blit(AiieRect r) = 0;   // redraw just the VM display area
 
   virtual void drawDriveDoor(uint8_t which, bool isOpen) = 0;
-  virtual void drawDriveStatus(uint8_t which, bool isRunning) = 0;
+  virtual void setDriveIndicator(uint8_t which, bool isRunning) = 0;
   virtual void drawBatteryStatus(uint8_t percent) = 0;
 
   virtual void drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c) = 0;

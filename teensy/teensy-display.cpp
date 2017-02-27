@@ -160,11 +160,12 @@ TeensyDisplay::TeensyDisplay()
 
   // LCD initialization complete
 
-
   setColor(255, 255, 255);
 
   clrScr();
 
+  driveIndicator[0] = driveIndicator[1] = false;
+  driveIndicatorDirty = true;
 }
 
 TeensyDisplay::~TeensyDisplay()
@@ -410,6 +411,8 @@ void TeensyDisplay::blit(AiieRect r)
   
     drawString(M_SELECTDISABLED, 1, 240 - 16 - 12, overlayMessage);
   }
+
+  redrawDriveIndicators();
 }
 
 void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
@@ -473,7 +476,6 @@ void TeensyDisplay::drawDriveDoor(uint8_t which, bool isOpen)
 
   uint16_t xoff = 55;
   uint16_t yoff = 216;
-  return; // debugging: disabling this for testing
 
   // location for right drive
 
@@ -498,31 +500,35 @@ void TeensyDisplay::drawDriveDoor(uint8_t which, bool isOpen)
   }
 }
 
-void TeensyDisplay::drawDriveStatus(uint8_t which, bool isRunning)
+void TeensyDisplay::setDriveIndicator(uint8_t which, bool isRunning)
 {
-  // location of status indicator for left drive                                
-  uint16_t xoff = 125;
-  uint16_t yoff = 213;
+  driveIndicator[which] = isRunning;
+  driveIndicatorDirty = true;
+}
 
-  // and right drive                                                            
-  if (which == 1)
-    xoff += 135;
-#if 0
-  for (int y=0; y<2; y++) {
-    for (int x=0; x<6; x++) {
-      drawPixel(x + xoff, y + yoff, isRunning ? 0xF800 : 0x8AA9);
+void TeensyDisplay::redrawDriveIndicators()
+{
+  if (driveIndicatorDirty) {
+    // location of status indicator for left drive                                
+    uint16_t xoff = 125;
+    uint16_t yoff = 213;
+    
+    for (int which = 0; which <= 1; which++,xoff += 135) {
+      
+      for (int y=0; y<2; y++) {
+	for (int x=0; x<6; x++) {
+	  drawPixel(x + xoff, y + yoff, driveIndicator[which] ? 0xF800 : 0x8AA9);
+	}
+      }
     }
+    driveIndicatorDirty = false;
   }
-#endif
 }
 
 void TeensyDisplay::drawBatteryStatus(uint8_t percent)
 {
   uint16_t xoff = 300;
   uint16_t yoff = 222;
-
-  // DEBUGGING: disabling this; it's drawing it a *lot*
-  return;
 
   // the area around the apple is 12 wide
   // it's exactly 11 high

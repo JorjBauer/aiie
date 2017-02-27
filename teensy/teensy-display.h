@@ -43,13 +43,13 @@ class TeensyDisplay : public PhysicalDisplay {
   virtual void drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str);
 
   virtual void drawDriveDoor(uint8_t which, bool isOpen);
-  virtual void drawDriveStatus(uint8_t which, bool isRunning);
+  virtual void setDriveIndicator(uint8_t which, bool isRunning);
   virtual void drawBatteryStatus(uint8_t percent);
 
  protected:
   void moveTo(uint16_t col, uint16_t row);
   void drawNextPixel(uint16_t color);
-
+  void redrawDriveIndicators();
 
  private:
   regtype                 *P_RS, *P_WR, *P_CS, *P_RST, *P_SDA, *P_SCL, *P_ALE;
@@ -76,6 +76,8 @@ class TeensyDisplay : public PhysicalDisplay {
   void LCD_Write_COM_DATA(uint8_t com1,uint16_t dat1);
 
   bool needsRedraw;
+  bool driveIndicator[2];
+  bool driveIndicatorDirty;
 };
 
 #endif
