@@ -30,6 +30,35 @@
     }                             \
 }
 
+#define drawPixel(c, x, y) {                                     \
+    uint16_t idx = ((y) * DISPLAYWIDTH + (x)) / 2;	         \
+    if ((x) & 1) {                                               \
+      videoBuffer[idx] = (videoBuffer[idx] & 0xF0) | (c);	 \
+    } else {                                                     \
+      videoBuffer[idx] = (videoBuffer[idx] & 0x0F) | ((c) << 4); \
+    }                                                            \
+  }
+
+#define draw2Pixels(cAB, x, y) { \
+    videoBuffer[((y) * DISPLAYWIDTH + (x)) /2] = cAB; \
+  }
+
+
+#define DrawLoresPixelAt(c, x, y) {     \
+  uint8_t pixel = c & 0x0F;             \
+  for (uint8_t y2 = 0; y2<4; y2++) {    \
+    for (int8_t x2 = 6; x2>=0; x2--) {  \
+      drawPixel(pixel, x*7+x2, y*8+y2); \
+    }                                   \
+  }                                     \
+  pixel = (c >> 4);                     \
+  for (uint8_t y2 = 4; y2<8; y2++) {    \
+    for (int8_t x2 = 6; x2>=0; x2--) {  \
+      drawPixel(pixel, x*7+x2, y*8+y2); \
+    }                                   \
+  }                                     \
+}
+
 #include "globals.h"
 
 AppleDisplay::AppleDisplay(uint8_t *vb) : VMDisplay(vb)
@@ -490,7 +519,7 @@ void AppleDisplay::modeChange()
 
 void AppleDisplay::Draw80LoresPixelAt(uint8_t c, uint8_t x, uint8_t y, uint8_t offset)
 {
-  // Just like 80-column text, this has a minor problem; we're talimg
+  // Just like 80-column text, this has a minor problem; we're taking
   // a 7-pixel-wide space and dividing it in half. Here I'm drawing
   // every other column 1 pixel narrower (the ">= offset" in the for
   // loop condition).
@@ -514,40 +543,6 @@ void AppleDisplay::Draw80LoresPixelAt(uint8_t c, uint8_t x, uint8_t y, uint8_t o
     for (int8_t x2 = 3; x2>=offset; x2--) {
       drawPixel(pixel, x*7+x2+offset*3, y*8+y2);
     }
-  }
-}
-
-// col, row are still character-like positions, as in DrawCharacterAt.
-// Each holds two pixels (one on top of the other).
-void AppleDisplay::DrawLoresPixelAt(uint8_t c, uint8_t x, uint8_t y)
-{
-  uint8_t pixel = c & 0x0F;
-  for (uint8_t y2 = 0; y2<4; y2++) {
-    for (int8_t x2 = 6; x2>=0; x2--) {
-      drawPixel(pixel, x*7+x2, y*8+y2);
-    }
-  }
-
-  pixel = (c >> 4);
-  for (uint8_t y2 = 4; y2<8; y2++) {
-    for (int8_t x2 = 6; x2>=0; x2--) {
-      drawPixel(pixel, x*7+x2, y*8+y2);
-    }
-  }
-}
-
-void AppleDisplay::draw2Pixels(uint16_t two4bitColors, uint16_t x, uint8_t y)
-{
-  videoBuffer[(y * DISPLAYWIDTH + x) /2] = two4bitColors;
-}
-
-inline void AppleDisplay::drawPixel(uint8_t color4bit, uint16_t x, uint8_t y)
-{
-  uint16_t idx = (y * DISPLAYWIDTH + x) / 2;
-  if (x & 1) {
-    videoBuffer[idx] = (videoBuffer[idx] & 0xF0) | color4bit;
-  } else {
-    videoBuffer[idx] = (videoBuffer[idx] & 0x0F) | (color4bit << 4);
   }
 }
 
