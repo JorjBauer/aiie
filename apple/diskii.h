@@ -29,7 +29,7 @@ class DiskII : public Slot {
   void ejectDisk(int8_t driveNum);
 
   const char *DiskName(int8_t num);
-  void flushTrack();
+  void flushTrack(int8_t track, int8_t sel);
 
   void fillDiskBuffer(); // called from main loop
 
@@ -41,13 +41,15 @@ class DiskII : public Slot {
   void select(int8_t which); // 0 or 1 for drives 1 and 2, respectively
   uint8_t readOrWriteByte();
 
+  void checkFlush(int8_t track);
+
 #ifndef TEENSYDUINO
   void convertDskToNib(const char *outFN);
 #endif
 
  private:
-  uint8_t curTrack;
-  bool trackDirty; // does this track need flushing to disk?
+  volatile uint8_t curTrack;
+  volatile bool trackDirty; // does this track need flushing to disk?
   uint8_t readWriteLatch;
   RingBuffer *trackBuffer; // nibblized data
   uint8_t *rawTrackBuffer; // not nibblized data
@@ -60,8 +62,10 @@ class DiskII : public Slot {
   volatile uint8_t indicatorIsOn[2];
   uint8_t diskType[2];
 
-  volatile int8_t selectedDisk;
   volatile int8_t trackToRead; // -1 when we're idle; not -1 when we need to read a track.
+  volatile int8_t selectedDisk;
+  volatile int8_t trackToFlush; // -1 when there's none
+  volatile int8_t diskToFlush; // which selected disk are we writing to?
 };
 
 #endif

@@ -26,6 +26,7 @@ DiskII::DiskII(AppleMMU *mmu)
   curTrack = 0;
   trackDirty = false;
   trackToRead = -1;
+  trackToFlush = -1;
 
   writeMode = false;
   writeProt = false; // FIXME: expose an interface to this
@@ -56,6 +57,15 @@ void DiskII::Reset()
   ejectDisk(1);
 }
 
+void DiskII::checkFlush(int8_t track)
+{
+  if (trackDirty && trackToFlush == -1) {
+    diskToFlush = selectedDisk;
+    trackToFlush = track;
+    trackDirty = false; // just so we don't overwrite disk/track to flush before continuing...
+  }
+}
+
 uint8_t DiskII::readSwitches(uint8_t s)
 {
   switch (s) {
@@ -73,7 +83,7 @@ uint8_t DiskII::readSwitches(uint8_t s)
   case 0x08: // drive off
     indicatorIsOn[selectedDisk] = 99;
     g_display->setDriveIndicator(selectedDisk, false); // FIXME: after a spell...
-    flushTrack();
+    checkFlush(curTrack);
     break;
   case 0x09: // drive on
     indicatorIsOn[selectedDisk] = 100;
@@ -104,11 +114,11 @@ uint8_t DiskII::readSwitches(uint8_t s)
 
   case 0x0E: // set read mode
     setWriteMode(false);
-    
+
     // FIXME: with this shortcut here, disk access speeds up ridiculously.
     // Is this breaking anything?
     return ( (readOrWriteByte() & 0x7F) |
-             (isWriteProtected() ? 0x80 : 0x00) );
+    (isWriteProtected() ? 0x80 : 0x00) );
 
     break;
   case 0x0F: // set write mode
@@ -226,13 +236,12 @@ void DiskII::step(uint8_t phase)
   curTrack = (trackPos + 1) / 2;
   if (curTrack != prevTrack) {
     // We're about to change tracks - be sure to flush the track if we've written to it
-    if (trackDirty) {
-      flushTrack();
-    }
+    checkFlush(prevTrack);
+
     // step to the appropriate track
-    trackDirty = false;
     prevTrack = curTrack;
-    trackBuffer->clear();
+    // mark it to be read
+    trackToRead = curTrack;
   }
 }
 
@@ -308,8 +317,7 @@ void DiskII::select(int8_t which)
     indicatorIsOn[selectedDisk] = 0;
     g_display->setDriveIndicator(selectedDisk, false);
 
-    flushTrack(); // in case it's dirty: flush before changing drives
-    trackBuffer->clear();
+    checkFlush(curTrack);
   }
 
   // set the selected disk drive
@@ -319,7 +327,6 @@ void DiskII::select(int8_t which)
 uint8_t DiskII::readOrWriteByte()
 {
   if (disk[selectedDisk] == -1) {
-    //    printf("NO DISK\n");
     return GAP;
   }
 
@@ -371,10 +378,15 @@ uint8_t DiskII::readOrWriteByte()
   // 
   // Don't fill it right here, b/c we don't want to bog down the CPU
   // thread/ISR.
+  if (trackToRead == curTrack) {// waiting for a read to complete
+    return GAP;
+  }
+
   if ((trackToRead != -1) || !trackBuffer->hasData()) {
+    checkFlush(curTrack);
+
     // Need to read in a track of data and nibblize it. We'll return 0xFF
     // until that completes.
-    trackDirty = false; // effectively flush; forget that we had any data :)
 
     // This might update trackToRead with a different track than the
     // one we're reading. When we finish the read, we'll need to check
@@ -392,9 +404,19 @@ uint8_t DiskII::readOrWriteByte()
 
 void DiskII::fillDiskBuffer()
 {
+  if (trackToFlush != -1) {
+    flushTrack(trackToFlush, diskToFlush); // in case it's dirty: flush before changing drives
+    trackBuffer->clear();
+    
+    trackToFlush = -1;
+  }
+
   // No work to do if trackToRead is -1
   if (trackToRead == -1)
     return;
+
+  trackDirty = false;
+  trackBuffer->clear();
 
   int8_t trackWeAreReading = trackToRead;
   int8_t diskWeAreUsing = selectedDisk;
@@ -462,12 +484,8 @@ void DiskII::loadROM(uint8_t *toWhere)
 #endif
 }
 
-void DiskII::flushTrack()
+void DiskII::flushTrack(int8_t track, int8_t sel)
 {
-  if (!trackDirty) {
-    return;
-  }
-
   // safety check: if we're write-protected, then how did we get here?
   if (writeProt) {
     g_display->debugMsg("Write Protected");
@@ -479,14 +497,14 @@ void DiskII::flushTrack()
     return;
   }
 
-  if (diskType[selectedDisk] == nibDisk) {
+  if (diskType[sel] == nibDisk) {
     // Write the whole track out exactly as we've got it. Hopefully
     // someone has re-calcuated appropriate checksums on it...
     g_display->debugMsg("Not writing Nib image");
     return;
   }
 
-  nibErr e = denibblizeTrack(trackBuffer, rawTrackBuffer, diskType[selectedDisk], curTrack);
+  nibErr e = denibblizeTrack(trackBuffer, rawTrackBuffer, diskType[sel], curTrack);
   switch (e) {
   case errorShortTrack:
     g_display->debugMsg("DII: short track");
@@ -503,9 +521,7 @@ void DiskII::flushTrack()
   }
 
   // ok, write the track!
-  g_filemanager->seekBlock(disk[selectedDisk], curTrack * 16);
-  g_filemanager->writeTrack(disk[selectedDisk], rawTrackBuffer);
-
-  trackDirty = false;
+  g_filemanager->seekBlock(disk[sel], track * 16);
+  g_filemanager->writeTrack(disk[sel], rawTrackBuffer);
 }
 
