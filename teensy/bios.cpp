@@ -125,14 +125,14 @@ bool BIOS::runUntilDone()
       }
       break;
     case ACT_VOLPLUS:
-      g_volume += 10;
-      if (g_volume > 255) {
-	g_volume = 255;
+      g_volume ++;
+      if (g_volume > 15) {
+	g_volume = 15;
       }
       volumeDidChange = true;
       break;
     case ACT_VOLMINUS:
-      g_volume -= 10;
+      g_volume--;
       if (g_volume < 0) {
 	g_volume = 0;
       }
@@ -213,7 +213,7 @@ bool BIOS::isActionActive(int8_t action)
     return true;
 
   case ACT_VOLPLUS:
-    return (g_volume < 255);
+    return (g_volume < 15);
   case ACT_VOLMINUS:
     return (g_volume > 0);
   }
@@ -284,7 +284,7 @@ void BIOS::DrawMainMenu(int8_t selection)
   }
 
   // draw the volume bar
-  uint16_t volCutoff = 300.0 * (float)((float) g_volume / 256.0);
+  uint16_t volCutoff = 300.0 * (float)((float) g_volume / 15.0);
   for (uint8_t y=200; y<=210; y++) {
     ((TeensyDisplay *)g_display)->moveTo(10, y);
     for (uint16_t x = 0; x< 300; x++) {

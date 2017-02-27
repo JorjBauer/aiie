@@ -9,6 +9,9 @@ extern "C"
 
 #include "timeutil.h"
 
+#include "globals.h"
+
+
 // FIXME: Globals; ick.
 static pthread_t speakerThreadID;
 static uint8_t curSpeakerData = 0x00;
@@ -140,6 +143,8 @@ void SDLSpeaker::maintainSpeaker(uint32_t c)
 #endif
 
   mixerValue >>= 3; // divide by 8
+
+  // FIXME: g_volume
 
   curSpeakerData = mixerValue & 0xFF;
 }

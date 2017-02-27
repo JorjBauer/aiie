@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include "teensy-speaker.h"
 
-extern int16_t g_volume;
+#include "globals.h"
 
 TeensySpeaker::TeensySpeaker(uint8_t pinNum) : PhysicalSpeaker()
 {
@@ -37,7 +37,10 @@ void TeensySpeaker::maintainSpeaker(uint32_t c)
     }*/
 
   // FIXME: glad it's DAC0 and all, but... how does that relate to the pin passed in the constructor?
-  analogWriteDAC0(mixerValue); // FIXME: g_volume?
+
+  mixerValue >>= (16-g_volume);
+
+  analogWriteDAC0(mixerValue);
 }
 
 void TeensySpeaker::beginMixing()

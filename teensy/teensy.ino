@@ -371,8 +371,8 @@ void readPrefs()
   if (p.magic == MAGIC) {
     // looks valid! Use it.
     Serial.println("prefs valid! Restoring volume");
-    if (p.volume > 4095) {
-      p.volume = 4095;
+    if (p.volume > 15) {
+      p.volume = 15;
     }
     if (p.volume < 0) {
       p.volume = 0;
