@@ -16,7 +16,7 @@
 
 #include "timeutil.h"
 
-//#define SHOWFPS
+#define SHOWFPS
 //#define SHOWPC
 //#define DEBUGCPU
 //#define SHOWMEMPAGE
@@ -264,10 +264,8 @@ int main(int argc, char *argv[])
       char buf[25];
       sprintf(buf, "%lu FPS", loopCount / lenSecs);
       g_display->debugMsg(buf);
-      if (lenSecs >= 60) {
-	startAt = time(NULL);
-	loopCount = 0;
-      }
+      startAt = time(NULL);
+      loopCount = 0;
     }
 #endif
 #ifdef SHOWPC
