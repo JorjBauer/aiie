@@ -28,18 +28,11 @@ void TeensySpeaker::maintainSpeaker(uint32_t c)
     needsToggle = false;
   }
 
-  mixerValue += (toggleState ? 0xFFF : 0x00);
-  // FIXME: Temporarily disabling mixer
-  /*  numMixed += 2;
-    
-  if (numMixed > 1) {
-    mixerValue /= numMixed;
-    }*/
-
-  // FIXME: glad it's DAC0 and all, but... how does that relate to the pin passed in the constructor?
+  mixerValue += (toggleState ? 0x1FF : 0x00);
 
   mixerValue >>= (16-g_volume);
 
+  // FIXME: glad it's DAC0 and all, but... how does that relate to the pin passed in the constructor?
   analogWriteDAC0(mixerValue);
 }
 
