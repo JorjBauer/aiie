@@ -136,11 +136,9 @@ void SDLSpeaker::maintainSpeaker(uint32_t c)
   mixerValue += (toggleState ? 0xFF : 0x00);
   numMixed += 2;
 
-#if DEBUGGING
   if (numMixed != 8) {
     printf("SPEAKER FAIL - should always be 8\n");
   }
-#endif
 
   mixerValue >>= 3; // divide by 8
 
