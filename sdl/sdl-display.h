@@ -9,6 +9,10 @@
 
 #include "physicaldisplay.h"
 
+
+#define SDLDISPLAY_WIDTH (320*2)
+#define SDLDISPLAY_HEIGHT (240*2)
+
 enum {
   M_NORMAL = 0,
   M_SELECTED = 1,

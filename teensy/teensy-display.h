@@ -4,6 +4,9 @@
 #include <Arduino.h>
 #include "physicaldisplay.h"
 
+#define TEENSY_DHEIGHT 240
+#define TEENSY_DWIDTH 320
+
 enum {
   M_NORMAL = 0,
   M_SELECTED = 1,

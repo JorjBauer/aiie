@@ -262,11 +262,13 @@ int main(int argc, char *argv[])
     uint32_t lenSecs = time(NULL) - startAt;
     if (lenSecs >= 5) {
       float fps = loopCount / lenSecs;
+
 #ifdef SHOWFPS
       char buf[25];
-      sprintf(buf, "%f FPS", fps);
+      sprintf(buf, "%f FPS [delay %u]", fps, usleepcycles);
       g_display->debugMsg(buf);
 #endif
+
       if (fps > 60) {
 	usleepcycles *= 2;
       } else if (fps < 40) {

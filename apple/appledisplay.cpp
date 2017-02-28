@@ -30,8 +30,10 @@
     }                             \
 }
 
+#if DISPLAYRUN == 512
+
 #define drawPixel(c, x, y) {                                     \
-    uint16_t idx = ((y) * DISPLAYWIDTH + (x)) / 2;	         \
+    uint16_t idx = (((y) << 9) + (x)) >> 1;			 \
     if ((x) & 1) {                                               \
       videoBuffer[idx] = (videoBuffer[idx] & 0xF0) | (c);	 \
     } else {                                                     \
@@ -40,8 +42,26 @@
   }
 
 #define draw2Pixels(cAB, x, y) { \
-    videoBuffer[((y) * DISPLAYWIDTH + (x)) /2] = cAB; \
+    videoBuffer[(((y) <<9) + (x)) >> 1] = cAB;	\
   }
+
+
+#else
+
+#define drawPixel(c, x, y) {                                     \
+    uint16_t idx = ((y) * DISPLAYRUN + (x)) / 2;	         \
+    if ((x) & 1) {                                               \
+      videoBuffer[idx] = (videoBuffer[idx] & 0xF0) | (c);	 \
+    } else {                                                     \
+      videoBuffer[idx] = (videoBuffer[idx] & 0x0F) | ((c) << 4); \
+    }                                                            \
+  }
+
+#define draw2Pixels(cAB, x, y) { \
+    videoBuffer[((y) * DISPLAYRUN + (x)) /2] = cAB; \
+  }
+
+#endif
 
 
 #define DrawLoresPixelAt(c, x, y) {     \

@@ -32,7 +32,7 @@ SDLDisplay::SDLDisplay()
   screen = SDL_CreateWindow("Aiie!",
 			    SDL_WINDOWPOS_UNDEFINED,
 			    SDL_WINDOWPOS_UNDEFINED,
-			    320*2, 240*2,
+			    SDLDISPLAY_WIDTH, SDLDISPLAY_HEIGHT,
 			    SDL_WINDOW_SHOWN);
 
   // SDL_RENDERER_SOFTWARE because, at least on my Mac, this has some
@@ -54,9 +54,9 @@ void SDLDisplay::redraw()
   // bios. Draws the background image.
   printf("redraw background\n");
 
-  for (int y=0; y<240; y++) {
-    for (int x=0; x<320; x++) {
-      uint8_t *p = &displayBitmap[(y * 320 + x)*3];
+  for (int y=0; y<DISPLAYHEIGHT; y++) {
+    for (int x=0; x<DISPLAYWIDTH; x++) {
+      uint8_t *p = &displayBitmap[(y * DBITMAP_WIDTH + x)*3];
       drawPixel(x, y, p[0], p[1], p[2]);
     }
   }
@@ -141,7 +141,7 @@ void SDLDisplay::blit(AiieRect r)
 
   for (uint8_t y=0; y<192; y++) {
     for (uint16_t x=0; x<280; x++) {
-      uint16_t pixel = (y*320+x)/2;
+      uint16_t pixel = (y*DISPLAYRUN+x)/2;
       uint8_t colorIdx;
       if (x & 1) {
 	colorIdx = videoBuffer[pixel] & 0x0F;

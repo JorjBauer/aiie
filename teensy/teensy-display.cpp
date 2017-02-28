@@ -212,11 +212,11 @@ void TeensyDisplay::redraw()
 
   moveTo(0, 0);
 
-  for (int y=0; y<240; y++) {
-    for (int x=0; x<320; x++) {
-      uint8_t r = pgm_read_byte(&displayBitmap[(y * 320 + x)*3 + 0]);
-      uint8_t g = pgm_read_byte(&displayBitmap[(y * 320 + x)*3 + 1]);
-      uint8_t b = pgm_read_byte(&displayBitmap[(y * 320 + x)*3 + 2]);
+  for (int y=0; y<TEENSY_DHEIGHT; y++) {
+    for (int x=0; x<TEENSY_DWIDTH; x++) {
+      uint8_t r = pgm_read_byte(&displayBitmap[(y * DBITMAP_WIDTH + x)*3 + 0]);
+      uint8_t g = pgm_read_byte(&displayBitmap[(y * DBITMAP_WIDTH + x)*3 + 1]);
+      uint8_t b = pgm_read_byte(&displayBitmap[(y * DBITMAP_WIDTH + x)*3 + 2]);
       uint16_t color16 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | ((b & 0xF8) >> 3);
       setPixel(color16);
     }
@@ -391,7 +391,7 @@ void TeensyDisplay::blit(AiieRect r)
   uint16_t pixel;
   for (uint8_t y=r.top; y<=r.bottom; y++) {
     for (uint16_t x=r.left; x<=r.right; x++) {
-      pixel = y * (DISPLAYWIDTH/2) + (x/2);
+      pixel = y * (DISPLAYRUN >> 1) + (x >> 1);
       uint8_t colorIdx;
       if (!(x & 0x01)) {
 	colorIdx = videoBuffer[pixel] >> 4;

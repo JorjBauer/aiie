@@ -10,10 +10,11 @@
 
 #define DISPLAYWIDTH 320
 #define DISPLAYHEIGHT 240
+#define DISPLAYRUN 320 // how wide each row is in pixels in the buffer (for faster math)
 
 class VM {
  public:
-  VM() { mmu=NULL; vmdisplay = NULL; videoBuffer = (uint8_t *)calloc(DISPLAYWIDTH * DISPLAYHEIGHT / 2, 1); hasIRQ = false;}
+  VM() { mmu=NULL; vmdisplay = NULL; videoBuffer = (uint8_t *)calloc(DISPLAYRUN * DISPLAYHEIGHT / 2, 1); hasIRQ = false;}
   virtual ~VM() { if (mmu) delete mmu; if (vmdisplay) delete vmdisplay; free(videoBuffer); }
 
   virtual void SetMMU(MMU *mmu) { this->mmu = mmu; }

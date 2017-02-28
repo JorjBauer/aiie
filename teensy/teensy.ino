@@ -26,8 +26,6 @@ volatile float startMicros;
 FATFS fatfs;      /* File system object */
 BIOS bios;
 
-uint8_t videoBuffer[DISPLAYWIDTH*DISPLAYHEIGHT/2];
-
 enum {
   D_NONE        = 0,
   D_SHOWFPS     = 1,
@@ -38,7 +36,7 @@ enum {
   D_SHOWBATTERY = 6,
   D_SHOWTIME    = 7
 };
-uint8_t debugMode = D_NONE;
+uint8_t debugMode = D_SHOWFPS;
 
 static   time_t getTeensy3Time() {  return Teensy3Clock.get(); }
 

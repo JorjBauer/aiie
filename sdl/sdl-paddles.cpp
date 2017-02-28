@@ -1,10 +1,7 @@
 #include <stdio.h>
 #include "sdl-paddles.h"
 
-// FIXME: abstract this somewhere
-
-#define WINDOWHEIGHT (240*2)
-#define WINDOWWIDTH (320*2)
+#include "sdl-display.h"
 
 #include "globals.h"
 
@@ -35,6 +32,6 @@ uint8_t SDLPaddles::paddle1()
 
 void SDLPaddles::gotMouseMovement(uint16_t x, uint16_t y)
 {
-  p0 = ((float)x / (float)WINDOWWIDTH) * (float) 255.0;
-  p1 = ((float)y / (float)WINDOWHEIGHT) * (float) 255.0;
+  p0 = ((float)x / (float)SDLDISPLAY_WIDTH) * (float) 255.0;
+  p1 = ((float)y / (float)SDLDISPLAY_HEIGHT) * (float) 255.0;
 }
