@@ -66,12 +66,14 @@ class AppleMMU : public MMU {
  public: // 'public' for debugging
   bool auxRamRead;
   bool auxRamWrite;
-  bool bank1;
+  bool bank2;
   bool readbsr;
   bool writebsr;
   bool altzp;
   bool intcxrom;
   bool slot3rom;
+
+  bool preWriteFlag;        // see UTA2E p. 5-23
 
   Slot *slots[8]; // slots 0-7
 

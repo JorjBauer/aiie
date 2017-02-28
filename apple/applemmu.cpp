@@ -101,10 +101,11 @@ void AppleMMU::write(uint16_t address, uint8_t v)
   }
 
   // Don't allow writes to ROM
+  // Hard ROM, I/O, slots, whatnot
   if (address >= 0xC100 && address <= 0xCFFF)
     return;
+  // Bank-switched ROM/RAM areas
   if (address >= 0xD000 && address <= 0xFFFF && !writebsr) {
-    // memory-protected, so don't allow writes
     return;
   }
 
@@ -147,11 +148,9 @@ void AppleMMU::handleMemorySwitches(uint16_t address, uint16_t lastSwitch)
 
   case 0xC000: // CLR80STORE
     switches &= ~S_80STORE;
-    updateMemoryPages();
     break;
   case 0xC001: // SET80STORE
     switches |= S_80STORE;
-    updateMemoryPages();
     break;
   case 0xC002: // CLRAUXRD read from main 48k RAM
     auxRamRead = false;
@@ -184,62 +183,53 @@ void AppleMMU::handleMemorySwitches(uint16_t address, uint16_t lastSwitch)
     slot3rom = true;
     break;
 
-    // these are probably read/write ?
-
-  case 0xC080: // READBSR2 and shadow copy
-  case 0xC084:
-    bank1 = false;      // LC RAM bank2, Read and Write-prot RAM
-    readbsr = true;     //    read from bank2
-    writebsr = false;   //    write-protected
-    break;
-
-  case 0xC081: // ROMIN
-  case 0xC085:
-    bank1 = false;     // LC RAM bank2, read ROM, write-enable RAM
-    readbsr = false;   //    if it's read twice in a row
-    writebsr = writebsr || ((lastSwitch & 0xF3) == (address & 0xF3));
-    break;
-
+    // Registers C080 - C08F control bank switching.
+  case 0xC080:
+  case 0xC081:
   case 0xC082:
+  case 0xC083:
+  case 0xC084:
+  case 0xC085:
   case 0xC086:
-    bank1 = false;    // LC RAM bank2, Read ROM instead of RAM,
-    readbsr = false;  // WR-protect RAM
-    writebsr = false;
-    break;
-
-  case 0xC083: // READWRBSR2
   case 0xC087:
-    bank1 = false;
-    readbsr = true;
-    writebsr = writebsr || ((lastSwitch & 0xF3) == (address & 0xF3));
-    break;
-
-  case 0xC088: // READBSR1
+  case 0xC088:
+  case 0xC089:
+  case 0xC08A:
+  case 0xC08B:
   case 0xC08C:
-    bank1 = true;
-    readbsr = true;
-    writebsr = false;
-    break;
-    
-  case 0xC089: // WRITEBSR1
   case 0xC08D:
-    bank1 = true;
-    readbsr = false;
-    writebsr = writebsr || ((lastSwitch & 0xF3) == (address & 0xF3));
-    break;
-
-  case 0xC08A: // OFFBSR1
   case 0xC08E:
-    bank1 = true;
-    readbsr = false;
-    writebsr = false;
-    break;
-
-  case 0xC08B: // READWRBSR1
   case 0xC08F:
-    bank1 = true;
-    readbsr = true;
-    writebsr = writebsr || ((lastSwitch & 0xF3) == (address & 0xF3));
+
+    // Per ITA2E, p. 286:
+    // (address & 0x08) controls whether or not we are selecting from bank2. Per table 8-2,
+    // bank2 is active if address & 0x08 is zero. So if the bit is on, it's bank 1.
+    bank2 = (address & 0x08) ? false : true;
+
+    // (address & 0x04) is unused.
+
+    // (address & 0x02) is read-select: if it is set the same as
+    // (address & 0x01) then readbsr is true.
+    readbsr = ((address & 0x02) >> 1) == (address & 0x01);
+
+    // (address & 0x01) is write-select: if 1, we write BSR RAM; if 0, we write ROM.
+    // But it's a little more complicated than readbsr.
+    // Per UTA2E p. 5-23:
+    //   "Writing to high RAM is enabled when the HRAMWRT' soft switch
+    //   is reset. ... It is reset by even read access or any write
+    //   access in the $C08X range. HRAMWRT' is reset by odd read
+    //   access in the $C08X range when PRE-WRITE is set. It is set by
+    //   even access in the CC08X range. Any other type of access
+    //   causes HRAMWRT' to hold its current state."
+
+    if (address & 0x01) {
+      if (preWriteFlag)
+	writebsr = 1;
+      // Per UTA2E, p. 5-23: any other preWriteFlag leaves writebsr unchanged.
+    } else {
+      writebsr = false;
+    }
+
     break;
   }
 
@@ -325,6 +315,11 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
   case 0xC08F:
     // but read does affect these, same as write
     handleMemorySwitches(address, lastReadSwitch);
+
+    // UTA2E, p. 5-23: preWrite is set by odd read access, and reset
+    // by even read access
+    preWriteFlag = (address & 0x01);
+
     break;
 
   case 0xC00C: // CLR80VID disable 80-col video mode
@@ -349,7 +344,7 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
 
 
   case 0xC011: // RDLCBNK2
-    return bank1 ? 0x00 : 0x80;
+    return bank2 ? 0x80 : 0x00;
   case 0xC012: // RDLCRAM
     return readbsr ? 0x80 : 0x00;
   case 0xC013: // RDRAMRD
@@ -606,18 +601,6 @@ void AppleMMU::writeSwitches(uint16_t address, uint8_t v)
     writePages[0xC0][0x64] = writePages[0xC0][0x65] = 0xFF;
     break;
 
-  case 0xC000:
-  case 0xC001:
-  case 0xC002:
-  case 0xC003:
-  case 0xC004:
-  case 0xC005:
-  case 0xC006:
-  case 0xC007:
-  case 0xC008:
-  case 0xC009:
-  case 0xC00A:
-  case 0xC00B:
   case 0xC080:
   case 0xC081:
   case 0xC082:
@@ -634,6 +617,21 @@ void AppleMMU::writeSwitches(uint16_t address, uint8_t v)
   case 0xC08D:
   case 0xC08E:
   case 0xC08F:
+    // UTA2E, p. 5-23: preWrite is reset by any write access to these
+    preWriteFlag = 0;
+    // fall through...
+  case 0xC000:
+  case 0xC001:
+  case 0xC002:
+  case 0xC003:
+  case 0xC004:
+  case 0xC005:
+  case 0xC006:
+  case 0xC007:
+  case 0xC008:
+  case 0xC009:
+  case 0xC00A:
+  case 0xC00B:
     handleMemorySwitches(address, lastWriteSwitch);
     break;
 
@@ -679,13 +677,19 @@ void AppleMMU::resetRAM()
 {
   switches = S_TEXT;
 
-  bank1 = true;
+  // Per UTA2E, p. 5-23:
+  // When a system reset occurs, all MMU soft switches are reset (turned off).
+  bank2 = false;
   auxRamRead = auxRamWrite = false;
   readbsr = writebsr = false;
   altzp = false;
+
   intcxrom = false;
   slot3rom = false;
 
+  preWriteFlag = false;
+
+  // Clear all the pages
   for (uint8_t i=0; i<0xFF; i++) {
     for (uint8_t j=0; j<5; j++) {
       if (ramPages[i][j]) {
@@ -694,42 +698,42 @@ void AppleMMU::resetRAM()
 	}
       }
     }
+    // and set our expectation of what we're reading from/writing to
     readPages[i] = writePages[i] = ramPages[i][0];
   }
 
-  // Load ROM
-
+  // Load system ROM
+  for (uint16_t i=0x80; i<=0xFF; i++) {
+    for (uint16_t k=0; k<0x100; k++) {
+      uint16_t idx = ((i-0x80) << 8) | k;
 #ifdef TEENSYDUINO
-  for (uint16_t i=0x80; i<=0xFF; i++) {
-    for (uint16_t k=0; k<0x100; k++) {
-      uint16_t idx = ((i-0x80) << 8) | k;
       uint8_t v = pgm_read_byte(&romData[idx]);
-      for (uint8_t j=0; j<5; j++) {
-	if (ramPages[i][j]) {
-	  ramPages[i][j][k] = v;
-	}
-      }
-    }
-  }
 #else
-  for (uint16_t i=0x80; i<=0xFF; i++) {
-    for (uint16_t k=0; k<0x100; k++) {
-      uint16_t idx = ((i-0x80) << 8) | k;
       uint8_t v = romData[idx];
-      for (uint8_t j=0; j<5; j++) {
-	if (ramPages[i][j]) {
-	  ramPages[i][j][k] = v;
+#endif
+      for (int j=0; j<5; j++) {
+	// FIXME: not sure why this has to update pages [0] and [1] to
+	// work; find out what the //e really did
+	for (uint8_t j=0; j<2; j++) {
+	  if (ramPages[i][j]) {
+	    ramPages[i][j][k] = v;
+	  }
 	}
       }
     }
   }
-#endif
 
+  // have each slot load its ROM
   for (uint8_t slotnum = 0; slotnum <= 7; slotnum++) {
     if (slots[slotnum]) {
       slots[slotnum]->loadROM(ramPages[0xC0 + slotnum][0]);
     }
   }
+
+  // update the memory read/write flags &c. Not strictly necessary, if
+  // we're really setting all the RAM flags to the right default
+  // settings above - but better safe than sorry?
+  updateMemoryPages();
 }
 
 void AppleMMU::setSlot(int8_t slotnum, Slot *peripheral)
@@ -820,6 +824,7 @@ void AppleMMU::updateMemoryPages()
     }
   }
 
+  // set zero-page & stack pages based on altzp flag
   if (altzp) {
     for (uint8_t idx = 0x00; idx < 0x02; idx++) {
       readPages[idx] = ramPages[idx][1];
@@ -832,33 +837,42 @@ void AppleMMU::updateMemoryPages()
     }
   }
 
+  // Set bank-switched ram reading from readbsr & bank2
   if (readbsr) {
-    if (bank1) {
+    // 0xD0 - 0xE0 has 4 possible banks:
+    if (!bank2) {
+      // Bank 1 RAM: either in main RAM (1) or in the extended memory
+      // card (3):
       for (uint8_t idx = 0xd0; idx < 0xe0; idx++) {
-	readPages[idx] = ramPages[idx][altzp ? 2 : 1];
+	readPages[idx] = ramPages[idx][altzp ? 3 : 1];
       }
     } else {
+      // Bank 2 RAM: either in main RAM (2) or in the extended memory
+      // card (4):
       for (uint8_t idx = 0xd0; idx < 0xe0; idx++) {
-	readPages[idx] = ramPages[idx][altzp ? 4 : 3];
+	readPages[idx] = ramPages[idx][altzp ? 4 : 2];
       }
     }
+    // ... but 0xE0 - 0xFF has just the motherboard RAM (1) and
+    // extended memory card RAM (2):
     for (uint16_t idx = 0xe0; idx < 0x100; idx++) {
       readPages[idx] = ramPages[idx][altzp ? 2 : 1];
     }
   } else {
+    // Built-in ROM
     for (uint16_t idx = 0xd0; idx < 0x100; idx++) {
       readPages[idx] = ramPages[idx][0];
     }
   }
 
   if (writebsr) {
-    if (bank1) {
+    if (!bank2) {
       for (uint8_t idx = 0xd0; idx < 0xe0; idx++) {
-	writePages[idx] = ramPages[idx][altzp ? 2 : 1];
+	writePages[idx] = ramPages[idx][altzp ? 3 : 1];
       }
     } else {
       for (uint8_t idx = 0xd0; idx < 0xe0; idx++) {
-	writePages[idx] = ramPages[idx][altzp ? 4 : 3];
+	writePages[idx] = ramPages[idx][altzp ? 4 : 2];
       }
     }
     for (uint16_t idx = 0xe0; idx < 0x100; idx++) {
