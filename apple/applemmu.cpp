@@ -76,7 +76,7 @@ uint8_t AppleMMU::read(uint16_t address)
     return ((Mockingboard *)slots[4])->read(address);
   }
   
-  uint8_t res = readPages[(address & 0xFF00) >> 8][address & 0xFF];
+  uint8_t res = readPages[address >> 8][address & 0xFF];
 
   return res;
 }
@@ -84,7 +84,7 @@ uint8_t AppleMMU::read(uint16_t address)
 // Bypass MMU and read directly from a given page - also bypasses switches
 uint8_t AppleMMU::readDirect(uint16_t address, uint8_t fromPage)
 {
-  return ramPages[(address & 0xFF00) >> 8][fromPage][address & 0xFF];
+  return ramPages[address >> 8][fromPage][address & 0xFF];
 }
 
 void AppleMMU::write(uint16_t address, uint8_t v)
@@ -109,7 +109,7 @@ void AppleMMU::write(uint16_t address, uint8_t v)
     return;
   }
 
-  writePages[(address & 0xFF00) >> 8][address & 0xFF] = v;
+  writePages[address >> 8][address & 0xFF] = v;
 
   if (address >= 0x400 &&
       address <= 0x7FF) {
@@ -267,35 +267,6 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
     // consume the keyboard strobe flag
     keyboardStrobe &= 0x7F;
     return (anyKeyDown ? 0x80 :  0x00);
-
-#if 0
-  case 0xC000:
-
-  case 0xC001:
-  case 0xC002:
-  case 0xC003:
-  case 0xC004:
-  case 0xC005:
-  case 0xC006:
-  case 0xC007:
-  case 0xC008:
-  case 0xC009:
-  case 0xC00A:
-  case 0xC00B:
-    // nothing happens in read mode for these, so don't call this:
-    // handleMemorySwitches(address, lastReadSwitch);
-
-  case 0xC00C:
-  case 0xC00D:
-  case 0xC00E:
-  case 0xC00F:
-
-    // But according to UTA2E, these ALL return keyboard strobe data.
-    // We do that after the switch statement so we get the other affects 
-    // from reads to these addresses within the switch statement.
-
-    break;
-#endif
 
   case 0xC080:
   case 0xC081:
