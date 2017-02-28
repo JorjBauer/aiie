@@ -43,7 +43,7 @@ enum {
  *
  */ 
 
-AY8910::AY8910()
+AY8910::AY8910() : lcg(0)
 {
   Reset();
 }
@@ -60,6 +60,8 @@ void AY8910::Reset()
   envCounter = 0;
   envelopeTimer = envelopeTime = 0;
   envDirection = 1;
+  noiseFlipTimer = 0;
+  noiseFlag = true;
 }
 
 uint8_t AY8910::read(uint8_t reg)
@@ -95,7 +97,10 @@ void AY8910::write(uint8_t reg, uint8_t PortA)
   case DWS: // bDir==1 && BC1 == 0 (DWS)
     // Write current PortA to PSG
     r[curRegister] = PortA;
+
     if (curRegister <= CHAN_A_COARSE) {
+      // FIXME: for all of A/B/C changes, figure out how much time had
+      // elapsed on the previous timer and apply it to the new one
       cycleTime[0] = cycleTimeForPSG(0);
       waveformFlipTimer[0] = g_cpu->cycles + cycleTime[0];
     } else if (curRegister <= CHAN_B_COARSE) {
@@ -123,12 +128,15 @@ void AY8910::write(uint8_t reg, uint8_t PortA)
 	cycleTime[2] = cycleTimeForPSG(2);
 	waveformFlipTimer[2] = g_cpu->cycles + cycleTime[2];
       }
-    } else if (curRegister >= ENV_PERIOD_FINE && curRegister <= ENV_SHAPE) {
+    } else if (curRegister >= ENV_PERIOD_FINE && curRegister <= ENV_PERIOD_COARSE) {
       // Envelope control -- period or shape
       // FIXME: should envCounter be initialized to the start position?
-      envDirection = (r[ENV_SHAPE] & AY_ENV_ATTACK) ? 1 : -1;
       envelopeTime = calculateEnvelopeTime();
       envelopeTimer = 0; // reset so it will pick up @ next tick
+    } else if (curRegister == ENV_SHAPE) {
+      envDirection = (r[ENV_SHAPE] & AY_ENV_ATTACK) ? 1 : -1;
+    } else if (curRegister == NOISE_PERIOD) {
+      noiseFlipTimer = g_cpu->cycles + cycleTimeForNoise();
     }
     return;
   case INTAK: // bDir==1 && BC1 == 1 (INTAK)
@@ -163,6 +171,15 @@ uint16_t AY8910::cycleTimeForPSG(uint8_t psg)
   return (32 * regVal) / 4;
 }
 
+uint16_t AY8910::cycleTimeForNoise()
+{
+  uint8_t regval = r[NOISE_PERIOD];
+  if (regval == 0) regval++;
+
+  return (16 * regval) / 4;
+}
+
+
 // Similar calculation: this one, for the envelope timer.
 // FIXME: I *think* this is right. Not sure. Needs validation.
 uint32_t AY8910::calculateEnvelopeTime()
@@ -193,6 +210,8 @@ void AY8910::update(uint32_t cpuCycleCount)
     if (envelopeTimer <= cpuCycleCount) {
       // time to update the envelopeCounter.
 
+      envCounter += envDirection;
+
       switch (r[ENV_SHAPE]) {
 	// Continue / Attack / Alternate / Hold bits
       case 0x00: // 0 / 0 / x / x -- descend once, stay @ bottom
@@ -211,10 +230,9 @@ void AY8910::update(uint32_t cpuCycleCount)
 	// In all these cases, we go from start to finish once. In all
 	// cases except 0x0b and 0x0d, when we're done, we go low.
 
-	envCounter += envDirection;
 	if (envDirection > 0) {
-	  // We were ascending: did we hit 16? If so, stop & go terminal
-	  if (envCounter == 16) {
+	  // We were ascending: did we hit 15? If so, stop & go terminal
+	  if (envCounter == 15) {
 	    envDirection = 0;
 	    // One ascending case (0x0b) goes high after; all others are low
 	    envCounter = (r[ENV_SHAPE] == 0x0b ? 0x0F : 0x00);
@@ -227,12 +245,44 @@ void AY8910::update(uint32_t cpuCycleCount)
 	    envCounter = (r[ENV_SHAPE] == 0x0d ? 0x0F : 0x00);
 	  }
 	}
-      }
+	break;
 
+      case 0x80:
+      case 0xC0:
+	// These two jump back to the start when they get to the end.
+
+	if (envCounter > 15) {
+	  envCounter = 0;
+	} else if (envCounter < 0) {
+	  envCounter = 15;
+	}
+	break;
+	
+      case 0xA0:
+      case 0xE0:
+	break;
+	// These two reverse direction.
+	if (envCounter == 15 || envCounter == 0) {
+	  envDirection = -envDirection;
+	  }
+	break;
+      }
+      
       // Set up the envelope timer for the next transition
       // FIXME: can set this to 0 if envDirection is 0, but have to be careful about setup of timer again when envDirection is re-set
       envelopeTimer += envelopeTime;
     }
+  }
+
+  // For the noise timer: if it expires, we get another random bit
+  if (noiseFlipTimer && noiseFlipTimer <= cpuCycleCount) {
+    // FIXME: srnd() this somewhere when we initialized? Does it matter?
+    uint8_t rnd = lcg.rnd();
+    // Use the higher bits of the RNG; the low bits have low periodicity.
+    // FIXME: is this sophisticated enough? Does it get the noise
+    // profile we want? Should we ^ with some other bit to get a
+    // different period profile?
+    noiseFlag = (rnd & 0x80);
   }
 
   // For any waveformFlipTimer that is > 0: if cpuCycleCount is larger
@@ -254,17 +304,34 @@ void AY8910::update(uint32_t cpuCycleCount)
     // Figure out what output comes from this channel and send it to
     // the speaker. The output is controlled by outputState[i] (from
     // the square wave, above); the amplitude control line for this
-    // output (r[i+8], below) and the tone/noise selection (FIXME:
-    // currently unimplemented).
+    // output (r[i+8], below) and the tone/noise selection.
 
-    uint8_t amplitude = r[i+8] & 0xF;
-    // ... and if bit 0x10 is on, it's controlled by the envelope counter.
-    if (r[i+8] & 0x10) 
-      amplitude = envCounter;
+    uint8_t amplitude = 0;
+    // If we're trying to output "high" this square-wave cycle, and if
+    // the ToneEnable bit is set for this register, then generate
+    // output.
+    if (!(r[ENAB] & (1 << i)) && outputState[i]) {
+      amplitude = r[i+8] & 0xF;
+      // ... and if bit 0x10 is on, it's modified by the envelope counter.
+      if (r[i+8] & 0x10) 
+	amplitude = envCounter;
+    }
 
-    g_speaker->mixOutput(outputState[i] ? volumeLevels[amplitude] : 0x00);
+    // test the NoiseEnable bit for this register
+    if (!(r[ENAB] & (1 << (3+i)))) {
+      // FIXME: if the noiseFlag is off, do we keep the tone value
+      // above? Or set to 0?
+      if (noiseFlag) {
+	amplitude = 7; // median "0-value" level (fixme?)
+	// ... and if bit 0x10 is on, it's modified by the envelope counter.
+	if (r[i+8] & 0x10) 
+	  amplitude = envCounter >> 1;
+      } else {
+	amplitude = 0;
+      }
+    }
 
+    g_speaker->mixOutput(volumeLevels[amplitude]);
   }
-
 }
 

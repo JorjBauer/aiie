@@ -2,6 +2,7 @@
 #define __AY8910_H
 
 #include <stdint.h>
+#include "lcg.h"
 
 // Operations...
 enum {
@@ -53,6 +54,7 @@ class AY8910 {
 
  protected:
   uint16_t cycleTimeForPSG(uint8_t psg);
+  uint16_t cycleTimeForNoise();
   uint32_t calculateEnvelopeTime();
 
  private:
@@ -65,6 +67,10 @@ class AY8910 {
   int8_t envDirection;
   uint32_t envelopeTime;
   uint32_t envelopeTimer;
+  uint32_t noiseFlipTimer;
+  bool noiseFlag;
+
+  LCG lcg;
 };
 
 #endif
