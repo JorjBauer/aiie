@@ -8,7 +8,7 @@ TSRC=cpu.cpp util/testharness.cpp
 
 COMMONOBJS=cpu.o apple/appledisplay.o apple/applekeyboard.o apple/applemmu.o apple/applevm.o apple/diskii.o apple/nibutil.o RingBuffer.o globals.o apple/parallelcard.o apple/fx80.o apple/mockingboard.o apple/sy6522.o apple/ay8910.o lcg.o
 
-SDLOBJS=sdl/sdl-speaker.o sdl/sdl-display.o sdl/sdl-keyboard.o sdl/sdl-paddles.o sdl/sdl-filemanager.o sdl/aiie.o sdl/sdl-printer.o 
+SDLOBJS=sdl/sdl-speaker.o sdl/sdl-display.o sdl/sdl-keyboard.o sdl/sdl-paddles.o sdl/sdl-filemanager.o sdl/aiie.o sdl/sdl-printer.o sdl/sdl-clock.o
 
 ROMS=apple/applemmu-rom.h apple/diskii-rom.h apple/parallel-rom.h
 

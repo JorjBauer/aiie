@@ -9,6 +9,8 @@
 #include "mockingboard.h"
 #ifdef TEENSYDUINO
 #include "teensy-clock.h"
+#else
+#include "sdl-clock.h"
 #endif
 
 #include "vm.h"
@@ -37,6 +39,8 @@ class AppleVM : public VM {
   Mockingboard *mockingboard;
 #ifdef TEENSYDUINO
   TeensyClock *teensyClock;
+#else
+  SDLClock *sdlClock;
 #endif
 };
 
