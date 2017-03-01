@@ -683,12 +683,13 @@ void AppleMMU::resetRAM()
       uint8_t v = romData[idx];
 #endif
       for (int j=0; j<5; j++) {
-	// FIXME: not sure why this has to update pages [0] and [1] to
-	// work; find out what the //e really did
-	for (uint8_t j=0; j<2; j++) {
-	  if (ramPages[i][j]) {
-	    ramPages[i][j][k] = v;
-	  }
+	// For the ROM section from 0xc100 .. 0xcfff, we load in to 
+	// an alternate page space (INTCXROM).
+	if (i >= 0xc1 && i <= 0xcf) {
+	  ramPages[i][1][k] = v;
+	} else {
+	  // Everything else goes in page 0.
+	  ramPages[i][0][k] = v;
 	}
       }
     }
@@ -759,11 +760,21 @@ void AppleMMU::updateMemoryPages()
   }
 
   if (switches & S_80STORE) {
+    // When S_80STORE is on, we switch 400-800 and 2000-4000 based on S_PAGE2.
+    // The behavior is different based on whether HIRESON/OFF is set.
     if (switches & S_PAGE2) {
+      // Regardless of HIRESON/OFF, pages 0x400-0x7ff are switched on S_PAGE2
       for (uint8_t idx = 0x04; idx < 0x08; idx++) {
 	readPages[idx] = ramPages[idx][1];
 	writePages[idx] = ramPages[idx][1];
       }
+
+      // but 2000-3fff switches based on S_PAGE2 only if HIRES is on.
+
+    // HIRESOFF: 400-7ff doesn't switch based on read/write flags
+    //           b/c it switches based on S_PAGE2 instead
+    // HIRESON: 400-800, 2000-3fff doesn't switch
+    //          b/c they switch based on S_PAGE2 instead
 
       // If HIRES is on, then we honor the PAGE2 setting; otherwise, we don't
       for (uint8_t idx = 0x20; idx < 0x40; idx++) {
@@ -775,12 +786,9 @@ void AppleMMU::updateMemoryPages()
 	readPages[idx] = ramPages[idx][0];
 	writePages[idx] = ramPages[idx][0];
       }
-      if (switches & S_HIRES) {
-	// PAGE2 is off, so we set this back to 0 regardless
-	for (uint8_t idx = 0x20; idx < 0x40; idx++) {
-	  readPages[idx] = ramPages[idx][0];
-	  writePages[idx] = ramPages[idx][0];
-	}
+      for (uint8_t idx = 0x20; idx < 0x40; idx++) {
+	readPages[idx] = ramPages[idx][0];
+	writePages[idx] = ramPages[idx][0];
       }
     }
   }
