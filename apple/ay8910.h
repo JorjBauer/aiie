@@ -71,6 +71,8 @@ class AY8910 {
   bool noiseFlag;
 
   LCG lcg;
+  uint8_t lcgLastByte;
+  uint8_t lcgBitsRemaining;
 };
 
 #endif
