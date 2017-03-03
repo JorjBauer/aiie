@@ -71,6 +71,27 @@ uint8_t AppleMMU::read(uint16_t address)
     return readSwitches(address);
   }
 
+  // If C800-CFFF isn't latched to a slot ROM, and we try to 
+  // access a slot's memory space from C100-C7FF, then we need 
+  // to latch in the slot's ROM.
+  if (slotLatch == -1 && address >= 0xc100 && address <= 0xc7ff) {
+    slotLatch = (address >> 8) & 0x07;
+    if (slotLatch == 3 && slot3rom) {
+      // Back off: UTA2E p. 5-28: don't latch in slot 3 ROM while 
+      // the slot3rom flag is enabled
+      // fixme
+      slotLatch = 3;
+    } else {
+      updateMemoryPages();
+    }
+  }
+
+  // If we access CFFF, that unlatches slot ROM.
+  if (address == 0xCFFF) {
+    slotLatch = -1;
+    updateMemoryPages();
+  }
+
   // FIXME: assumes slot 4 is a mockingboard
   if (slots[4] && address >= 0xC400 && address <= 0xC4FF) {
     return ((Mockingboard *)slots[4])->read(address);
@@ -658,6 +679,8 @@ void AppleMMU::resetRAM()
   intcxrom = false;
   slot3rom = false;
 
+  slotLatch = -1;
+
   preWriteFlag = false;
 
   // Clear all the pages
@@ -685,8 +708,20 @@ void AppleMMU::resetRAM()
       for (int j=0; j<5; j++) {
 	// For the ROM section from 0xc100 .. 0xcfff, we load in to 
 	// an alternate page space (INTCXROM).
+
 	if (i >= 0xc1 && i <= 0xcf) {
-	  ramPages[i][1][k] = v;
+	  // If we want to convince the VM we've got 128k of RAM, we 
+	  // need to load C3 ROM in page 0 (but not 1, meaning there's 
+	  // a board installed); and C800.CFFF in both page [0] and [1]
+	  // (meaning there's an extended 80-column ROM available, 
+	  // that is also physically in the slot).
+	  // Everything else goes in page [1].
+	  if (i == 0xc3) 
+	    ramPages[i][0][k] = v;
+	  else if (i >= 0xc8)
+	    ramPages[i][0][k] = ramPages[i][1][k] = v;
+	  else
+	    ramPages[i][1][k] = v;
 	} else {
 	  // Everything else goes in page 0.
 	  ramPages[i][0][k] = v;
@@ -800,6 +835,24 @@ void AppleMMU::updateMemoryPages()
   } else {
     for (uint8_t idx = 0xc1; idx < 0xd0; idx++) {
       readPages[idx] = ramPages[idx][0];
+    }
+    if (slot3rom) {
+      readPages[0xc3] = ramPages[0xc3][1];
+      for (int i=0xc8; i<=0xcf; i++) {
+	readPages[i] = ramPages[i][1];
+      }
+    }
+  }
+
+  // If slotLatch is set (!= -1), then we are mapping 2k of ROM
+  // for a given peripheral to C800..CFFF.
+  if (slotLatch != -1) {
+    // FIXME: the only peripheral we support this with right now is 
+    // the 80-column card.
+    if (slotLatch == 3) {
+      for (int i=0xc8; i <= 0xcf; i++) {
+	readPages[i] = ramPages[i][1];
+      }
     }
   }
 

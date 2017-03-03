@@ -72,6 +72,7 @@ class AppleMMU : public MMU {
   bool altzp;
   bool intcxrom;
   bool slot3rom;
+  int8_t slotLatch;
 
   bool preWriteFlag;        // see UTA2E p. 5-23
 
