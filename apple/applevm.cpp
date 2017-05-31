@@ -23,8 +23,10 @@ AppleVM::AppleVM()
   parallel = new ParallelCard();
   ((AppleMMU *)mmu)->setSlot(1, parallel);
 
+  mockingboard = NULL;
+  /*
   mockingboard = new Mockingboard();
-  ((AppleMMU *)mmu)->setSlot(4, mockingboard);
+  ((AppleMMU *)mmu)->setSlot(4, mockingboard);*/
 
 #ifdef TEENSYDUINO
   teensyClock = new TeensyClock((AppleMMU *)mmu);

@@ -133,14 +133,19 @@ void SDLSpeaker::maintainSpeaker(uint32_t c)
   // The "terribad" audio gets two shares. THis means we've got 8 total 
   // "voices" -- 6 from the mockingboard and 2 from the built-in. 8 is 
   // a great number for dividing. :)
-  mixerValue += (toggleState ? 0xFF : 0x00);
+  mixerValue += (toggleState ? 0x1FF : 0x00);
   numMixed += 2;
 
+#if 0
   if (numMixed != 8) {
     printf("SPEAKER FAIL - should always be 8\n");
   }
 
   mixerValue >>= 3; // divide by 8
+#else
+  mixerValue /= numMixed;
+#endif
+
 
   // FIXME: g_volume
 

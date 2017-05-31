@@ -407,6 +407,7 @@ void Cpu::Reset()
   x = 0;
   y = 0;
   flags = F_Z | F_UNK; // FIXME: is that F_UNK flag right here?
+  irqPending = false;
 
   if (mmu) {
     pc = readmem(0xFFFC) | (readmem(0xFFFD) << 8);
@@ -495,6 +496,11 @@ uint8_t Cpu::Run(uint8_t numSteps)
 
 uint8_t Cpu::step()
 {
+  if (irqPending) {
+    irqPending = false;
+    irq();
+  }
+
   uint8_t m = readmem(pc++);
 
   optype_t opcode = opcodes[m];
@@ -1050,3 +1056,7 @@ uint16_t Cpu::popS16()
   return (msb << 8) | lsb;
 }
 
+void Cpu::stageIRQ()
+{
+  irqPending = true;
+}

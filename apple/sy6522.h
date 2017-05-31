@@ -25,6 +25,19 @@ enum {
   SY_ORANOHS = 0x0f  // ORA_NO_HS
 };
 
+// IFR and IER share the names of all but the high bit
+enum {
+  SY_IR_CA2       = 1,
+  SY_IR_CA1       = 2,
+  SY_IR_SHIFTREG  = 4,
+  SY_IR_CB2       = 8,
+  SY_IR_CB1       = 16,
+  SY_IR_TIMER2    = 32,
+  SY_IR_TIMER1    = 64,
+  SY_IER_SETCLEAR = 128,
+  SY_IFR_IRQ      = 128
+};
+
 class SY6522 {
  public:
   SY6522();

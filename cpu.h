@@ -45,6 +45,8 @@ class Cpu {
   uint8_t SP();
   uint8_t P();
 
+  void stageIRQ();
+
  protected:
   // Stack manipulation
   void pushS8(uint8_t b);
@@ -64,6 +66,8 @@ class Cpu {
   uint8_t flags;
 
   uint32_t cycles;
+
+  bool irqPending;
   
   MMU *mmu;
 };

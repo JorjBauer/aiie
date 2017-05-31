@@ -1,6 +1,8 @@
 #include "sy6522.h"
 #include <stdio.h>
 
+#include "globals.h"
+
 SY6522::SY6522()
 {
   ORB = ORA = 0;
@@ -25,7 +27,7 @@ uint8_t SY6522::read(uint8_t address)
   case SY_DDRA:
     return DDRA;
   case SY_TMR1L:
-      // FIXME: also updates IFR?
+    IFR &= ~SY_IR_TIMER1;
     return (T1_CTR & 0xFF);
   case SY_TMR1H:
     return (T1_CTR >> 8);
@@ -34,7 +36,7 @@ uint8_t SY6522::read(uint8_t address)
   case SY_TMR1HL:
     return (T1_CTR_LATCH >> 8);
   case SY_TMR2L:
-    // FIXME: alos udpates IFR?
+    IFR &= ~SY_IR_TIMER2;
     return (T2_CTR & 0xFF);
   case SY_TMR2H:
     return (T2_CTR >> 8);
@@ -82,6 +84,15 @@ uint8_t SY6522::read(uint8_t address)
     return;
 
   case SY_TMR1H:
+    IFR &= SY_IR_TIMER1;
+
+    // Update IFR?
+    IFR &= 0x7F;
+    if (IFR & IER) {
+      // an interrupt is happening; keep the IE flag on
+      IFR |= 0x80;
+    }
+
     // FIXME: clear interrupt flag
     T1_CTR_LATCH = (T1_CTR_LATCH & 0x00FF) | (val << 8);
     T1_CTR = T1_CTR_LATCH;
@@ -145,6 +156,26 @@ uint8_t SY6522::read(uint8_t address)
 
 void SY6522::update(uint32_t cycles)
 {
+  /* Update 6522 timers */
+
+  // ...
+  /*  
+  SY_IR_CA2       = 1,
+    SY_IR_CA1       = 2,
+    SY_IR_SHIFTREG  = 4,
+    SY_IR_CB2       = 8,
+    SY_IR_CB1       = 16,
+    SY_IR_TIMER2    = 32,
+    SY_IR_TIMER1    = 64,
+    SY_IER_SETCLEAR = 128,
+  SY_IFR_IRQ      = 128
+  */
+  /* Check for 6522 interrupts */
+  if (IFR & 0x80) {
+    g_cpu->stageIRQ();
+  }
+
+  /* Update the attached 8910 chip(s) */
   ay8910[0].update(cycles);
 }
 
