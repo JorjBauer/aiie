@@ -6,3 +6,5 @@ parallel.rom
 apple/applemmu-rom.h
 apple/diskii-rom.h
 apple/parallel-rom.h
+aiie-sdl
+mockingboard-d.rom
