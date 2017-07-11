@@ -161,7 +161,7 @@
 <wire x1="101.27" y1="157.47" x2="-1.27" y2="157.47" width="0" layer="20"/>
 <wire x1="-1.27" y1="157.47" x2="-1.27" y2="0" width="0" layer="20"/>
 <rectangle x1="2.54" y1="82.55" x2="97.79" y2="146.05" layer="52"/>
-<text x="13.97" y="54.61" size="2.286" layer="21" rot="R90">AiiE! 20170627</text>
+<text x="13.97" y="54.61" size="2.286" layer="21" rot="R90">AiiE! 20170710</text>
 <text x="17.78" y="55.88" size="2.286" layer="21" rot="R90">jorj@jorj.org</text>
 <text x="2.54" y="50.8" size="2.54" layer="21">1!</text>
 <text x="10.16" y="50.8" size="2.54" layer="21">2@</text>
@@ -213,11 +213,11 @@
 <text x="59.69" y="20.32" size="2.54" layer="21">M</text>
 <text x="67.31" y="20.32" size="2.54" layer="21">,&lt;</text>
 <text x="74.93" y="20.32" size="2.54" layer="21">.&gt;</text>
-<text x="82.55" y="20.32" size="2.54" layer="21">/?</text>
+<text x="82.55" y="20.32" size="2.1844" layer="21">/?</text>
 <text x="8.89" y="10.16" size="1.778" layer="21">LOCK</text>
 <text x="24.13" y="10.16" size="1.778" layer="21">TAB</text>
 <text x="45.72" y="10.16" size="1.778" layer="21">SPACE</text>
-<text x="17.78" y="10.16" size="2.54" layer="21">`~</text>
+<text x="17.78" y="10.16" size="1.778" layer="21">`~</text>
 <text x="33.02" y="10.16" size="2.54" layer="21">\\|</text>
 <text x="62.23" y="10.16" size="1.778" layer="21">left</text>
 <text x="69.85" y="10.16" size="1.778" layer="21">right</text>
@@ -227,14 +227,15 @@
 <text x="5.08" y="76.2" size="1.778" layer="21">RA</text>
 <text x="83.82" y="147.32" size="1.778" layer="21">Reset</text>
 <text x="57.15" y="148.59" size="1.778" layer="21">Power</text>
-<text x="25.4" y="58.42" size="1.27" layer="21" rot="R90">DispSel</text>
 <text x="74.93" y="152.4" size="5.08" layer="22" rot="MR0">+</text>
 <text x="20.32" y="152.4" size="5.08" layer="22" rot="MR0">-</text>
 <text x="76.2" y="124.46" size="5.08" layer="22" rot="MR0">-</text>
 <text x="91.44" y="124.46" size="5.08" layer="22" rot="MR0">+</text>
-<text x="91.44" y="93.98" size="2.54" layer="22" rot="MR0">Speaker</text>
-<text x="88.9" y="114.3" size="2.54" layer="22" rot="MR0">Backup
+<text x="90.17" y="130.81" size="2.54" layer="22" rot="MR0">Speaker</text>
+<text x="90.17" y="91.44" size="2.54" layer="22" rot="MR0">Backup
 Battery</text>
+<text x="90.17" y="102.87" size="5.08" layer="22" rot="MR0">+</text>
+<text x="88.9" y="85.09" size="5.08" layer="22" rot="MR0">-</text>
 </plain>
 <libraries>
 <library name="SparkFun-Switches">
