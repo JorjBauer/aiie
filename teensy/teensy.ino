@@ -36,7 +36,7 @@ enum {
   D_SHOWBATTERY = 6,
   D_SHOWTIME    = 7
 };
-uint8_t debugMode = D_SHOWFPS;
+uint8_t debugMode = D_NONE;
 
 static   time_t getTeensy3Time() {  return Teensy3Clock.get(); }
 
@@ -77,7 +77,8 @@ void setup()
     Serial.println("Error while setting RTC");
   }
 
-  spi.setPins(RF_MISO, RF_MOSI, RF_SCK);
+#if 0
+spi.setPins(RF_MISO, RF_MOSI, RF_SCK);
   if (!nrf24.init())
     Serial.println("init failed");
   // Defaults after init are 2.402 GHz (channel 2), 2Mbps, 0dBm
@@ -86,6 +87,7 @@ void setup()
   if (!nrf24.setRF(RH_NRF24::DataRate2Mbps, RH_NRF24::TransmitPower0dBm))
     Serial.println("setRF failed");    
   Serial.println("nrf24 initialized");
+#endif
   
   TCHAR *device = (TCHAR *)_T("0:/");
   f_mount (&fatfs, device, 0);      /* Mount/Unmount a logical drive */
@@ -136,7 +138,7 @@ void setup()
   g_keyboard = new TeensyKeyboard(g_vm->getKeyboard());
 
   Serial.println(" paddles");
-  g_paddles = new TeensyPaddles();
+  g_paddles = new TeensyPaddles(A23, A24, 1, 1);
 
   // Now that all the virtual hardware is glued together, reset the VM
   Serial.println("Resetting VM");
