@@ -352,7 +352,15 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
 
   case 0xC018: // RD80COL
     return (switches & S_80STORE) ? 0x80 : 0x00;
-    // 0xC019: RDVBLBAR -- is the vertical blanking low?
+  case 0xC019: // RDVBLBAR -- vertical blanking, for 4550 cycles of every 17030
+    // Should return 0 for 4550 of 17030 cycles. Since we're not really 
+    // running full speed video, instead, I'm returning 0 for 4096 (2^12)
+    // of every 16384 (2^14) cycles; the math is easier.
+    if ((g_cpu->cycles & 0x3000) == 0x3000) {
+      return 0x00;
+    } else {
+      return 0xFF; // FIXME: is 0xFF correct? Or 0x80?
+    }
   case 0xC01A: // RDTEXT
     return ( (switches & S_TEXT) ? 0x80 : 0x00 );
   case 0xC01B: // RDMIXED
