@@ -40,20 +40,12 @@ uint8_t debugMode = D_NONE;
 
 static   time_t getTeensy3Time() {  return Teensy3Clock.get(); }
 
-/* Totally messing around with the RadioHead library */
-#include <SPI.h>
-#include <RH_NRF24.h>
-#include <RHSoftwareSPI.h>
-RHSoftwareSPI spi;
-
-#define RF_CSN 40
-#define RF_MOSI 41
-#define RF_IRQ 42
-#define RF_CE 53
-#define RF_SCK 52
-#define RF_MISO 51
-
-RH_NRF24 nrf24(RF_CE, RF_CSN, spi);
+#define ESP_TXD 51
+#define ESP_CHPD 52
+#define ESP_RST 53
+#define ESP_RXD 40
+#define ESP_GPIO0 41
+#define ESP_GPIO2 42
 
 void setup()
 {
@@ -77,18 +69,6 @@ void setup()
     Serial.println("Error while setting RTC");
   }
 
-#if 0
-spi.setPins(RF_MISO, RF_MOSI, RF_SCK);
-  if (!nrf24.init())
-    Serial.println("init failed");
-  // Defaults after init are 2.402 GHz (channel 2), 2Mbps, 0dBm
-  if (!nrf24.setChannel(1))
-    Serial.println("setChannel failed");
-  if (!nrf24.setRF(RH_NRF24::DataRate2Mbps, RH_NRF24::TransmitPower0dBm))
-    Serial.println("setRF failed");    
-  Serial.println("nrf24 initialized");
-#endif
-  
   TCHAR *device = (TCHAR *)_T("0:/");
   f_mount (&fatfs, device, 0);      /* Mount/Unmount a logical drive */
 
@@ -281,24 +261,28 @@ void loop()
 			       // in the appropriate block below
   if (millis() >= nextBattCheck) {
     // FIXME: what about rollover?
-    nextBattCheck = millis() + 30 * 1000; // check every 30 seconds
+    nextBattCheck = millis() + 3 * 1000; // check every 30 seconds
 
-    // FIXME: scale appropriately.
     batteryLevel = analogRead(BATTERYPIN);
 
-    /* 205 is "near dead, do something about it right now" - 3.2v and lower.
-     * What's the top end? 216-ish?
-     *
-     * The reading fluctuates quite a lot - we should probably capture
-     * more and average it over a longer period before showing
-     * anything (FIXME)
+    /* 204 looks like the top end (5.05v * (204/255), within tolerance of my resistors).
+     *  Which suggests 176 is about 3.5v, which is the bottom 20% of discharge for LiIon.
+     *  We'll call that 0% battery remaining to protect the battery.
+     *  
+     *  Notes: 191/192 is 3.7v
+     *  ... but 193/192 is also 3.57v. :/
      */
-    if (batteryLevel < 205)
-      batteryLevel = 205;
-    if (batteryLevel > 216)
-      batteryLevel = 216;
+#if 1
+    Serial.print("battery: ");
+    Serial.println(batteryLevel);
+#endif
+    
+    if (batteryLevel < 176)
+      batteryLevel = 176;
+    if (batteryLevel > 204)
+      batteryLevel = 204;
 
-    batteryLevel = map(batteryLevel, 205, 216, 0, 100);
+    batteryLevel = map(batteryLevel, 176, 204, 0, 100);
     g_display->drawBatteryStatus(batteryLevel);
   }
 }
