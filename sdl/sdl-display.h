@@ -3,9 +3,9 @@
 
 #include <stdlib.h>
 
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_mutex.h>
-#include <SDL2/SDL_events.h>
+#include <SDL.h>
+#include <SDL_mutex.h>
+#include <SDL_events.h>
 
 #include "physicaldisplay.h"
 

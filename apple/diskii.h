@@ -10,7 +10,7 @@
 
 #include "filemanager.h"
 #include "applemmu.h"
-#include "slot.h"
+#include "Slot.h"
 
 #include "RingBuffer.h"
 #include "nibutil.h"

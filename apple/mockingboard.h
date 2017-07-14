@@ -9,8 +9,8 @@
 #endif
 
 #include "applemmu.h"
-#include "slot.h"
-#include "SY6522.h"
+#include "Slot.h"
+#include "sy6522.h"
 
 class Mockingboard : public Slot {
  public:

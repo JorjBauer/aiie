@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "slot.h"
+#include "Slot.h"
 #include "applemmu.h"
 
 class SDLClock : public Slot {

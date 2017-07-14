@@ -8,7 +8,7 @@
 #include <time.h>
 #endif
 
-#include "ringbuffer.h"
+#include "RingBuffer.h"
 
 #define NIBTRACKSIZE 0x1A00
 // Minimum viable nibblized sector size. With GAP bytes, could be much longer.

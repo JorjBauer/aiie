@@ -3,7 +3,7 @@
 
 #include <stdlib.h>
 #include "appledisplay.h"
-#include "slot.h"
+#include "Slot.h"
 #include "mmu.h"
 
 // when we read a nondeterministic result, we return FLOATING. Maybe
