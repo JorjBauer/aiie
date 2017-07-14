@@ -149,7 +149,7 @@ void SDLSpeaker::maintainSpeaker(uint32_t c)
 
   // FIXME: g_volume
 
-  curSpeakerData = mixerValue & 0xFF;
+  curSpeakerData = (mixerValue & 0xFF) >> 4;
 }
 
 void SDLSpeaker::beginMixing()
