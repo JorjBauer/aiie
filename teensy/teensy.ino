@@ -75,7 +75,7 @@ void setup()
   pinMode(RESETPIN, INPUT);
   digitalWrite(RESETPIN, HIGH);
 
-  analogReference(EXTERNAL); // 3.3v external, instead of 1.7v internal
+  analogReference(EXTERNAL); // 3.3v external, or 1.2v internal. We need 1.2 internal for the battery level, which means we're gonna have to do something about the paddles :/  
   analogReadRes(8); // We only need 8 bits of resolution (0-255) for battery & paddles
   analogReadAveraging(4); // ?? dunno if we need this or not.
   analogWriteResolution(12);
@@ -263,26 +263,37 @@ void loop()
     // FIXME: what about rollover?
     nextBattCheck = millis() + 3 * 1000; // check every 30 seconds
 
+    // This is a bit disruptive - but the external 3.3v will drop along with the battery level, so we should use the more stable (I hope) internal 1.2v.
+    // The alternative is to build a more stable buck/boost regulator for reference...
+    analogReference(INTERNAL);
     batteryLevel = analogRead(BATTERYPIN);
+    analogReference(EXTERNAL);
 
-    /* 204 looks like the top end (5.05v * (204/255), within tolerance of my resistors).
-     *  Which suggests 176 is about 3.5v, which is the bottom 20% of discharge for LiIon.
-     *  We'll call that 0% battery remaining to protect the battery.
+    /* LiIon charge to a max of 4.2v; and we should not let them discharge below about 3.5v.
+     *  With a resistor voltage divider of Z1=39k, Z2=10k we're looking at roughly 20.4% of 
+     *  those values: (10/49) * 4.2 = 0.857v, and (10/49) * 3.5 = 0.714v. Since the external 
+     *  voltage reference flags as the battery drops, we can't use that as an absolute 
+     *  reference. So using the INTERNAL 1.1v reference, that should give us a reasonable 
+     *  range, in theory; the math shows the internal reference to be about 1.27v (assuming 
+     *  the resistors are indeed 39k and 10k, which is almost certainly also wrong). But 
+     *  then the high end would be 172, and the low end is about 142, which matches my 
+     *  actual readings here very well.
      *  
-     *  Notes: 191/192 is 3.7v
-     *  ... but 193/192 is also 3.57v. :/
+     *  Actual measurements: 
+     *    3.46v = 144 - 146
+     *    4.21v = 172
      */
 #if 1
     Serial.print("battery: ");
     Serial.println(batteryLevel);
 #endif
     
-    if (batteryLevel < 176)
-      batteryLevel = 176;
-    if (batteryLevel > 204)
-      batteryLevel = 204;
+    if (batteryLevel < 146)
+      batteryLevel = 146;
+    if (batteryLevel > 172)
+      batteryLevel = 172;
 
-    batteryLevel = map(batteryLevel, 176, 204, 0, 100);
+    batteryLevel = map(batteryLevel, 146, 172, 0, 100);
     g_display->drawBatteryStatus(batteryLevel);
   }
 }
