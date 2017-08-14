@@ -75,7 +75,7 @@ void setup()
   pinMode(RESETPIN, INPUT);
   digitalWrite(RESETPIN, HIGH);
 
-  analogReference(EXTERNAL); // 3.3v external, or 1.2v internal. We need 1.2 internal for the battery level, which means we're gonna have to do something about the paddles :/  
+  analogReference(EXTERNAL); // 3.3v external, or 1.7v internal. We need 1.7 internal for the battery level, which means we're gonna have to do something about the paddles :/  
   analogReadRes(8); // We only need 8 bits of resolution (0-255) for battery & paddles
   analogReadAveraging(4); // ?? dunno if we need this or not.
   analogWriteResolution(12);
@@ -263,7 +263,7 @@ void loop()
     // FIXME: what about rollover?
     nextBattCheck = millis() + 3 * 1000; // check every 30 seconds
 
-    // This is a bit disruptive - but the external 3.3v will drop along with the battery level, so we should use the more stable (I hope) internal 1.2v.
+    // This is a bit disruptive - but the external 3.3v will drop along with the battery level, so we should use the more stable (I hope) internal 1.7v.
     // The alternative is to build a more stable buck/boost regulator for reference...
     analogReference(INTERNAL);
     batteryLevel = analogRead(BATTERYPIN);
@@ -290,10 +290,10 @@ void loop()
     
     if (batteryLevel < 146)
       batteryLevel = 146;
-    if (batteryLevel > 172)
-      batteryLevel = 172;
+    if (batteryLevel > 168)
+      batteryLevel = 168;
 
-    batteryLevel = map(batteryLevel, 146, 172, 0, 100);
+    batteryLevel = map(batteryLevel, 146, 168, 0, 100);
     g_display->drawBatteryStatus(batteryLevel);
   }
 }
