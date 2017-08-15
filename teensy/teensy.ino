@@ -207,14 +207,15 @@ void biosInterrupt()
   Timer1.start();
 }
 
-bool debugState = false;
-bool debugLCDState = false;
+//bool debugState = false;
+//bool debugLCDState = false;
 
 void runCPU()
 {
   if (micros() >= nextInstructionMicros) {
-    debugState = !debugState;
-    digitalWrite(56, debugState);
+    // Debugging: to watch when the CPU is triggered...
+    //debugState = !debugState;
+    //    digitalWrite(56, debugState);
     
     g_cpu->Run(24);
     
@@ -244,16 +245,19 @@ void loop()
 
   g_keyboard->maintainKeyboard();
 
-  debugLCDState = !debugLCDState;
-  digitalWrite(57, debugLCDState);
+  //debugLCDState = !debugLCDState;
+  //digitalWrite(57, debugLCDState);
 
   doDebugging();
 
-
+  // Only redraw if the CPU is caught up; and then we'll suspend the
+  // CPU to draw a full frame.
+  Timer1.stop();
   g_vm->vmdisplay->needsRedraw();
   AiieRect what = g_vm->vmdisplay->getDirtyRect();
   g_vm->vmdisplay->didRedraw();
   g_display->blit(what);
+  Timer1.start();
 
   static unsigned long nextBattCheck = 0;
   static int batteryLevel = 0; // static for debugging code! When done
