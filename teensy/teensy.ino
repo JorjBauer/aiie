@@ -226,7 +226,6 @@ void runCPU()
     ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
     g_speaker->maintainSpeaker(g_cpu->cycles);
 
-    
     // The CPU of the Apple //e ran at 1.023 MHz. Adjust when we think
     // the next instruction should run based on how long the execution
     // was ((1000/1023) * numberOfCycles) - which is about 97.8%.
@@ -252,6 +251,19 @@ void loop()
 
   // Only redraw if the CPU is caught up; and then we'll suspend the
   // CPU to draw a full frame.
+
+  // Note that this breaks audio, b/c it's real-time and requires the
+  // CPU running to change the audio line's value. So we need to EITHER
+  //
+  //   - delay the audio line by at least the time it takes for one
+  //     display update, OR
+  //   - lock display updates so the CPU can update the memory, but we
+  //     keep drawing what was going to be displayed
+  // 
+  // The Timer1.stop()/start() is bad. Using it, the display doesn't
+  // tear; but the audio is also broken. Taking it out, audio is good
+  // but the display tears.
+
   Timer1.stop();
   g_vm->vmdisplay->needsRedraw();
   AiieRect what = g_vm->vmdisplay->getDirtyRect();
