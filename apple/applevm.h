@@ -6,7 +6,6 @@
 #include "diskii.h"
 #include "vmkeyboard.h"
 #include "parallelcard.h"
-#include "mockingboard.h"
 #ifdef TEENSYDUINO
 #include "teensy-clock.h"
 #else
@@ -36,7 +35,6 @@ class AppleVM : public VM {
  protected:
   VMKeyboard *keyboard;
   ParallelCard *parallel;
-  Mockingboard *mockingboard;
 #ifdef TEENSYDUINO
   TeensyClock *teensyClock;
 #else

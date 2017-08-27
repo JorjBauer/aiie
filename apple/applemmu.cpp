@@ -10,7 +10,6 @@
 #include "applemmu-rom.h"
 #include "physicalspeaker.h"
 #include "cpu.h"
-#include "mockingboard.h"
 
 #include "globals.h"
 
@@ -92,11 +91,6 @@ uint8_t AppleMMU::read(uint16_t address)
     updateMemoryPages();
   }
 
-  // FIXME: assumes slot 4 is a mockingboard
-  if (slots[4] && address >= 0xC400 && address <= 0xC4FF) {
-    return ((Mockingboard *)slots[4])->read(address);
-  }
-  
   uint8_t res = readPages[address >> 8][address & 0xFF];
 
   return res;
@@ -113,12 +107,6 @@ void AppleMMU::write(uint16_t address, uint8_t v)
   if (address >= 0xC000 &&
       address <= 0xC0FF) {
     return writeSwitches(address, v);
-  }
-
-  // FIXME: assumes slot4 is a mockingboard
-  if (slots[4] && address >= 0xC400 && address <= 0xC4FF) {
-    ((Mockingboard *)slots[4])->write(address, v);
-    return;
   }
 
   // Don't allow writes to ROM

@@ -23,11 +23,6 @@ AppleVM::AppleVM()
   parallel = new ParallelCard();
   ((AppleMMU *)mmu)->setSlot(1, parallel);
 
-  mockingboard = NULL;
-  /*
-  mockingboard = new Mockingboard();
-  ((AppleMMU *)mmu)->setSlot(4, mockingboard);*/
-
 #ifdef TEENSYDUINO
   teensyClock = new TeensyClock((AppleMMU *)mmu);
   ((AppleMMU *)mmu)->setSlot(7, teensyClock);
@@ -46,8 +41,6 @@ AppleVM::~AppleVM()
 #endif
   delete disk6;
   delete parallel;
-  if (mockingboard)
-    delete mockingboard;
 }
 
 // fixme: make member vars
@@ -68,8 +61,6 @@ void AppleVM::cpuMaintenance(uint32_t cycles)
   }
 
   keyboard->maintainKeyboard(cycles);
-  if (mockingboard)
-    mockingboard->update(cycles);
 }
 
 void AppleVM::Reset()
