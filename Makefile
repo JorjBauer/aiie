@@ -6,7 +6,7 @@ CXXFLAGS=-Wall -I .. -I . -I apple -I sdl -I/usr/local/include/SDL2 -O3 -g
 
 TSRC=cpu.cpp util/testharness.cpp
 
-COMMONOBJS=cpu.o apple/appledisplay.o apple/applekeyboard.o apple/applemmu.o apple/applevm.o apple/diskii.o apple/nibutil.o RingBuffer.o globals.o apple/parallelcard.o apple/fx80.o apple/sy6522.o apple/ay8910.o lcg.o
+COMMONOBJS=cpu.o apple/appledisplay.o apple/applekeyboard.o apple/applemmu.o apple/applevm.o apple/diskii.o apple/nibutil.o RingBuffer.o globals.o apple/parallelcard.o apple/fx80.o lcg.o
 
 SDLOBJS=sdl/sdl-speaker.o sdl/sdl-display.o sdl/sdl-keyboard.o sdl/sdl-paddles.o sdl/sdl-filemanager.o sdl/aiie.o sdl/sdl-printer.o sdl/sdl-clock.o
 
