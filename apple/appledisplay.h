@@ -44,6 +44,8 @@ class AppleDisplay : public VMDisplay{
   virtual bool needsRedraw();
   virtual void didRedraw();
   virtual AiieRect getDirtyRect();
+  virtual void lockDisplay();
+  virtual void unlockDisplay();
 
   void modeChange(); // FIXME: rename 'redraw'?
   void setSwitches(uint16_t *switches);

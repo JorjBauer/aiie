@@ -21,6 +21,9 @@ class VMDisplay {
   virtual void didRedraw() = 0;
   virtual AiieRect getDirtyRect() = 0;
 
+  virtual void lockDisplay() = 0;
+  virtual void unlockDisplay() = 0;
+
   MMU *mmu;
   uint8_t *videoBuffer;
 };

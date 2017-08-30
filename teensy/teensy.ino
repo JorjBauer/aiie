@@ -265,10 +265,13 @@ void loop()
   // but the display tears.
 
   Timer1.stop();
-  g_vm->vmdisplay->needsRedraw();
-  AiieRect what = g_vm->vmdisplay->getDirtyRect();
-  g_vm->vmdisplay->didRedraw();
-  g_display->blit(what);
+  g_vm->vmdisplay->lockDisplay();
+  if (g_vm->vmdisplay->needsRedraw()) {
+    AiieRect what = g_vm->vmdisplay->getDirtyRect();
+    g_vm->vmdisplay->didRedraw();
+    g_display->blit(what);
+  }
+  g_vm->vmdisplay->unlockDisplay();
   Timer1.start();
 
   static unsigned long nextBattCheck = 0;

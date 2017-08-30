@@ -15,19 +15,27 @@
 
 
 
-#define extendDirtyRect(x,y) {    \
-    if (dirtyRect.left > x) {     \
-      dirtyRect.left = x;         \
-    }                             \
-    if (dirtyRect.right < x) {    \
-      dirtyRect.right = x;        \
-    }                             \
-    if (dirtyRect.top > y) {      \
-      dirtyRect.top = y;          \
-    }                             \
-    if (dirtyRect.bottom < y) {   \
-      dirtyRect.bottom = y;       \
-    }                             \
+#define extendDirtyRect(x,y) {      \
+    if (!dirty) {                   \
+      dirtyRect.left = x;           \
+      dirtyRect.right = x;          \
+      dirtyRect.top = y;            \
+      dirtyRect.bottom = y;         \
+      dirty = true;                 \
+    } else {                        \
+      if (dirtyRect.left > x) {     \
+        dirtyRect.left = x;         \
+      }                             \
+      if (dirtyRect.right < x) {    \
+        dirtyRect.right = x;        \
+      }                             \
+      if (dirtyRect.top > y) {      \
+        dirtyRect.top = y;          \
+      }                             \
+      if (dirtyRect.bottom < y) {   \
+        dirtyRect.bottom = y;       \
+      }                             \
+    }                               \
 }
 
 #if DISPLAYRUN == 512
@@ -84,12 +92,9 @@
 AppleDisplay::AppleDisplay(uint8_t *vb) : VMDisplay(vb)
 {
   this->switches = NULL;
-  this->dirty = true;
-  this->dirtyRect.left = this->dirtyRect.top = 0;
-  this->dirtyRect.right = 279;
-  this->dirtyRect.bottom = 191;
 
   textColor = g_displayType == m_monochrome?c_green:c_white;
+  modeChange();
 }
 
 AppleDisplay::~AppleDisplay()
@@ -535,6 +540,9 @@ void AppleDisplay::redrawLores()
 void AppleDisplay::modeChange()
 {
   dirty = true;
+  dirtyRect.left = dirtyRect.top = 0;
+  dirtyRect.right = 279;
+  dirtyRect.bottom = 191;
 }
 
 void AppleDisplay::Draw80LoresPixelAt(uint8_t c, uint8_t x, uint8_t y, uint8_t offset)
@@ -568,13 +576,8 @@ void AppleDisplay::Draw80LoresPixelAt(uint8_t c, uint8_t x, uint8_t y, uint8_t o
 
 void AppleDisplay::setSwitches(uint16_t *switches)
 {
-  dirty = true;
-  dirtyRect.left = 0;
-  dirtyRect.right = 279;
-  dirtyRect.top = 0;
-  dirtyRect.bottom = 191;
-
   this->switches = switches;
+  modeChange();
 }
 
 AiieRect AppleDisplay::getDirtyRect()
@@ -584,6 +587,26 @@ AiieRect AppleDisplay::getDirtyRect()
 
 bool AppleDisplay::needsRedraw()
 {
+  modeChange(); // FIXME: this shouldn't be necessary.
+  /* It should work like this:
+   *
+   *   When currently active video ram is written to, it calls the display.
+   *     Display detects whether or not it's currently locked.
+   *     If it's currently locked, then it notes the rect in a "locked update" rect
+   *     If it's not locked, then it pulls in the locked rect + this rect and extends the current dirty rect appropriately
+   *
+   *   Then when we start drawing, we take a snapshot of video ram &
+   *   blit the appropriate rect.
+   *
+   * Alternately: we could have multiple copies of the video areas of
+   * RAM and swap between them when drawing starts. But to do that,
+   * we'd need another (1 + 1 + 8 + 8) * 2 = 36k of RAM, which we don't have.
+   *
+   * I'm not sure either approach fixes tearing, though. We see
+   * tearing because there's no snapshot when the mode flags change, I
+   * think.
+   */
+
   if (dirty) {
     // Figure out what graphics mode we're in and redraw it in its entirety.
 
@@ -625,4 +648,13 @@ void AppleDisplay::didRedraw()
 void AppleDisplay::displayTypeChanged()
 {
   textColor = g_displayType == m_monochrome?c_green:c_white;
+  modeChange();
+}
+
+void AppleDisplay::lockDisplay()
+{
+}
+
+void AppleDisplay::unlockDisplay()
+{
 }
