@@ -25,7 +25,11 @@ public:
   virtual uint8_t read(uint16_t mem) { if (mem == 0xBFF0) { return 'R'; } return ram[mem];}
   virtual void write(uint16_t mem, uint8_t val) {
     if (mem == 0xBFF0) {printf("%c", val); return;} 
+#if defined(EXTENDEDTEST)
+    if (mem == 0x202) {printf("Start test %d\n", val);}
+#else
     if (mem == 0x200) {printf("Start test %d\n", val);}
+#endif
     ram[mem] = val;}
   virtual uint8_t readDirect(uint16_t address, uint8_t fromPage) { return read(address);}
 

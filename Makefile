@@ -21,9 +21,9 @@ clean:
 	rm -f *.o *~ */*.o */*~ testharness.basic testharness.verbose testharness.extended apple/diskii-rom.h apple/applemmu-rom.h apple/parallel-rom.h aiie-sdl
 
 test: $(TSRC)
-	g++ $(CXXFLAGS) -DBASICTEST $(TSRC) -o testharness.basic
-	g++ $(CXXFLAGS) -DVERBOSETEST $(TSRC) -o testharness.verbose
-	g++ $(CXXFLAGS) -DEXTENDEDTEST $(TSRC) -o testharness.extended
+	g++ $(CXXFLAGS) -DEXIT_ON_ILLEGAL -DVERBOSE_CPU_ERRORS -DTESTHARNESS -DBASICTEST $(TSRC) -o testharness.basic
+	g++ $(CXXFLAGS) -DEXIT_ON_ILLEGAL -DVERBOSE_CPU_ERRORS -DTESTHARNESS -DVERBOSETEST $(TSRC) -o testharness.verbose
+	g++ $(CXXFLAGS) -DEXIT_ON_ILLEGAL -DVERBOSE_CPU_ERRORS -DTESTHARNESS -DEXTENDEDTEST $(TSRC) -o testharness.extended
 
 roms: apple2e.rom disk.rom parallel.rom
 	./util/genrom.pl apple2e.rom disk.rom parallel.rom
