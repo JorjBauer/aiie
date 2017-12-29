@@ -23,6 +23,9 @@ class TeensyFileManager : public FileManager {
 
   virtual uint8_t readByteAt(int8_t fd, uint32_t pos);
   virtual bool writeByteAt(int8_t fd, uint8_t v, uint32_t pos);
+  
+ private:
+  bool _prepCache(int8_t fd);
 
  private:
   int8_t numCached;

@@ -30,6 +30,7 @@ class AppleVM : public VM {
   void ejectDisk(uint8_t drivenum);
   void insertDisk(uint8_t drivenum, const char *filename, bool drawIt = true);
 
+  const char *HDName(uint8_t drivenum);
   void ejectHD(uint8_t drivenum);
   void insertHD(uint8_t drivenum, const char *filename);
 

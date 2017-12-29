@@ -238,7 +238,7 @@ int main(int argc, char *argv[])
   }
 
   // FIXME: fixed test disk...
-  ((AppleVM *)g_vm)->insertHD(0, "hd32.img");
+  //  ((AppleVM *)g_vm)->insertHD(0, "hd32.img");
   
   nonblock(NB_ENABLE);
 

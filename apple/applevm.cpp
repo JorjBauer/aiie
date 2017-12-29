@@ -101,6 +101,11 @@ void AppleVM::insertDisk(uint8_t drivenum, const char *filename, bool drawIt)
   disk6->insertDisk(drivenum, filename, drawIt);
 }
 
+const char *AppleVM::HDName(uint8_t drivenum)
+{
+  return hd32->diskName(drivenum);
+}
+
 void AppleVM::ejectHD(uint8_t drivenum)
 {
   hd32->ejectDisk(drivenum);

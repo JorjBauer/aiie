@@ -10,6 +10,9 @@ DIR dir;
 FILINFO fno;
 FIL fil;
 
+int8_t rawFd = -1;
+FIL rawFil;
+
 static TCHAR *char2tchar( const char *charString, int nn, TCHAR *output)
 {
   int ii;
@@ -42,6 +45,12 @@ TeensyFileManager::~TeensyFileManager()
 
 int8_t TeensyFileManager::openFile(const char *name)
 {
+  // invalidate the raw file cache
+  if (rawFd != -1) {
+    f_close(&rawFil);
+    rawFd = -1;
+  }
+
   // See if there's a hole to re-use...
   for (int i=0; i<numCached; i++) {
     if (cachedNames[i][0] == '\0') {
@@ -68,6 +77,12 @@ int8_t TeensyFileManager::openFile(const char *name)
 
 void TeensyFileManager::closeFile(int8_t fd)
 {
+  // invalidate the raw file cache
+  if (rawFd != -1) {
+    f_close(&rawFil);
+    rawFd = -1;
+  }
+
   // invalid fd provided?
   if (fd < 0 || fd >= numCached)
     return;
@@ -136,7 +151,7 @@ int8_t TeensyFileManager::readDir(const char *where, const char *suffix, char *o
 	  }
 	  p = strstr(p, ",")+1;
 	}
-	if (matchesAny)
+	if (!matchesAny)
 	  continue;
       } else {
 	// one suffix to check
@@ -273,6 +288,36 @@ bool TeensyFileManager::writeTrack(int8_t fd, uint8_t *fromWhere, bool isNib)
   return (v == (isNib ? 0x1a00 : (256*16)));
 }
 
+bool TeensyFileManager::_prepCache(int8_t fd)
+{
+  FRESULT rc;
+
+  if (rawFd == -1 ||
+      rawFd != fd) {
+
+    // Not our cached file, or we have no cached file
+    if (rawFd != -1) {
+      // Close the old one if we had one
+      Serial.println("closing old HD cache");
+      f_close(&rawFil);
+      rawFd = -1;
+    }
+
+    // Open the new one
+    TCHAR buf[MAXPATH];
+    char2tchar(cachedNames[fd], MAXPATH, buf);
+    rc = f_open(&rawFil, (TCHAR*) buf, FA_READ|FA_WRITE);  
+    if (rc) {
+      Serial.println("readByteAt: failed to open");
+      return false;
+    }
+    Serial.println("new cache file open");
+    rawFd = fd; // cache is live
+  }
+
+  return (!rc);
+}
+
 uint8_t TeensyFileManager::readByteAt(int8_t fd, uint32_t pos)
 {
   // open, seek, read, close.
@@ -282,26 +327,21 @@ uint8_t TeensyFileManager::readByteAt(int8_t fd, uint32_t pos)
   if (cachedNames[fd][0] == 0)
     return false;
 
-  // open, seek, read, close.
-  TCHAR buf[MAXPATH];
-  char2tchar(cachedNames[fd], MAXPATH, buf);
-  FRESULT rc = f_open(&fil, (TCHAR*) buf, FA_READ);
-  if (rc) {
-    Serial.println("readByteAt: failed to open");
-    return false;
-  }
+  FRESULT rc;
 
-  rc = f_lseek(&fil, pos);
+  _prepCache(fd);
+
+  rc = f_lseek(&rawFil, pos);
   if (rc) {
     Serial.println("readByteAt: seek failed");
-    f_close(&fil);
     return false;
   }
   uint8_t b;
   UINT v;
-  f_read(&fil, &b, 1, &v);
-  f_close(&fil);
-  return (v == 1);
+  f_read(&rawFil, &b, 1, &v);
+
+  // FIXME: check v == 1 & handle error
+  return b;
 }
 
 bool TeensyFileManager::writeByteAt(int8_t fd, uint8_t v, uint32_t pos)
@@ -313,14 +353,14 @@ bool TeensyFileManager::writeByteAt(int8_t fd, uint8_t v, uint32_t pos)
   if (cachedNames[fd][0] == 0)
     return false;
 
-  // open, seek, write, close.
-  TCHAR buf[MAXPATH];
-  char2tchar(cachedNames[fd], MAXPATH, buf);
-  FRESULT rc = f_open(&fil, (TCHAR*) buf, FA_WRITE);
-  rc = f_lseek(&fil, pos);
+  FRESULT rc;
+
+  _prepCache(fd);
+
+  rc = f_lseek(&rawFil, pos);
   UINT ret;
-  f_write(&fil, &v, 1, &ret);
-  f_close(&fil);
+  f_write(&rawFil, &v, 1, &ret);
+
   return (ret == 1);
 }
 

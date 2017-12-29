@@ -12,16 +12,18 @@
 enum {
   ACT_EXIT = 0,
   ACT_RESET = 1,
-  ACT_REBOOT = 2,
+  ACT_COLDBOOT = 2,
   ACT_MONITOR = 3,
   ACT_DISPLAYTYPE = 4,
   ACT_DEBUG = 5,
   ACT_DISK1 = 6,
   ACT_DISK2 = 7,
-  ACT_VOLPLUS = 8,
-  ACT_VOLMINUS = 9,
+  ACT_HD1 = 8,
+  ACT_HD2 = 9,
+  ACT_VOLPLUS = 10,
+  ACT_VOLMINUS = 11,
 
-  NUM_ACTIONS = 10
+  NUM_ACTIONS = 12
 };
 
 const char *titles[NUM_ACTIONS] = { "Resume",
@@ -32,6 +34,8 @@ const char *titles[NUM_ACTIONS] = { "Resume",
 				    "Debug: %s",
 				    "%s Disk 1",
 				    "%s Disk 2",
+				    "%s HD 1",
+				    "%s HD 2",
 				    "Volume +",
 				    "Volume -"
 };
@@ -86,7 +90,7 @@ bool BIOS::runUntilDone()
     switch (prevAction = GetAction(prevAction)) {
     case ACT_EXIT:
       goto done;
-    case ACT_REBOOT:
+    case ACT_COLDBOOT:
       ColdReboot();
       goto done;
     case ACT_RESET:
@@ -120,6 +124,26 @@ bool BIOS::runUntilDone()
       } else {
 	if (SelectDiskImage()) {
 	  ((AppleVM *)g_vm)->insertDisk(1, staticPathConcat(rootPath, fileDirectory[selectedFile]), false);
+	  goto done;
+	}
+      }
+      break;
+    case ACT_HD1:
+      if (((AppleVM *)g_vm)->HDName(0)[0] != '\0') {
+	((AppleVM *)g_vm)->ejectHD(0);
+      } else {
+	if (SelectDiskImage()) {
+	  ((AppleVM *)g_vm)->insertHD(0, staticPathConcat(rootPath, fileDirectory[selectedFile]));
+	  goto done;
+	}
+      }
+      break;
+    case ACT_HD2:
+      if (((AppleVM *)g_vm)->HDName(1)[0] != '\0') {
+	((AppleVM *)g_vm)->ejectHD(1);
+      } else {
+	if (SelectDiskImage()) {
+	  ((AppleVM *)g_vm)->insertHD(1, staticPathConcat(rootPath, fileDirectory[selectedFile]));
 	  goto done;
 	}
       }
@@ -204,12 +228,14 @@ bool BIOS::isActionActive(int8_t action)
   switch (action) {
   case ACT_EXIT:
   case ACT_RESET:
-  case ACT_REBOOT:
+  case ACT_COLDBOOT:
   case ACT_MONITOR:
   case ACT_DISPLAYTYPE:
   case ACT_DEBUG:
   case ACT_DISK1:
   case ACT_DISK2:
+  case ACT_HD1:
+  case ACT_HD2:
     return true;
 
   case ACT_VOLPLUS:
@@ -225,11 +251,13 @@ bool BIOS::isActionActive(int8_t action)
 void BIOS::DrawMainMenu(int8_t selection)
 {
   ((TeensyDisplay *)g_display)->clrScr();
-  g_display->drawString(M_NORMAL, 0, 12, "BIOS Configuration");
+  g_display->drawString(M_NORMAL, 0, 0, "BIOS Configuration");
   for (int i=0; i<NUM_ACTIONS; i++) {
     char buf[25];
     if (i == ACT_DISK1 || i == ACT_DISK2) {
       sprintf(buf, titles[i], ((AppleVM *)g_vm)->DiskName(i - ACT_DISK1)[0] ? "Eject" : "Insert");
+    } else if (i == ACT_HD1 || i == ACT_HD2) {
+      sprintf(buf, titles[i], ((AppleVM *)g_vm)->HDName(i - ACT_HD1)[0] ? "Eject" : "Insert");
     } else if (i == ACT_DISPLAYTYPE) {
       switch (g_displayType) {
       case m_blackAndWhite:
@@ -277,9 +305,9 @@ void BIOS::DrawMainMenu(int8_t selection)
     }
 
     if (isActionActive(i)) {
-      g_display->drawString(selection == i ? M_SELECTED : M_NORMAL, 10, 50 + 14 * i, buf);
+      g_display->drawString(selection == i ? M_SELECTED : M_NORMAL, 10, 20 + 14 * i, buf);
     } else {
-      g_display->drawString(selection == i ? M_SELECTDISABLED : M_DISABLED, 10, 50 + 14 * i, buf);
+      g_display->drawString(selection == i ? M_SELECTDISABLED : M_DISABLED, 10, 20 + 14 * i, buf);
     }
   }
 
@@ -402,8 +430,7 @@ uint8_t BIOS::GatherFilenames(uint8_t pageOffset)
 
   while (1) {
     char fn[BIOS_MAXPATH];
-    // FIXME: add po, nib
-    int8_t idx = g_filemanager->readDir(rootPath, "dsk", fn, startNum + count, BIOS_MAXPATH);
+    int8_t idx = g_filemanager->readDir(rootPath, "dsk,.po,nib,img", fn, startNum + count, BIOS_MAXPATH);
 
     if (idx == -1) {
       return count;
