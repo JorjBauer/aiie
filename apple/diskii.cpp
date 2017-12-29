@@ -23,7 +23,12 @@ DiskII::DiskII(AppleMMU *mmu)
 
   this->mmu = mmu;
 
-  curTrack = 0;
+  trackPos[0] = trackPos[1] = 0;
+  prevTrack[0] = prevTrack[1] = 0;
+  stepperPhases[0] = stepperPhases[1] = 0;
+  curPhase[0] = curPhase[1] = 0;
+  curTrack[0] = curTrack[1] = 0;
+
   trackDirty = false;
   trackToRead = -1;
   trackToFlush = -1;
@@ -46,8 +51,15 @@ DiskII::~DiskII()
 
 void DiskII::Reset()
 {
-  curTrack = 0;
+  trackPos[0] = trackPos[1] = 0;
+  prevTrack[0] = prevTrack[1] = 0;
+  stepperPhases[0] = stepperPhases[1] = 0;
+  curPhase[0] = curPhase[1] = 0;
+  curTrack[0] = curTrack[1] = 0;
+
   trackDirty = false;
+  trackToRead = -1;
+  trackToFlush = -1;
 
   writeMode = false;
   writeProt = false; // FIXME: expose an interface to this
@@ -83,7 +95,7 @@ uint8_t DiskII::readSwitches(uint8_t s)
   case 0x08: // drive off
     indicatorIsOn[selectedDisk] = 99;
     g_display->setDriveIndicator(selectedDisk, false); // FIXME: after a spell...
-    checkFlush(curTrack);
+    checkFlush(curTrack[selectedDisk]);
     break;
   case 0x09: // drive on
     indicatorIsOn[selectedDisk] = 100;
@@ -194,54 +206,54 @@ void DiskII::writeSwitches(uint8_t s, uint8_t v)
   }
 }
 
-// where phase is the address poked & 0x07 (e.g. "0xC0E0 & 0x07")
-void DiskII::step(uint8_t phase)
+// where a is the address poked & 0x07 (e.g. "0xC0E0 & 0x07")
+void DiskII::step(uint8_t a)
 {
-  static int mag[4] = { 0,0,0,0 };
-  static int pmag[4] = { 0, 0, 0, 0 }; 
-  static int ppmag[4] = { 0, 0, 0, 0 };
-  static int pnum = 0;
-  static int ppnum = 0;
-  static int trackPos = 0;
-  static int prevTrack = 0;
+  int phase = (a >> 1) & 3;
+  int phase_bit = (1 << phase);
 
-  //  phase &= 7;
-  int magnet_number = phase >> 1;
-
-  // shuffle data down
-  ppmag[ppnum] = pmag[ppnum];
-  ppnum = pnum;
-  pmag[pnum] = mag[pnum];
-  pnum = magnet_number;
-
-  if ((phase & 1) == 0) {
-    mag[magnet_number] = 0;
+  if (a & 1) {
+    stepperPhases[selectedDisk] |= phase_bit;
   } else {
-    if (ppmag[(magnet_number + 1) & 3]) {
-      if (--trackPos < 0) {
-	trackPos = 0;
-	// recalibrate...
-      }
-    }
-
-    if (ppmag[(magnet_number - 1) & 3]) {
-      // FIXME: don't go beyond the end of the media. For a 35-track disk, that's 68 == ((35-1) * 2).
-      if (++trackPos > 68) {
-	trackPos = 68;
-      }
-    }
-    mag[magnet_number] = 1;
+    stepperPhases[selectedDisk] &= ~phase_bit;
   }
 
-  curTrack = (trackPos + 1) / 2;
-  if (curTrack != prevTrack) {
-    // We're about to change tracks - be sure to flush the track if we've written to it
-    checkFlush(prevTrack);
+  // If the magnet opposite the cog is off, then try to move.  Move in
+  // the direction of adjacent magent - but if both adjacent magents
+  // are on, then don't move at all.
+  int direction = 0;
+  int cur_phase = curPhase[selectedDisk];
+  if (stepperPhases[selectedDisk] & (1 << ((cur_phase + 1) & 3))) {
+    direction++;
+  }
+  if (stepperPhases[selectedDisk] & (1 << ((cur_phase+3) & 3))) {
+    direction--;
+  }
 
-    // step to the appropriate track
-    prevTrack = curTrack;
-    // mark it to be read
-    trackToRead = curTrack;
+  if (direction) {
+    int next_phase = cur_phase + direction;
+    if (next_phase < 0) {
+      next_phase = 0;
+      // recalibrate
+    }
+      // FIXME: don't go beyond the end of the media. For a 35-track disk, that's 68 == ((35-1) * 2).
+    if (next_phase > 69) {
+      next_phase = 69;
+      // ... Or go to 79? or 68, which we stopped at before? Not sure
+      // what the right behavior is here.
+    }
+
+    if ((cur_phase >> 1) != (next_phase >> 1)) {
+      // We're about to change tracks - be sure to flush the track if we've written to it
+      checkFlush(prevTrack[selectedDisk]);
+      prevTrack[selectedDisk] = curTrack[selectedDisk];
+      curTrack[selectedDisk] = next_phase>>1;
+      // mark it to be read
+      trackToRead = curTrack[selectedDisk];
+    }
+
+    curPhase[selectedDisk] = next_phase;
+
   }
 }
 
@@ -317,7 +329,7 @@ void DiskII::select(int8_t which)
     indicatorIsOn[selectedDisk] = 0;
     g_display->setDriveIndicator(selectedDisk, false);
 
-    checkFlush(curTrack);
+    checkFlush(curTrack[selectedDisk]);
   }
 
   // set the selected disk drive
@@ -378,12 +390,12 @@ uint8_t DiskII::readOrWriteByte()
   // 
   // Don't fill it right here, b/c we don't want to bog down the CPU
   // thread/ISR.
-  if (trackToRead == curTrack) {// waiting for a read to complete
+  if (trackToRead == curTrack[selectedDisk]) {// waiting for a read to complete
     return GAP;
   }
 
   if ((trackToRead != -1) || !trackBuffer->hasData()) {
-    checkFlush(curTrack);
+    checkFlush(curTrack[selectedDisk]);
 
     // Need to read in a track of data and nibblize it. We'll return 0xFF
     // until that completes.
@@ -392,7 +404,7 @@ uint8_t DiskII::readOrWriteByte()
     // one we're reading. When we finish the read, we'll need to check
     // to be sure that we're still trying to read the same track that
     // we started with.
-    trackToRead = curTrack;
+    trackToRead = curTrack[selectedDisk];
 
     // While we're waiting for the sector to come around, we'll return
     // GAP bytes.
@@ -449,7 +461,7 @@ void DiskII::fillDiskBuffer()
       return;
     }
 
-    nibblizeTrack(trackBuffer, rawTrackBuffer, diskType[diskWeAreUsing], curTrack);
+    nibblizeTrack(trackBuffer, rawTrackBuffer, diskType[diskWeAreUsing], curTrack[selectedDisk]);
   }
 
   // Make sure we're still intending to read the track we just read
@@ -504,7 +516,7 @@ void DiskII::flushTrack(int8_t track, int8_t sel)
     return;
   }
 
-  nibErr e = denibblizeTrack(trackBuffer, rawTrackBuffer, diskType[sel], curTrack);
+  nibErr e = denibblizeTrack(trackBuffer, rawTrackBuffer, diskType[sel], curTrack[selectedDisk]);
   switch (e) {
   case errorShortTrack:
     g_display->debugMsg("DII: short track");

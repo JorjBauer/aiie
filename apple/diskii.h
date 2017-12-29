@@ -48,7 +48,7 @@ class DiskII : public Slot {
 #endif
 
  private:
-  volatile uint8_t curTrack;
+  volatile uint8_t curTrack[2];
   volatile bool trackDirty; // does this track need flushing to disk?
   uint8_t readWriteLatch;
   RingBuffer *trackBuffer; // nibblized data
@@ -57,6 +57,11 @@ class DiskII : public Slot {
   bool writeMode;
   bool writeProt;
   AppleMMU *mmu;
+
+  int trackPos[2];
+  int prevTrack[2];
+  int stepperPhases[2];
+  int curPhase[2];
 
   int8_t disk[2];
   volatile uint8_t indicatorIsOn[2];
