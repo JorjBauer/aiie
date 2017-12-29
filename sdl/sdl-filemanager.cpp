@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <errno.h>
 
 #include "sdl-filemanager.h"
 
@@ -187,3 +188,51 @@ bool SDLFileManager::writeTrack(int8_t fd, uint8_t *fromWhere, bool isNib)
   }
   return true;
 }
+
+uint8_t SDLFileManager::readByteAt(int8_t fd, uint32_t pos)
+{
+  if (fd < 0 || fd >= numCached)
+    return -1; // FIXME: error handling?
+
+  if (cachedNames[fd][0] == 0)
+    return -1; // FIXME: error handling?
+
+  uint8_t v = 0;
+
+  // open, seek, read, close.
+  bool ret = false;
+  int ffd = open(cachedNames[fd], O_RDONLY);
+  if (ffd) {
+    lseek(ffd, pos, SEEK_SET);
+    ret = (read(ffd, &v, 1) == 1);
+    close(ffd);
+  }
+
+  if (!ret) {
+    printf("ERROR reading: %d\n", errno);
+  }
+
+  // FIXME: error handling?
+  return v;
+}
+
+bool SDLFileManager::writeByteAt(int8_t fd, uint8_t v, uint32_t pos)
+{
+  if (fd < 0 || fd >= numCached)
+    return false;
+
+  if (cachedNames[fd][0] == 0)
+    return false;
+
+  // open, seek, write, close.
+  bool ret = false;
+  int ffd = open(cachedNames[fd], O_WRONLY);
+  if (ffd) {
+    lseek(ffd, pos, SEEK_SET);
+    ret = (write(ffd, &v, 1) == 1);
+    close(ffd);
+  }
+
+  return ret;
+}
+

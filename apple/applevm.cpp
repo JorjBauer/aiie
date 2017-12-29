@@ -25,11 +25,14 @@ AppleVM::AppleVM()
 
 #ifdef TEENSYDUINO
   teensyClock = new TeensyClock((AppleMMU *)mmu);
-  ((AppleMMU *)mmu)->setSlot(7, teensyClock);
+  ((AppleMMU *)mmu)->setSlot(5, teensyClock);
 #else
   sdlClock = new SDLClock((AppleMMU *)mmu);
-  ((AppleMMU *)mmu)->setSlot(7, sdlClock);
+  ((AppleMMU *)mmu)->setSlot(5, sdlClock);
 #endif
+
+  hd32 = new HD32((AppleMMU *)mmu);
+  ((AppleMMU *)mmu)->setSlot(7, hd32);
 }
 
 AppleVM::~AppleVM()
@@ -96,6 +99,16 @@ void AppleVM::ejectDisk(uint8_t drivenum)
 void AppleVM::insertDisk(uint8_t drivenum, const char *filename, bool drawIt)
 {
   disk6->insertDisk(drivenum, filename, drawIt);
+}
+
+void AppleVM::ejectHD(uint8_t drivenum)
+{
+  hd32->ejectDisk(drivenum);
+}
+
+void AppleVM::insertHD(uint8_t drivenum, const char *filename)
+{
+  hd32->insertDisk(drivenum, filename);
 }
 
 VMKeyboard * AppleVM::getKeyboard()

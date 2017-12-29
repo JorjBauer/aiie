@@ -24,6 +24,9 @@ class FileManager {
   virtual bool readBlock(int8_t fd, uint8_t *toWhere, bool isNib = false) = 0;
   virtual bool writeBlock(int8_t fd, uint8_t *fromWhere, bool isNib = false) = 0;
   virtual bool writeTrack(int8_t fd, uint8_t *fromWhere, bool isNib = false) = 0;
+
+  virtual uint8_t readByteAt(int8_t fd, uint32_t pos) = 0;
+  virtual bool writeByteAt(int8_t fd, uint8_t v, uint32_t pos) = 0;
 };
 
 #endif

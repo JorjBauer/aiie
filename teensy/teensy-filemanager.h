@@ -21,6 +21,9 @@ class TeensyFileManager : public FileManager {
   virtual bool writeBlock(int8_t fd, uint8_t *fromWhere, bool isNib = false);
   virtual bool writeTrack(int8_t fd, uint8_t *fromWhere, bool isNib = false);
 
+  virtual uint8_t readByteAt(int8_t fd, uint32_t pos);
+  virtual bool writeByteAt(int8_t fd, uint8_t v, uint32_t pos);
+
  private:
   int8_t numCached;
   char cachedNames[MAXFILES][MAXPATH];

@@ -273,3 +273,54 @@ bool TeensyFileManager::writeTrack(int8_t fd, uint8_t *fromWhere, bool isNib)
   return (v == (isNib ? 0x1a00 : (256*16)));
 }
 
+uint8_t TeensyFileManager::readByteAt(int8_t fd, uint32_t pos)
+{
+  // open, seek, read, close.
+  if (fd < 0 || fd >= numCached)
+    return false;
+
+  if (cachedNames[fd][0] == 0)
+    return false;
+
+  // open, seek, read, close.
+  TCHAR buf[MAXPATH];
+  char2tchar(cachedNames[fd], MAXPATH, buf);
+  FRESULT rc = f_open(&fil, (TCHAR*) buf, FA_READ);
+  if (rc) {
+    Serial.println("readByteAt: failed to open");
+    return false;
+  }
+
+  rc = f_lseek(&fil, pos);
+  if (rc) {
+    Serial.println("readByteAt: seek failed");
+    f_close(&fil);
+    return false;
+  }
+  uint8_t b;
+  UINT v;
+  f_read(&fil, &b, 1, &v);
+  f_close(&fil);
+  return (v == 1);
+}
+
+bool TeensyFileManager::writeByteAt(int8_t fd, uint8_t v, uint32_t pos)
+{
+  // open, seek, write, close.
+  if (fd < 0 || fd >= numCached)
+    return false;
+
+  if (cachedNames[fd][0] == 0)
+    return false;
+
+  // open, seek, write, close.
+  TCHAR buf[MAXPATH];
+  char2tchar(cachedNames[fd], MAXPATH, buf);
+  FRESULT rc = f_open(&fil, (TCHAR*) buf, FA_WRITE);
+  rc = f_lseek(&fil, pos);
+  UINT ret;
+  f_write(&fil, &v, 1, &ret);
+  f_close(&fil);
+  return (ret == 1);
+}
+

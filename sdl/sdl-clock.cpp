@@ -86,7 +86,7 @@ void SDLClock::writeSwitches(uint8_t s, uint8_t v)
   //  printf("unimplemented write to the clock - 0x%X\n", v);
 }
 
-// FIXME: this assumes slot #7
+// FIXME: this assumes slot #5
 void SDLClock::loadROM(uint8_t *toWhere)
 {
   memset(toWhere, 0xEA, 256); // fill the page with NOPs
@@ -98,9 +98,9 @@ void SDLClock::loadROM(uint8_t *toWhere)
   toWhere[0x06] = 0x70; // BVS
 
   // Pad out those bytes so they will return control well. The program
-  // at c700 becomes
+  // at c500 becomes
   //
-  //   C700: PHP  ; push to stack
+  //   C500: PHP  ; push to stack
   //         NOP  ; filler (filled in by memory clear)
   //         PLP  ; pop from stack
   //         RTS  ; return
@@ -112,19 +112,19 @@ void SDLClock::loadROM(uint8_t *toWhere)
 
   // And it needs a small routing here to read/write it:
   // 0x08: read
-  toWhere[0x08] = 0x4C; // JMP $C710
+  toWhere[0x08] = 0x4C; // JMP $C510
   toWhere[0x09] = 0x10;
-  toWhere[0x0A] = 0xC7;
+  toWhere[0x0A] = 0xC5;
 
   // 0x0b: write
-  toWhere[0x0B] = 0x8D; // STA $C0F0 (slot 7's first switch)
-  toWhere[0x0C] = 0xF0;
+  toWhere[0x0B] = 0x8D; // STA $C0D0 (slot 5's first switch)
+  toWhere[0x0C] = 0xD0;
   toWhere[0x0D] = 0xC0;
   toWhere[0x0E] = 0x60; // RTS
 
   // simple read
-  toWhere[0x10] = 0xAD; // LDA $C0F0 (slot 7's first switch)
-  toWhere[0x11] = 0xF0;
+  toWhere[0x10] = 0xAD; // LDA $C0D0 (slot 5's first switch)
+  toWhere[0x11] = 0xD0;
   toWhere[0x12] = 0xC0;
   toWhere[0x13] = 0x60; // RTS
 }

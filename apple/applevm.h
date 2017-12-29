@@ -4,6 +4,7 @@
 #include "cpu.h"
 #include "appledisplay.h"
 #include "diskii.h"
+#include "hd32.h"
 #include "vmkeyboard.h"
 #include "parallelcard.h"
 #ifdef TEENSYDUINO
@@ -29,9 +30,13 @@ class AppleVM : public VM {
   void ejectDisk(uint8_t drivenum);
   void insertDisk(uint8_t drivenum, const char *filename, bool drawIt = true);
 
+  void ejectHD(uint8_t drivenum);
+  void insertHD(uint8_t drivenum, const char *filename);
+
   virtual VMKeyboard *getKeyboard();
 
   DiskII *disk6;
+  HD32 *hd32;
  protected:
   VMKeyboard *keyboard;
   ParallelCard *parallel;

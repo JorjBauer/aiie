@@ -32,6 +32,9 @@ int send_rst = 0;
 
 pthread_t cpuThreadID;
 
+char disk1name[256] = "\0";
+char disk2name[256] = "\0";
+
 void sigint_handler(int n)
 {
   send_rst = 1;
@@ -133,7 +136,7 @@ static void *cpu_thread(void *dummyptr) {
 #endif
 
     if (send_rst) {
-#if 1
+#if 0
       printf("Sending reset\n");
       g_cpu->Reset();
       
@@ -142,7 +145,17 @@ static void *cpu_thread(void *dummyptr) {
       //g_vm->Reset();
       //g_cpu->Reset();
       //((AppleVM *)g_vm)->insertDisk(0, "disks/DIAGS.DSK");
-      
+#else
+      // Swap disks
+      if (disk1name[0] && disk2name[0]) {
+	printf("Swapping disks\n");
+
+	printf("Inserting disk %s in drive 1\n", disk2name);
+	((AppleVM *)g_vm)->insertDisk(0, disk2name);
+	printf("Inserting disk %s in drive 2\n", disk1name);
+	((AppleVM *)g_vm)->insertDisk(1, disk1name);
+      }
+      /*
 #else
       MMU *mmu = g_vm->getMMU();
 
@@ -169,6 +182,7 @@ static void *cpu_thread(void *dummyptr) {
       mmu->write(0x23, 24);
       mmu->write(0x33, '>');
       mmu->write(0x48, 0);  // from 0xfb2f: part of text init
+      */
 #endif
 
       send_rst = 0;
@@ -214,12 +228,17 @@ int main(int argc, char *argv[])
   if (argc >= 2) {
     printf("Inserting disk %s\n", argv[1]);
     ((AppleVM *)g_vm)->insertDisk(0, argv[1]);
+    strcpy(disk1name, argv[1]);
   }
 
   if (argc == 3) {
     printf("Inserting disk %s\n", argv[2]);
     ((AppleVM *)g_vm)->insertDisk(1, argv[2]);
+    strcpy(disk2name, argv[2]);
   }
+
+  // FIXME: fixed test disk...
+  ((AppleVM *)g_vm)->insertHD(0, "hd32.img");
   
   nonblock(NB_ENABLE);
 
