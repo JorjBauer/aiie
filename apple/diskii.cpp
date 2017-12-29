@@ -334,6 +334,8 @@ void DiskII::select(int8_t which)
 
   // set the selected disk drive
   selectedDisk = which;
+
+  trackToRead = curTrack[selectedDisk];
 }
 
 uint8_t DiskII::readOrWriteByte()
