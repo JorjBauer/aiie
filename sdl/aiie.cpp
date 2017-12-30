@@ -201,6 +201,7 @@ int main(int argc, char *argv[])
   g_filemanager = new SDLFileManager();
 
   g_display = new SDLDisplay();
+  //  g_displayType = m_blackAndWhite;
 
   // paddles have to be created after g_display created the window
   g_paddles = new SDLPaddles();
