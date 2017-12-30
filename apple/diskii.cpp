@@ -23,11 +23,8 @@ DiskII::DiskII(AppleMMU *mmu)
 
   this->mmu = mmu;
 
-  trackPos[0] = trackPos[1] = 0;
-  prevTrack[0] = prevTrack[1] = 0;
-  stepperPhases[0] = stepperPhases[1] = 0;
   curPhase[0] = curPhase[1] = 0;
-  curTrack[0] = curTrack[1] = 0;
+  curHalfTrack[0] = curHalfTrack[1] = 0;
 
   trackDirty = false;
   trackToRead = -1;
@@ -51,11 +48,8 @@ DiskII::~DiskII()
 
 void DiskII::Reset()
 {
-  trackPos[0] = trackPos[1] = 0;
-  prevTrack[0] = prevTrack[1] = 0;
-  stepperPhases[0] = stepperPhases[1] = 0;
   curPhase[0] = curPhase[1] = 0;
-  curTrack[0] = curTrack[1] = 0;
+  curHalfTrack[0] = curHalfTrack[1] = 0;
 
   trackDirty = false;
   trackToRead = -1;
@@ -82,20 +76,30 @@ uint8_t DiskII::readSwitches(uint8_t s)
 {
   switch (s) {
   case 0x00: // change stepper motor phase
+    break;
   case 0x01:
+    setPhase(0);
+    break;
   case 0x02:
+    break;
   case 0x03:
+    setPhase(1);
+    break;
   case 0x04:
+    break;
   case 0x05:
-  case 0x06:
-  case 0x07:
-    step(s);
+    setPhase(2);
+    break;
+  case 0x06: // 3 off
+    break;
+  case 0x07: // 3 on
+    setPhase(3);
     break;
 
   case 0x08: // drive off
     indicatorIsOn[selectedDisk] = 99;
     g_display->setDriveIndicator(selectedDisk, false); // FIXME: after a spell...
-    checkFlush(curTrack[selectedDisk]);
+    checkFlush(curHalfTrack[selectedDisk]>>1);
     break;
   case 0x09: // drive on
     indicatorIsOn[selectedDisk] = 100;
@@ -116,7 +120,7 @@ uint8_t DiskII::readSwitches(uint8_t s)
   case 0x0D: // load data register (latch)
     // This is complex and incomplete. cf. Logic State Sequencer, 
     // UTA2E, p. 9-14
-    if (!writeMode && indicatorIsOn[selectedDisk]) {
+    if (!writeMode) {
       if (isWriteProtected())
 	readWriteLatch |= 0x80;
       else
@@ -129,9 +133,9 @@ uint8_t DiskII::readSwitches(uint8_t s)
 
     // FIXME: with this shortcut here, disk access speeds up ridiculously.
     // Is this breaking anything?
-    return ( (readOrWriteByte() & 0x7F) |
-    (isWriteProtected() ? 0x80 : 0x00) );
-
+    /*return ( (readOrWriteByte() & 0x7F) |
+	     (isWriteProtected() ? 0x80 : 0x00) );
+    */
     break;
   case 0x0F: // set write mode
     setWriteMode(true);
@@ -155,6 +159,11 @@ uint8_t DiskII::readSwitches(uint8_t s)
 
   // Any even address read returns the readWriteLatch (UTA2E Table 9.1,
   // p. 9-12, note 2)
+  //  if ((s & 1) == 0 && curHalfTrack[selectedDisk] <= 3) {
+    //    printf("Read: %X\n", readWriteLatch);
+    //    fflush(stdout);
+  //  }
+
   return (s & 1) ? FLOATING : readWriteLatch;
 }
 
@@ -162,14 +171,24 @@ void DiskII::writeSwitches(uint8_t s, uint8_t v)
 {
   switch (s) {
   case 0x00: // change stepper motor phase
+    break;
   case 0x01:
+    setPhase(0);
+    break;
   case 0x02:
+    break;
   case 0x03:
+    setPhase(1);
+    break;
   case 0x04:
+    break;
   case 0x05:
-  case 0x06:
-  case 0x07:
-    step(s);
+    setPhase(2);
+    break;
+  case 0x06: // 3 off
+    break;
+  case 0x07: // 3 on
+    setPhase(3);
     break;
 
   case 0x08: // drive off
@@ -206,54 +225,74 @@ void DiskII::writeSwitches(uint8_t s, uint8_t v)
   }
 }
 
-// where a is the address poked & 0x07 (e.g. "0xC0E0 & 0x07")
-void DiskII::step(uint8_t a)
+/* The Disk ][ has a stepper motor that moves the head across the tracks.
+ * Switches 0-7 turn off and on the four different magnet phases; pulsing 
+ * from (e.g.) phase 0 to phase 1 makes the motor move up a track, and 
+ * (e.g.) phase 1 to phase 0 makes the motor move down a track.
+ *
+ * Except that's not quite true: the stepper actually moves the head a 
+ * _half_ track.
+ *
+ * This is a very simplified version of the stepper motor code. In theory, 
+ * we should keep track of all 4 phase magnets; and then only move up or down
+ * a half track when two adjacent motors are on (not three adjacent motors;
+ * and not two opposite motors). But that physical characteristic isn't 
+ * important for most diskettes, and our image formats aren't likely to 
+ * be able to provide appropriate half-track data to the programs that played 
+ * tricks with these half-tracks (for copy protection or whatever).
+ * 
+ * This setPhase is only called when turning *on* a phase. It's assumed that 
+ * something is turning *off* the phases correctly; and that the combination 
+ * of the previous phase that was on and the current phase that's being turned
+ * on are reliable enough to determine direction.
+ *
+ * The _phase_delta array is four sets of offsets - one for each
+ * current phase, detailing what the step will be given the next
+ * phase.  This kind of emulates the messiness of going from phase 0
+ * to 2 -- it's going to move forward two half-steps -- but then doing
+ * the same thing again is just going to move you back two half-steps...
+ *
+ */
+
+void DiskII::setPhase(uint8_t phase)
 {
-  int phase = (a >> 1) & 3;
-  int phase_bit = (1 << phase);
+  const int8_t _phase_delta[16] = {  0,  1,  2, -1, // prev phase 0 -> 0/1/2/3
+				    -1,  0,  1,  2, // prev phase 1 -> 0/1/2/3
+				    -2, -1,  0,  1, // prev phase 2 -> 0/1/2/3
+				     1, -2, -1,  0  // prev phase 3 -> 0/1/2/3
+  };
 
-  if (a & 1) {
-    stepperPhases[selectedDisk] |= phase_bit;
-  } else {
-    stepperPhases[selectedDisk] &= ~phase_bit;
+  int8_t prevPhase = curPhase[selectedDisk];
+  int8_t prevHalfTrack = curHalfTrack[selectedDisk];
+
+
+  curHalfTrack[selectedDisk] += _phase_delta[(prevPhase * 4) + phase];
+  curPhase[selectedDisk] = phase;
+  
+  // Cap at 35 tracks (a normal disk size). Some drives let you go farther, 
+  // and we could support that by increasing this limit - but the images 
+  // would be different too, so there would be more work to abstract out...
+  if (curHalfTrack[selectedDisk] > 35 * 2 - 1) {
+    curHalfTrack[selectedDisk] = 35 * 2 - 1;
   }
 
-  // If the magnet opposite the cog is off, then try to move.  Move in
-  // the direction of adjacent magent - but if both adjacent magents
-  // are on, then don't move at all.
-  int direction = 0;
-  int cur_phase = curPhase[selectedDisk];
-  if (stepperPhases[selectedDisk] & (1 << ((cur_phase + 1) & 3))) {
-    direction++;
-  }
-  if (stepperPhases[selectedDisk] & (1 << ((cur_phase+3) & 3))) {
-    direction--;
+  // Don't go past the innermost track, of course.
+  if (curHalfTrack[selectedDisk] < 0) {
+    curHalfTrack[selectedDisk] = 0;
+    // recalibrate! This is where the fun noise goes DaDaDaDaDaDaDaDaDa
   }
 
-  if (direction) {
-    int next_phase = cur_phase + direction;
-    if (next_phase < 0) {
-      next_phase = 0;
-      // recalibrate
-    }
-      // FIXME: don't go beyond the end of the media. For a 35-track disk, that's 68 == ((35-1) * 2).
-    if (next_phase > 69) {
-      next_phase = 69;
-      // ... Or go to 79? or 68, which we stopped at before? Not sure
-      // what the right behavior is here.
-    }
+  /*
+    printf("phase %d => %d; curHalfTrack %d => %d\n",
+    prevPhase, curPhase[selectedDisk],
+    prevHalfTrack, curHalfTrack[selectedDisk]);
+  */
 
-    if ((cur_phase >> 1) != (next_phase >> 1)) {
-      // We're about to change tracks - be sure to flush the track if we've written to it
-      checkFlush(prevTrack[selectedDisk]);
-      prevTrack[selectedDisk] = curTrack[selectedDisk];
-      curTrack[selectedDisk] = next_phase>>1;
-      // mark it to be read
-      trackToRead = curTrack[selectedDisk];
-    }
-
-    curPhase[selectedDisk] = next_phase;
-
+  if (curHalfTrack[selectedDisk]>>1 != prevHalfTrack>>1) {
+    // We're changing track - flush the old track back to disk
+    checkFlush(prevHalfTrack>>1);
+    // mark the new track to be read
+    trackToRead = curHalfTrack[selectedDisk]>>1;
   }
 }
 
@@ -329,13 +368,17 @@ void DiskII::select(int8_t which)
     indicatorIsOn[selectedDisk] = 0;
     g_display->setDriveIndicator(selectedDisk, false);
 
-    checkFlush(curTrack[selectedDisk]);
+    checkFlush(curHalfTrack[selectedDisk]>>1);
+
+    // set the selected disk drive
+    selectedDisk = which;
+
+    //  trackToRead = curHalfTrack[selectedDisk]>>1;
+    trackToRead = -1; // Assume we don't have to read anything on the
+		      // newly selected drive. When we get the first
+		      // read, we'll notice the track buffer is empty...
+    trackBuffer->clear();
   }
-
-  // set the selected disk drive
-  selectedDisk = which;
-
-  trackToRead = curTrack[selectedDisk];
 }
 
 uint8_t DiskII::readOrWriteByte()
@@ -392,12 +435,24 @@ uint8_t DiskII::readOrWriteByte()
   // 
   // Don't fill it right here, b/c we don't want to bog down the CPU
   // thread/ISR.
-  if (trackToRead == curTrack[selectedDisk]) {// waiting for a read to complete
+  if (trackToRead == curHalfTrack[selectedDisk]>>1) {// waiting for a read to complete for the current track
     return GAP;
   }
 
+  // return 0x00 every other byte. Helps the logic sequencer stay in sync.
+  // Otherwise we wind up waiting long periods of time for it to sync up, 
+  // presumably because we're overrunning it (returning data faster than 
+  // the actual drive would be able to)?
+  static bool whitespace = false;
+  if (whitespace) {
+    whitespace = false;
+    return 0x00;
+  }
+
+  whitespace = !whitespace;
+
   if ((trackToRead != -1) || !trackBuffer->hasData()) {
-    checkFlush(curTrack[selectedDisk]);
+    checkFlush(curHalfTrack[selectedDisk]>>1);
 
     // Need to read in a track of data and nibblize it. We'll return 0xFF
     // until that completes.
@@ -406,7 +461,7 @@ uint8_t DiskII::readOrWriteByte()
     // one we're reading. When we finish the read, we'll need to check
     // to be sure that we're still trying to read the same track that
     // we started with.
-    trackToRead = curTrack[selectedDisk];
+    trackToRead = curHalfTrack[selectedDisk]>>1;
 
     // While we're waiting for the sector to come around, we'll return
     // GAP bytes.
@@ -430,7 +485,6 @@ void DiskII::fillDiskBuffer()
     return;
 
   trackDirty = false;
-  trackBuffer->clear();
 
   int8_t trackWeAreReading = trackToRead;
   int8_t diskWeAreUsing = selectedDisk;
@@ -445,8 +499,8 @@ void DiskII::fillDiskBuffer()
     // couldn't, though, if RAM weren't at a premium.
     
     for (int i=0; i<16; i++) {
-      g_filemanager->seekBlock(disk[diskWeAreUsing], trackWeAreReading * 16 + i, diskType[diskWeAreUsing] == nibDisk);
-      if (!g_filemanager->readBlock(disk[diskWeAreUsing], rawTrackBuffer, diskType[diskWeAreUsing] == nibDisk)) {
+      g_filemanager->seekBlock(disk[diskWeAreUsing], trackWeAreReading * 16 + i, true);
+      if (!g_filemanager->readBlock(disk[diskWeAreUsing], rawTrackBuffer, true)) {
 	// FIXME: error handling?
 	trackToRead = -1;
 	return;
@@ -456,14 +510,14 @@ void DiskII::fillDiskBuffer()
   } else {
     // It's a .dsk / .po disk image. Read the whole track in to
     // rawTrackBuffer and nibblize it.
-    g_filemanager->seekBlock(disk[diskWeAreUsing], trackWeAreReading * 16, diskType[diskWeAreUsing] == nibDisk);
-    if (!g_filemanager->readTrack(disk[diskWeAreUsing], rawTrackBuffer, diskType[diskWeAreUsing] == nibDisk)) {
+    g_filemanager->seekBlock(disk[diskWeAreUsing], trackWeAreReading * 16, false);
+    if (!g_filemanager->readTrack(disk[diskWeAreUsing], rawTrackBuffer, false)) {
       // FIXME: error handling?
       trackToRead = -1;
       return;
     }
 
-    nibblizeTrack(trackBuffer, rawTrackBuffer, diskType[diskWeAreUsing], curTrack[selectedDisk]);
+    nibblizeTrack(trackBuffer, rawTrackBuffer, diskType[diskWeAreUsing], curHalfTrack[selectedDisk]>>1);
   }
 
   // Make sure we're still intending to read the track we just read
@@ -518,7 +572,7 @@ void DiskII::flushTrack(int8_t track, int8_t sel)
     return;
   }
 
-  nibErr e = denibblizeTrack(trackBuffer, rawTrackBuffer, diskType[sel], curTrack[selectedDisk]);
+  nibErr e = denibblizeTrack(trackBuffer, rawTrackBuffer, diskType[sel], curHalfTrack[selectedDisk]>>1);
   switch (e) {
   case errorShortTrack:
     g_display->debugMsg("DII: short track");

@@ -34,7 +34,7 @@ class DiskII : public Slot {
   void fillDiskBuffer(); // called from main loop
 
  private:
-  void step(uint8_t phase);
+  void setPhase(uint8_t phase);
 
   bool isWriteProtected();
   void setWriteMode(bool enable);
@@ -48,7 +48,8 @@ class DiskII : public Slot {
 #endif
 
  private:
-  volatile uint8_t curTrack[2];
+  volatile int8_t curHalfTrack[2];
+  volatile int8_t curPhase[2];
   volatile bool trackDirty; // does this track need flushing to disk?
   uint8_t readWriteLatch;
   RingBuffer *trackBuffer; // nibblized data
@@ -57,11 +58,6 @@ class DiskII : public Slot {
   bool writeMode;
   bool writeProt;
   AppleMMU *mmu;
-
-  int trackPos[2];
-  int prevTrack[2];
-  int stepperPhases[2];
-  int curPhase[2];
 
   int8_t disk[2];
   volatile uint8_t indicatorIsOn[2];

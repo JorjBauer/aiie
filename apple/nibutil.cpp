@@ -110,7 +110,9 @@ void nibblizeTrack(RingBuffer *trackBuffer, uint8_t *rawTrackBuffer,
     trackBuffer->addByte(0xAA);
     trackBuffer->addByte(0xEB);
     
-    //  trackBuffer->addByte(GAP);
+#ifdef LONGGAPS
+    trackBuffer->addByte(GAP);
+#endif
   }
 }
 
