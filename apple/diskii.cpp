@@ -16,9 +16,11 @@
 
 #include "diskii-rom.h"
 
+#define DISKIIMAGIC 0xAA
+
 DiskII::DiskII(AppleMMU *mmu)
 {
-  this->trackBuffer = new RingBuffer(NIBTRACKSIZE);
+  this->trackBuffer = new LRingBuffer(NIBTRACKSIZE);
   this->rawTrackBuffer = (uint8_t *)malloc(4096);
 
   this->mmu = mmu;
@@ -44,6 +46,101 @@ DiskII::~DiskII()
 {
   delete this->trackBuffer; this->trackBuffer = NULL;
   free(this->rawTrackBuffer); this->rawTrackBuffer = NULL;
+}
+
+bool DiskII::Serialize(int8_t fd)
+{
+  /* Make sure to flush anything to disk first */
+  checkFlush(curHalfTrack[selectedDisk]>>1);
+  if (trackToFlush != -1) {
+    flushTrack(trackToFlush, diskToFlush);
+  }
+  trackToFlush = -1;
+
+  g_filemanager->writeByte(fd, DISKIIMAGIC);
+
+  g_filemanager->writeByte(fd, curHalfTrack[0]);
+  g_filemanager->writeByte(fd, curHalfTrack[1]);
+
+  g_filemanager->writeByte(fd, curPhase[0]);
+  g_filemanager->writeByte(fd, curPhase[1]);
+
+  g_filemanager->writeByte(fd, readWriteLatch);
+  g_filemanager->writeByte(fd, writeMode);
+  g_filemanager->writeByte(fd, writeProt);
+
+  // Don't save disk[0,1]; save their file names & cursors
+  g_filemanager->SerializeFile(fd, disk[0]);
+  g_filemanager->SerializeFile(fd, disk[1]);
+
+  g_filemanager->writeByte(fd, indicatorIsOn[0]);
+  g_filemanager->writeByte(fd, indicatorIsOn[1]);
+
+  g_filemanager->writeByte(fd, diskType[0]);
+  g_filemanager->writeByte(fd, diskType[1]);
+  g_filemanager->writeByte(fd, selectedDisk);
+
+  trackBuffer->Serialize(fd);
+
+  // FIXME: don't know if we need these
+  // trackDirty - should always be unset, since we just flushed
+  // rawTrackBuffer - only used when reading an image
+  // trackToRead - should be able to leave this unset & reread
+  // trackToFlush - just flushed
+  // diskToFlush - just flushed
+
+  g_filemanager->writeByte(fd, DISKIIMAGIC);
+
+  return true;
+}
+
+bool DiskII::Deserialize(int8_t fd)
+{
+  /* Make sure to flush anything to disk first */
+  checkFlush(curHalfTrack[selectedDisk]>>1);
+  if (trackToFlush != -1) {
+    flushTrack(trackToFlush, diskToFlush);
+  }
+  trackToFlush = -1;
+
+  if (g_filemanager->readByte(fd) != DISKIIMAGIC) {
+    return false;
+  }
+
+  curHalfTrack[0] = g_filemanager->readByte(fd);
+  curHalfTrack[1] = g_filemanager->readByte(fd);
+
+  curPhase[0] = g_filemanager->readByte(fd);
+  curPhase[1] = g_filemanager->readByte(fd);
+
+  readWriteLatch = g_filemanager->readByte(fd);
+  writeMode = g_filemanager->readByte(fd);
+  writeProt = g_filemanager->readByte(fd);
+
+  disk[0] = g_filemanager->DeserializeFile(fd);
+  disk[1] = g_filemanager->DeserializeFile(fd);
+
+  indicatorIsOn[0] = g_filemanager->readByte(fd);
+  indicatorIsOn[1] = g_filemanager->readByte(fd);
+
+  diskType[0] = g_filemanager->readByte(fd);
+  diskType[1] = g_filemanager->readByte(fd);
+
+  selectedDisk = g_filemanager->readByte(fd);
+
+  trackBuffer->Deserialize(fd);
+
+  // Reset the dirty caches and whatnot
+  trackDirty = -1;
+  trackToRead = -1;
+  trackToFlush = -1;
+  diskToFlush = -1;
+
+  if (g_filemanager->readByte(fd) != DISKIIMAGIC) {
+    return false;
+  }
+
+  return true;
 }
 
 void DiskII::Reset()

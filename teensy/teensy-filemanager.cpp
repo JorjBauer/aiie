@@ -79,6 +79,8 @@ void TeensyFileManager::closeFile(int8_t fd)
 {
   // invalidate the raw file cache
   if (rawFd != -1) {
+    Serial.print("Invalidating raw file cache ");
+    Serial.println(rawFd);
     f_close(&rawFil);
     rawFd = -1;
   }
@@ -298,21 +300,26 @@ bool TeensyFileManager::_prepCache(int8_t fd)
     // Not our cached file, or we have no cached file
     if (rawFd != -1) {
       // Close the old one if we had one
-      Serial.println("closing old HD cache");
+      Serial.println("closing old cache file");
       f_close(&rawFil);
       rawFd = -1;
     }
 
+    Serial.println("opening new cache file");
     // Open the new one
     TCHAR buf[MAXPATH];
     char2tchar(cachedNames[fd], MAXPATH, buf);
-    rc = f_open(&rawFil, (TCHAR*) buf, FA_READ|FA_WRITE);  
+    rc = f_open(&rawFil, (TCHAR*) buf, FA_READ|FA_WRITE|FA_OPEN_ALWAYS);
     if (rc) {
-      Serial.println("readByteAt: failed to open");
+      Serial.print("_prepCache: failed to open ");
+      Serial.println(cachedNames[fd]);
       return false;
     }
-    Serial.println("new cache file open");
     rawFd = fd; // cache is live
+    Serial.print("New cache file is ");
+    Serial.println(fd);
+  } else {
+    //    Serial.println("reopning same cache");
   }
 
   return (!rc);
@@ -360,6 +367,68 @@ bool TeensyFileManager::writeByteAt(int8_t fd, uint8_t v, uint32_t pos)
   rc = f_lseek(&rawFil, pos);
   UINT ret;
   f_write(&rawFil, &v, 1, &ret);
+
+  return (ret == 1);
+}
+
+uint8_t TeensyFileManager::readByte(int8_t fd)
+{
+  // open, seek, read, close.
+  if (fd < 0 || fd >= numCached)
+    return false;
+
+  if (cachedNames[fd][0] == 0)
+    return false;
+
+  FRESULT rc;
+
+  _prepCache(fd);
+
+  uint32_t pos = fileSeekPositions[fd];
+
+  rc = f_lseek(&rawFil, pos);
+  if (rc) {
+    Serial.println("readByteAt: seek failed");
+    return false;
+  }
+  uint8_t b;
+  UINT v;
+  f_read(&rawFil, &b, 1, &v);
+
+  fileSeekPositions[fd]++;
+
+  // FIXME: check v == 1 & handle error
+  return b;
+}
+
+bool TeensyFileManager::writeByte(int8_t fd, uint8_t v)
+{
+  // open, seek, write, close.
+  if (fd < 0 || fd >= numCached) {
+    Serial.println("failed writeByte - invalid fd");
+    return false;
+  }
+
+  if (cachedNames[fd][0] == 0) {
+    Serial.println("failed writeByte - no cache name");
+    return false;
+  }
+
+  FRESULT rc;
+
+  _prepCache(fd);
+
+  uint32_t pos = fileSeekPositions[fd];
+
+  rc = f_lseek(&rawFil, pos);
+  UINT ret;
+  f_write(&rawFil, &v, 1, &ret);
+
+  fileSeekPositions[fd]++;
+
+  if (ret != 1) {
+    Serial.println("Write failed");
+  }
 
   return (ret == 1);
 }

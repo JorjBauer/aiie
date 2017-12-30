@@ -13,6 +13,16 @@ ParallelCard::~ParallelCard()
 {
 }
 
+bool ParallelCard::Serialize(int8_t fd)
+{
+  return true;
+}
+
+bool ParallelCard::Deserialize(int8_t fd)
+{
+  return true;
+}
+
 void ParallelCard::Reset()
 {
 }

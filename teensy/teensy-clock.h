@@ -16,6 +16,9 @@ class TeensyClock : public Slot {
   TeensyClock(AppleMMU *mmu);
   virtual ~TeensyClock();
 
+  virtual bool Serialize(int8_t fd);
+  virtual bool Deserialize(int8_t fd);
+
   virtual void Reset();
 
   virtual uint8_t readSwitches(uint8_t s);

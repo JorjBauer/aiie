@@ -13,6 +13,9 @@ class Slot {
  public:
   virtual ~Slot() {};
 
+  virtual bool Serialize(int8_t fd) = 0;
+  virtual bool Deserialize(int8_t fd) = 0;
+
   virtual void Reset() = 0; // for use at cold-boot
 
   virtual uint8_t readSwitches(uint8_t s) = 0;

@@ -37,6 +37,16 @@ SDLClock::~SDLClock()
 {
 }
 
+bool SDLClock::Serialize(int8_t fd)
+{
+  return true;
+}
+
+bool SDLClock::Deserialize(int8_t fd)
+{
+  return true;
+}
+
 void SDLClock::Reset()
 {
 }

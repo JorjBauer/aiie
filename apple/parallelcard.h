@@ -18,6 +18,9 @@ class ParallelCard : public Slot {
   ParallelCard();
   virtual ~ParallelCard();
 
+  virtual bool Serialize(int8_t fd);
+  virtual bool Deserialize(int8_t fd);
+
   virtual void Reset(); // used by BIOS cold-boot
   virtual uint8_t readSwitches(uint8_t s);
   virtual void writeSwitches(uint8_t s, uint8_t v);

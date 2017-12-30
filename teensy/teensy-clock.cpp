@@ -37,6 +37,16 @@ TeensyClock::~TeensyClock()
 {
 }
 
+bool TeensyClock::Serialize(int8_t fd)
+{
+  return true;
+}
+
+bool TeensyClock::Deserialize(int8_t fd)
+{
+  return true;
+}
+
 void TeensyClock::Reset()
 {
 }

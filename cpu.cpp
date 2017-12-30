@@ -1,8 +1,13 @@
+#ifdef TEENSYDUINO
+#include <Arduino.h>
+#endif
 #include "cpu.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include "mmu.h"
+
+#include "globals.h"
 
 // To see calls to unimplemented opcodes, define this:
 //#define VERBOSE_CPU_ERRORS
@@ -20,6 +25,9 @@
 
 #define writemem(addr, val) mmu->write(addr, val)
 #define readmem(addr) mmu->read(addr)
+
+// serialize suspend/restore token
+#define CPUMAGIC 0x65
 
 enum optype { 
   O_ILLEGAL,
@@ -410,6 +418,81 @@ Cpu::Cpu()
 Cpu::~Cpu()
 {
   mmu = NULL;
+}
+
+bool Cpu::Serialize(int8_t fh)
+{
+  g_filemanager->writeByte(fh, CPUMAGIC);
+
+  g_filemanager->writeByte(fh, (pc >> 8) & 0xFF);
+  g_filemanager->writeByte(fh, (pc     ) & 0xFF);
+
+  g_filemanager->writeByte(fh, sp);
+  g_filemanager->writeByte(fh, a);
+  g_filemanager->writeByte(fh, x);
+  g_filemanager->writeByte(fh, y);
+  g_filemanager->writeByte(fh, flags);
+
+  g_filemanager->writeByte(fh, (cycles >> 24) & 0xFF);
+  g_filemanager->writeByte(fh, (cycles >> 16) & 0xFF);
+  g_filemanager->writeByte(fh, (cycles >>  8) & 0xFF);
+  g_filemanager->writeByte(fh, (cycles      ) & 0xFF);
+
+  g_filemanager->writeByte(fh, irqPending ? 1 : 0);
+
+  if (!mmu->Serialize(fh)) {
+#ifndef TEENSYDUINO
+    printf("MMU serialization failed\n");
+#else
+    Serial.println("MMU serialization failed");
+#endif
+    return false;
+  }
+
+  g_filemanager->writeByte(fh, CPUMAGIC);
+
+  return true; // FIXME: no error checking on writes
+}
+
+bool Cpu::Deserialize(int8_t fh)
+{
+  if (g_filemanager->readByte(fh) != CPUMAGIC)
+    return false;
+
+  pc = g_filemanager->readByte(fh);
+  pc <<= 8;
+  pc |= g_filemanager->readByte(fh);
+
+  sp = g_filemanager->readByte(fh);
+  a = g_filemanager->readByte(fh);
+  x = g_filemanager->readByte(fh);
+  y = g_filemanager->readByte(fh);
+  flags = g_filemanager->readByte(fh);
+
+  cycles = g_filemanager->readByte(fh);
+  cycles <<= 8;
+  cycles |=  g_filemanager->readByte(fh);
+  cycles <<= 8;
+  cycles |=  g_filemanager->readByte(fh);
+  cycles <<= 8;
+  cycles |=  g_filemanager->readByte(fh);
+
+  irqPending = g_filemanager->readByte(fh) ? true : false;
+
+  if (!mmu->Deserialize(fh)) {
+#ifndef TEENSYDUINO
+    printf("MMU deserialization failed\n");
+#endif
+    return false;
+  }
+
+  if (g_filemanager->readByte(fh) != CPUMAGIC)
+    return false;
+
+#ifndef TEENSYDUINO
+  printf("CPU deserialization complete\n");
+#endif
+  return true;
 }
 
 void Cpu::Reset()

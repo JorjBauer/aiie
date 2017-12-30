@@ -35,6 +35,9 @@ class AppleMMU : public MMU {
   AppleMMU(AppleDisplay *display);
   virtual ~AppleMMU();
 
+  virtual bool Serialize(int8_t fd);
+  virtual bool Deserialize(int8_t fd);
+
   virtual uint8_t read(uint16_t address);
   virtual uint8_t readDirect(uint16_t address, uint8_t fromPage);
   virtual void write(uint16_t address, uint8_t v);

@@ -58,6 +58,16 @@ HD32::~HD32()
 {
 }
 
+bool HD32::Serialize(int8_t fd)
+{
+  return true;
+}
+
+bool HD32::Deserialize(int8_t fd)
+{
+  return true;
+}
+
 void HD32::Reset()
 {
   enabled = 1;

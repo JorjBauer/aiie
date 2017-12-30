@@ -22,11 +22,13 @@ enum {
   ACT_HD2 = 9,
   ACT_VOLPLUS = 10,
   ACT_VOLMINUS = 11,
+  ACT_SUSPEND = 12,
+  ACT_RESTORE = 13,
 
-  NUM_ACTIONS = 12
+  NUM_ACTIONS = 14
 };
 
-const char *titles[NUM_ACTIONS] = { "Resume",
+const char *titles[NUM_ACTIONS] = { "Resume VM",
 				    "Reset",
 				    "Cold Reboot",
 				    "Drop to Monitor",
@@ -37,7 +39,9 @@ const char *titles[NUM_ACTIONS] = { "Resume",
 				    "%s HD 1",
 				    "%s HD 2",
 				    "Volume +",
-				    "Volume -"
+				    "Volume -",
+				    "Suspend",
+				    "Restore"
 };
 
 // FIXME: abstract the pin # rather than repeating it here
@@ -162,6 +166,15 @@ bool BIOS::runUntilDone()
       }
       volumeDidChange = true;
       break;
+
+    case ACT_SUSPEND:
+      // CPU is already suspended, so this is safe...
+      ((AppleVM *)g_vm)->Suspend("suspend.vm");
+      break;
+    case ACT_RESTORE:
+      // CPU is already suspended, so this is safe...
+      ((AppleVM *)g_vm)->Resume("suspend.vm");
+      break;
     }
   }
 
@@ -236,6 +249,8 @@ bool BIOS::isActionActive(int8_t action)
   case ACT_DISK2:
   case ACT_HD1:
   case ACT_HD2:
+  case ACT_SUSPEND:
+  case ACT_RESTORE:
     return true;
 
   case ACT_VOLPLUS:
@@ -313,7 +328,7 @@ void BIOS::DrawMainMenu(int8_t selection)
 
   // draw the volume bar
   uint16_t volCutoff = 300.0 * (float)((float) g_volume / 15.0);
-  for (uint8_t y=200; y<=210; y++) {
+  for (uint8_t y=220; y<=230; y++) {
     ((TeensyDisplay *)g_display)->moveTo(10, y);
     for (uint16_t x = 0; x< 300; x++) {
       ((TeensyDisplay *)g_display)->drawNextPixel( x <= volCutoff ? 0xFFFF : 0x0010 );

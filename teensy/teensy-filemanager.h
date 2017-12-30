@@ -8,7 +8,7 @@ class TeensyFileManager : public FileManager {
  public:
   TeensyFileManager();
   virtual ~TeensyFileManager();
-  
+
   virtual int8_t openFile(const char *name);
   virtual void closeFile(int8_t fd);
 
@@ -23,14 +23,15 @@ class TeensyFileManager : public FileManager {
 
   virtual uint8_t readByteAt(int8_t fd, uint32_t pos);
   virtual bool writeByteAt(int8_t fd, uint8_t v, uint32_t pos);
+
+  virtual uint8_t readByte(int8_t fd);
+  virtual bool writeByte(int8_t fd, uint8_t v);
   
  private:
   bool _prepCache(int8_t fd);
 
  private:
   int8_t numCached;
-  char cachedNames[MAXFILES][MAXPATH];
-  unsigned long fileSeekPositions[MAXFILES];
 };
 
 #endif

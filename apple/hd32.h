@@ -12,12 +12,15 @@
 #include "applemmu.h"
 #include "Slot.h"
 
-#include "RingBuffer.h"
+#include "LRingBuffer.h"
 
 class HD32 : public Slot {
  public:
   HD32(AppleMMU *mmu);
   virtual ~HD32();
+
+  virtual bool Serialize(int8_t fd);
+  virtual bool Deserialize(int8_t fd);
 
   virtual void Reset(); // used by BIOS cold-boot
   virtual uint8_t readSwitches(uint8_t s);
@@ -45,7 +48,7 @@ class HD32 : public Slot {
   uint8_t enabled;
 
   uint8_t errorState[2]; // status of last operation
-  uint16_t memBlock[2];  // ??
+  uint16_t memBlock[2];  // pointer to memory (for writing blocks to disk)
   uint16_t diskBlock[2]; // currently selected block
   
   int8_t fd[2];

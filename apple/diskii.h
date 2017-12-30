@@ -12,13 +12,16 @@
 #include "applemmu.h"
 #include "Slot.h"
 
-#include "RingBuffer.h"
+#include "LRingBuffer.h"
 #include "nibutil.h"
 
 class DiskII : public Slot {
  public:
   DiskII(AppleMMU *mmu);
   virtual ~DiskII();
+
+  virtual bool Serialize(int8_t fd);
+  virtual bool Deserialize(int8_t fd);
 
   virtual void Reset(); // used by BIOS cold-boot
   virtual uint8_t readSwitches(uint8_t s);
@@ -52,7 +55,7 @@ class DiskII : public Slot {
   volatile int8_t curPhase[2];
   volatile bool trackDirty; // does this track need flushing to disk?
   uint8_t readWriteLatch;
-  RingBuffer *trackBuffer; // nibblized data
+  LRingBuffer *trackBuffer; // nibblized data
   uint8_t *rawTrackBuffer; // not nibblized data
   
   bool writeMode;

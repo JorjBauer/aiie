@@ -17,6 +17,9 @@ class VM {
   VM() { mmu=NULL; vmdisplay = NULL; videoBuffer = (uint8_t *)calloc(DISPLAYRUN * DISPLAYHEIGHT / 2, 1); hasIRQ = false;}
   virtual ~VM() { if (mmu) delete mmu; if (vmdisplay) delete vmdisplay; free(videoBuffer); }
 
+  virtual void Suspend(const char *fn) = 0;
+  virtual void Resume(const char *fn) = 0;
+
   virtual void SetMMU(MMU *mmu) { this->mmu = mmu; }
   virtual MMU *getMMU() { return mmu; }
   virtual VMKeyboard *getKeyboard() = 0;

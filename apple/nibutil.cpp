@@ -56,7 +56,7 @@ const static uint8_t _detrans[0x80] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 				       0x00, 0x00, 0xCC, 0xD0, 0xD4, 0xD8, 0xDC, 0xE0, 
 				       0x00, 0xE4, 0xE8, 0xEC, 0xF0, 0xF4, 0xF8, 0xFC };
 
-void nibblizeTrack(RingBuffer *trackBuffer, uint8_t *rawTrackBuffer,
+void nibblizeTrack(LRingBuffer *trackBuffer, uint8_t *rawTrackBuffer,
                    uint8_t diskType, int8_t track)
 {
   int checksum;
@@ -126,7 +126,7 @@ void nibblizeTrack(RingBuffer *trackBuffer, uint8_t *rawTrackBuffer,
 // trackBuf. This reads from the circular buffer trackBuffer, so if
 // there's not enough data there, the results are somewhat
 // unpredictable.
-bool decodeData(RingBuffer *trackBuffer, uint16_t startAt, uint8_t *output)
+bool decodeData(LRingBuffer *trackBuffer, uint16_t startAt, uint8_t *output)
 {
   // Basic check that there's enough buffer data in trackBuffer. Note
   // that we're not checking it against startAt; we could be wrapping
@@ -178,7 +178,7 @@ bool decodeData(RingBuffer *trackBuffer, uint16_t startAt, uint8_t *output)
   return true;
 }
 
-void encodeData(RingBuffer *trackBuffer, uint8_t *data)
+void encodeData(LRingBuffer *trackBuffer, uint8_t *data)
 {
   int16_t i;
   int ptr2 = 0;
@@ -221,7 +221,7 @@ void encodeData(RingBuffer *trackBuffer, uint8_t *data)
   trackBuffer->addByte(_trans[lastv]);
 }
 
-nibErr denibblizeTrack(RingBuffer *trackBuffer, uint8_t *rawTrackBuffer,
+nibErr denibblizeTrack(LRingBuffer *trackBuffer, uint8_t *rawTrackBuffer,
 		       uint8_t diskType, int8_t track)
 {
   // We can't tell exactly what the length should be, b/c there might

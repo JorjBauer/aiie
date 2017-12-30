@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include "teensy-keyboard.h"
 #include <Keypad.h>
-#include <RingBuffer.h>
+#include "LRingBuffer.h"
 
 const byte ROWS = 5;
 const byte COLS = 13;
@@ -17,7 +17,7 @@ char keys[ROWS][COLS] = {
 uint8_t rowsPins[ROWS] = { 33, 34, 35, 36, 37 };
 uint8_t colsPins[COLS] = { 0, 1, 3, 4, 24, 25, 26, 27, 28, 29, 30, 31, 32 };
 Keypad keypad(makeKeymap(keys), rowsPins, colsPins, ROWS, COLS);
-RingBuffer buffer(10); // 10 keys should be plenty, right?
+LRingBuffer buffer(10); // 10 keys should be plenty, right?
 
 static uint8_t shiftedNumber[] = { '<', // ,
 				   '_', // -

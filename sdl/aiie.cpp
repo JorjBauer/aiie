@@ -35,6 +35,9 @@ pthread_t cpuThreadID;
 char disk1name[256] = "\0";
 char disk2name[256] = "\0";
 
+volatile bool wantSuspend = false;
+volatile bool wantResume = false;
+
 void sigint_handler(int n)
 {
   send_rst = 1;
@@ -92,6 +95,21 @@ static void *cpu_thread(void *dummyptr) {
 
   printf("free-running\n");
   while (1) {
+    if (wantSuspend) {
+      printf("CPU halted; suspending VM\n");
+      g_vm->Suspend("suspend.vm");
+      printf("... done; resuming CPU.\n");
+
+      wantSuspend = false;
+    }
+    if (wantResume) {
+      printf("CPU halted; resuming VM\n");
+      g_vm->Resume("suspend.vm");
+      printf("... done. resuming CPU.\n");
+
+      wantResume = false;
+    }
+
     // cycle down the CPU...
     do_gettime(&currentTime);
     struct timespec diff = tsSubtract(nextInstructionTime, currentTime);
@@ -136,6 +154,17 @@ static void *cpu_thread(void *dummyptr) {
 #endif
 
     if (send_rst) {
+
+
+#if 0
+      printf("Scheduling suspend request...\n");
+      wantSuspend = true;
+#endif
+#if 1
+      printf("Scheduling resume resume request...\n");
+      wantResume = true;
+#endif
+
 #if 0
       printf("Sending reset\n");
       g_cpu->Reset();
@@ -145,7 +174,9 @@ static void *cpu_thread(void *dummyptr) {
       //g_vm->Reset();
       //g_cpu->Reset();
       //((AppleVM *)g_vm)->insertDisk(0, "disks/DIAGS.DSK");
-#else
+#endif
+
+#if 0
       // Swap disks
       if (disk1name[0] && disk2name[0]) {
 	printf("Swapping disks\n");
@@ -155,8 +186,9 @@ static void *cpu_thread(void *dummyptr) {
 	printf("Inserting disk %s in drive 2\n", disk1name);
 	((AppleVM *)g_vm)->insertDisk(1, disk1name);
       }
-      /*
-#else
+#endif
+
+#if 0
       MMU *mmu = g_vm->getMMU();
 
       printf("PC: 0x%X\n", g_cpu->pc);
@@ -164,7 +196,6 @@ static void *cpu_thread(void *dummyptr) {
 	printf("0x%X ", mmu->read(i));
       }
       printf("\n");
-
 
       printf("Dropping to monitor\n");
       // drop directly to monitor.

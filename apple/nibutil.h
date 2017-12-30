@@ -8,7 +8,7 @@
 #include <time.h>
 #endif
 
-#include "RingBuffer.h"
+#include "LRingBuffer.h"
 
 #define NIBTRACKSIZE 0x1A00
 // Minimum viable nibblized sector size. With GAP bytes, could be much longer.
@@ -32,13 +32,13 @@ enum nibErr {
   errorMissingSectors = 2
 };
 
-void nibblizeTrack(RingBuffer *trackBuffer, uint8_t *rawTrackBuffer,
+void nibblizeTrack(LRingBuffer *trackBuffer, uint8_t *rawTrackBuffer,
 		   uint8_t diskType, int8_t track);
 
-nibErr denibblizeTrack(RingBuffer *trackBuffer, uint8_t *rawTrackBuffer,
+nibErr denibblizeTrack(LRingBuffer *trackBuffer, uint8_t *rawTrackBuffer,
 		       uint8_t diskType, int8_t track);
 
 
-bool decodeData(RingBuffer *trackBuffer, uint16_t startAt, uint8_t *output);
-void encodeData(RingBuffer *trackBuffer, uint8_t *data);
+bool decodeData(LRingBuffer *trackBuffer, uint16_t startAt, uint8_t *output);
+void encodeData(LRingBuffer *trackBuffer, uint8_t *data);
 

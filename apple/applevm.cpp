@@ -8,6 +8,9 @@
 
 #include "globals.h"
 
+#include <errno.h>
+const char *suspendHdr = "Sus1";
+
 AppleVM::AppleVM()
 {
   // FIXME: all this typecasting makes me knife-stabby
@@ -44,6 +47,81 @@ AppleVM::~AppleVM()
 #endif
   delete disk6;
   delete parallel;
+}
+
+void AppleVM::Suspend(const char *fn)
+{
+  /* Open a new suspend file via the file manager; tell all our
+     objects to serialize in to it; close the file */
+
+  int8_t fh = g_filemanager->openFile(fn);
+  if (fh == -1) {
+    // Unable to open; skip suspend
+    return;
+  }
+
+  /* Header */
+  for (int i=0; i<strlen(suspendHdr); i++) {
+    g_filemanager->writeByte(fh, suspendHdr[i]);
+  }
+
+  /* Tell all of the peripherals to suspend */
+  if (g_cpu->Serialize(fh) &&
+      disk6->Serialize(fh) &&
+      hd32->Serialize(fh)
+      ) {
+#ifndef TEENSYDUINO
+    printf("All serialized successfully\n");
+#else
+    Serial.println("All serialized successfully");
+#endif
+  }
+
+  g_filemanager->closeFile(fh);
+}
+
+void AppleVM::Resume(const char *fn)
+{
+  /* Open the given suspend file via the file manager; tell all our
+     objects to deserialize from it; close the file */
+
+  int8_t fh = g_filemanager->openFile(fn);
+  if (fh == -1) {
+    // Unable to open; skip resume
+#ifdef TEENSYDUINO
+    Serial.print("Unable to open resume file ");
+    Serial.println(fn);
+#else
+    printf("Unable to open resume file\n");
+#endif
+    return;
+  }
+
+  /* Header */
+  for (int i=0; i<strlen(suspendHdr); i++) {
+    if (g_filemanager->readByte(fh) != suspendHdr[i]) {
+      /* Failed to read correct header; abort */
+      return;
+    }
+  }
+
+  /* Tell all of the peripherals to resume */
+  if (g_cpu->Deserialize(fh) &&
+      disk6->Deserialize(fh) &&
+      hd32->Deserialize(fh)
+      ) {
+#ifndef TEENSYDUINO
+    printf("All deserialized successfully\n");
+#endif
+  } else {
+#ifndef TEENSYDUINO
+    printf("Deserialization failed\n");
+    exit(1);
+#endif
+  }
+
+  g_filemanager->closeFile(fh);
+
 }
 
 // fixme: make member vars

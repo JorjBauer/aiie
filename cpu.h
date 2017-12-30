@@ -28,6 +28,9 @@ class Cpu {
   Cpu();
   ~Cpu();
 
+  bool Serialize(int8_t fh);
+  bool Deserialize(int8_t fh);
+
   void Reset();
 
   void nmi();

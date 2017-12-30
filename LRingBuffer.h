@@ -1,12 +1,15 @@
-#ifndef __RINGBUFFER_H
-#define __RINGBUFFER_H
+#ifndef __LRINGBUFFER_H
+#define __LRINGBUFFER_H
 
 #include <stdint.h>
 
-class RingBuffer {
+class LRingBuffer {
  public:
-  RingBuffer(int16_t length);
-  ~RingBuffer();
+  LRingBuffer(int16_t length);
+  ~LRingBuffer();
+
+  bool Serialize(int8_t fd);
+  bool Deserialize(int8_t fd);
 
   void clear();
 

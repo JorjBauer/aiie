@@ -8,7 +8,6 @@
 
 #include "sdl-filemanager.h"
 
-
 SDLFileManager::SDLFileManager()
 {
   numCached = 0;
@@ -92,7 +91,7 @@ bool SDLFileManager::readTrack(int8_t fd, uint8_t *toWhere, bool isNib)
   // open, seek, read, close.
   bool ret = false;
   int ffd = open(cachedNames[fd], O_RDONLY);
-  if (ffd) {
+  if (ffd != -1) {
     lseek(ffd, fileSeekPositions[fd], SEEK_SET);
     if (isNib) {
       ret = (read(ffd, toWhere, 0x1A00) == 0x1A00);
@@ -117,7 +116,7 @@ bool SDLFileManager::readBlock(int8_t fd, uint8_t *toWhere, bool isNib)
   // open, seek, read, close.
   bool ret = false;
   int ffd = open(cachedNames[fd], O_RDONLY);
-  if (ffd) {
+  if (ffd != -1) {
     lseek(ffd, fileSeekPositions[fd], SEEK_SET);
     if (isNib) {
       ret = (read(ffd, toWhere, 416) == 416);
@@ -146,7 +145,7 @@ bool SDLFileManager::writeBlock(int8_t fd, uint8_t *fromWhere, bool isNib)
 
   // open, seek, write, close.
   int ffd = open(cachedNames[fd], O_WRONLY);
-  if (ffd) {
+  if (ffd != -1) {
     if (lseek(ffd, fileSeekPositions[fd], SEEK_SET) != fileSeekPositions[fd]) {
       printf("ERROR: failed to seek to %lu\n", fileSeekPositions[fd]);
       return false;
@@ -171,7 +170,7 @@ bool SDLFileManager::writeTrack(int8_t fd, uint8_t *fromWhere, bool isNib)
 
   // open, seek, write, close.
   int ffd = open(cachedNames[fd], O_WRONLY);
-  if (ffd) {
+  if (ffd != -1) {
     if (lseek(ffd, fileSeekPositions[fd], SEEK_SET) != fileSeekPositions[fd]) {
       printf("ERROR: failed to seek to %lu\n", fileSeekPositions[fd]);
       return false;
@@ -202,7 +201,7 @@ uint8_t SDLFileManager::readByteAt(int8_t fd, uint32_t pos)
   // open, seek, read, close.
   bool ret = false;
   int ffd = open(cachedNames[fd], O_RDONLY);
-  if (ffd) {
+  if (ffd != -1) {
     lseek(ffd, pos, SEEK_SET);
     ret = (read(ffd, &v, 1) == 1);
     close(ffd);
@@ -226,13 +225,71 @@ bool SDLFileManager::writeByteAt(int8_t fd, uint8_t v, uint32_t pos)
 
   // open, seek, write, close.
   bool ret = false;
-  int ffd = open(cachedNames[fd], O_WRONLY);
-  if (ffd) {
+  int ffd = open(cachedNames[fd], O_WRONLY|O_CREAT, 0644);
+  if (ffd != -1) {
     lseek(ffd, pos, SEEK_SET);
     ret = (write(ffd, &v, 1) == 1);
     close(ffd);
   }
 
   return ret;
+}
+
+bool SDLFileManager::writeByte(int8_t fd, uint8_t v)
+{
+  if (fd < 0 || fd >= numCached)
+    return false;
+
+  if (cachedNames[fd][0] == 0)
+    return false;
+
+  uint32_t pos = fileSeekPositions[fd];
+
+  // open, seek, write, close.
+  bool ret = false;
+  int ffd = open(cachedNames[fd], O_WRONLY|O_CREAT, 0644);
+  if (ffd != -1) {
+    lseek(ffd, pos, SEEK_SET);
+    ret = (write(ffd, &v, 1) == 1);
+    if (!ret) {
+      printf("error writing: %d\n", errno);
+    }
+    close(ffd);
+  } else {
+    printf("Failed to open '%s' for writing: %d\n", 
+	   cachedNames[fd], errno);
+  }
+  fileSeekPositions[fd]++;
+  return ret;
+}
+
+uint8_t SDLFileManager::readByte(int8_t fd)
+{
+  if (fd < 0 || fd >= numCached)
+    return -1; // FIXME: error handling?
+
+  if (cachedNames[fd][0] == 0)
+    return -1; // FIXME: error handling?
+
+  uint8_t v = 0;
+
+  uint32_t pos = fileSeekPositions[fd];
+
+  // open, seek, read, close.
+  bool ret = false;
+  int ffd = open(cachedNames[fd], O_RDONLY);
+  if (ffd != -1) {
+    lseek(ffd, pos, SEEK_SET);
+    ret = (read(ffd, &v, 1) == 1);
+    close(ffd);
+  }
+  fileSeekPositions[fd]++;
+
+  if (!ret) {
+    printf("ERROR reading: %d\n", errno);
+  }
+
+  // FIXME: error handling?
+  return v;
 }
 
