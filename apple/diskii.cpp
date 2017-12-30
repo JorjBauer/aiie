@@ -130,12 +130,6 @@ uint8_t DiskII::readSwitches(uint8_t s)
 
   case 0x0E: // set read mode
     setWriteMode(false);
-
-    // FIXME: with this shortcut here, disk access speeds up ridiculously.
-    // Is this breaking anything?
-    /*return ( (readOrWriteByte() & 0x7F) |
-	     (isWriteProtected() ? 0x80 : 0x00) );
-    */
     break;
   case 0x0F: // set write mode
     setWriteMode(true);
