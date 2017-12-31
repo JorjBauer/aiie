@@ -197,6 +197,8 @@ void biosInterrupt()
   g_cpu->cycles = 0;
   nextInstructionMicros = micros();
   startMicros = micros();
+  // Drain the speaker queue (FIXME: a little hacky)
+  g_speaker->maintainSpeaker(-1);
 
   // Force the display to redraw
   ((AppleDisplay*)(g_vm->vmdisplay))->modeChange();
@@ -217,20 +219,22 @@ void runCPU()
     //debugState = !debugState;
     //    digitalWrite(56, debugState);
     
-    g_cpu->Run(24);
-    
-    // These are timing-critical, for the audio and paddles.
-    // There's also a keyboard repeat in here that hopefully is 
-    // minimal overhead...
-    g_speaker->beginMixing();
-    ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
-    g_speaker->maintainSpeaker(g_cpu->cycles);
+    uint8_t executed = g_cpu->Run(24);
 
     // The CPU of the Apple //e ran at 1.023 MHz. Adjust when we think
     // the next instruction should run based on how long the execution
     // was ((1000/1023) * numberOfCycles) - which is about 97.8%.
     nextInstructionMicros = startMicros + (float)g_cpu->cycles * 0.978;
+
+    // Timing-critical paddle and keyboard handling
+    ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
   }
+
+  // Timing-crtical audio handling
+  g_speaker->beginMixing();
+  // estimate of current cpu cycle counter, delayed a bit
+  float speakerTick = ((float)micros() - 100.0 - (float)startMicros) / 0.978;
+  g_speaker->maintainSpeaker(speakerTick);
 }
 
 void loop()

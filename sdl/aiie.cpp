@@ -22,8 +22,6 @@
 //#define SHOWMEMPAGE
 
 static struct timespec nextInstructionTime, startTime;
-uint64_t hitcount = 0;
-uint64_t misscount = 0;
 
 #define NB_ENABLE 1
 #define NB_DISABLE 0
@@ -91,6 +89,7 @@ static void *cpu_thread(void *dummyptr) {
     
   _init_darwin_shim();
   do_gettime(&startTime);
+      printf("Start time: %lu,%lu\n", startTime.tv_sec, startTime.tv_nsec);
   do_gettime(&nextInstructionTime);
 
   printf("free-running\n");
@@ -110,31 +109,93 @@ static void *cpu_thread(void *dummyptr) {
       wantResume = false;
     }
 
-    // cycle down the CPU...
+    // Would like to do the old nanosleep thing, but the speaker needs
+    // to run. FIXME: do something more intelligent here - sleep 'til speakertime+1? (Obv. to do this below, not right here)
     do_gettime(&currentTime);
+    // tsSubtract doesn't return negatives; it bounds at 0.
     struct timespec diff = tsSubtract(nextInstructionTime, currentTime);
-    if (diff.tv_sec >= 0 && diff.tv_nsec >= 0) {
-      hitcount++;
-      nanosleep(&diff, NULL);
-    } else {
-      misscount++;
-    }
+
+    //    do_gettime(&currentTime);
+    struct timespec runtime = tsSubtract(currentTime, startTime);
+    double speakerCycle = cycles_since_time(&runtime);
+
+    uint8_t executed = 0;
+    if (diff.tv_sec == 0 && diff.tv_nsec == 0) {
+      // okay to run CPU
+      // If speakerCycle == 0, we're still starting up
+      // If speakerCycle > cycles, the CPU is running behind; don't bother with that just yet
+      // If we're about to run the CPU then we *should* have caught up the speaker - how could it possibly be this far out of skew?
+      if (speakerCycle && speakerCycle < g_cpu->cycles && abs(g_cpu->cycles - speakerCycle) > 24) {
+#if 0
+      printf("Start time: %lu,%lu\n", startTime.tv_sec, startTime.tv_nsec);
+      printf("runtime: %lu,%lu\n", runtime.tv_sec, runtime.tv_nsec);
+      printf("Current time: %lu,%lu\n", currentTime.tv_sec, currentTime.tv_nsec);
+      printf("Next time: %lu,%lu\n", nextInstructionTime.tv_sec, nextInstructionTime.tv_nsec);
+      printf("Speaker calc / cycle count: %lf / %d [e %d; d %f]\n", speakerCycle, g_cpu->cycles, executed, abs(g_cpu->cycles - speakerCycle));
+#endif
+
+      // If we're okay to run the CPU, then the speaker should be caught up. Not sure how it wouldn't be.
+      printf("About to run cpu but speaker diff > 24 - how, exactly?\n");
+      exit(1);
+      }
 
 #ifdef DEBUGCPU
-    uint8_t executed = g_cpu->Run(1);
+      uint8_t executed = g_cpu->Run(1);
 #else
-    uint8_t executed = g_cpu->Run(24);
+      executed = g_cpu->Run(24);
 #endif
-    timespec_add_cycles(&startTime, g_cpu->cycles + executed, &nextInstructionTime);
+      // calculate the real time that we should be at now, and schedule
+      // that as our next instruction time
+      timespec_add_cycles(&startTime, g_cpu->cycles, &nextInstructionTime);
 
-    g_speaker->beginMixing();
+      // The paddles need to be triggered in real-time on the CPU
+      // clock. That happens from the VM's CPU maintenance poller.
+      ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
 
-    // The paddles need to be triggered in real-time on the CPU
-    // clock. That happens from the VM's CPU maintenance poller.
-    ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
+#if 0
+      do_gettime(&currentTime);
+      printf("Executed %d cycles; count %d; now %lu,%lu; next runtime at %lu,%lu\n", executed, g_cpu->cycles, currentTime.tv_sec, currentTime.tv_nsec, nextInstructionTime.tv_sec, nextInstructionTime.tv_nsec);
+#endif
+    } else {
+      //      printf("delta %lu,%lu\n", diff.tv_sec, diff.tv_nsec);
+      //      printf("Current time: %lu,%lu\n", currentTime.tv_sec, currentTime.tv_nsec);
+      //      printf("Next time: %lu,%lu\n", nextInstructionTime.tv_sec, nextInstructionTime.tv_nsec);
+    }
 
-    // cpuMaintenance also maintained the sound card; update the speaker after
-    g_speaker->maintainSpeaker(g_cpu->cycles);
+    // Run the speaker a short bit delayed, based on real time rather
+    // than the cpu cycle count
+
+#if 0
+    if (speakerCycle < g_cpu->cycles) {
+      printf("Start time: %lu,%lu\n", startTime.tv_sec, startTime.tv_nsec);
+      printf("runtime: %lu,%lu\n", runtime.tv_sec, runtime.tv_nsec);
+      printf("Current time: %lu,%lu\n", currentTime.tv_sec, currentTime.tv_nsec);
+      printf("Next time: %lu,%lu\n", nextInstructionTime.tv_sec, nextInstructionTime.tv_nsec);
+      printf("Speaker calc / cycle count: %lf / %d [e %d; d %f]\n", speakerCycle, g_cpu->cycles, executed, abs(g_cpu->cycles - speakerCycle));
+    }
+#endif
+
+    int lastdrift = g_cpu->cycles - speakerCycle;
+    if (speakerCycle && 
+	speakerCycle < g_cpu->cycles && 
+	lastdrift > 64) {
+      printf("Cycle -> speakercycle drift > 64 [%f]\n", abs(g_cpu->cycles - speakerCycle));
+      exit(1);
+    }
+    if (speakerCycle == 0) lastdrift = 0;
+    
+    g_speaker->maintainSpeaker(speakerCycle-48);
+
+    /*    // recalc what the fuck is happening
+    do_gettime(&currentTime);
+    sdiff = tsSubtract(currentTime, startTime);
+    speakerCycle = cycles_since_time(&sdiff);
+    if (lastdrift && speakerCycle && speakerCycle < g_cpu->cycles && abs(g_cpu->cycles - speakerCycle) > 64)
+{
+  int newdrift = g_cpu->cycles - speakerCycle;
+  printf("WTF: was %d, now %d [sc now %f]\n", lastdrift, newdrift, speakerCycle);
+  exit(1);
+  }*/
     
 #ifdef DEBUGCPU
     {
@@ -154,13 +215,11 @@ static void *cpu_thread(void *dummyptr) {
 #endif
 
     if (send_rst) {
-
-
 #if 0
       printf("Scheduling suspend request...\n");
       wantSuspend = true;
 #endif
-#if 1
+#if 0
       printf("Scheduling resume resume request...\n");
       wantResume = true;
 #endif
@@ -223,6 +282,34 @@ static void *cpu_thread(void *dummyptr) {
 
 int main(int argc, char *argv[])
 {
+#if 0
+  // Timing consistency check
+
+  sleep(2); // kinda random, hopefully sloppy? - to make startTime != 0,0
+  printf("starting time consistency check\n");
+  do_gettime(&startTime);
+  for (int i=0; i<10000000; i++) {
+
+    // Calculate the time delta from startTime to cycle # i
+    timespec_add_cycles(&startTime, i, &nextInstructionTime);
+
+    // Recalculate the time difference between nextInstructionTime and startTime
+    struct timespec runtime = tsSubtract(nextInstructionTime, startTime);
+
+    // See if it's the same as cycles_since_time
+    double guesstimate = cycles_since_time(&runtime);
+    printf("cycle %d guesstimate %f\n", i, guesstimate);
+    if (guesstimate != i) {
+      printf("FAILED: cycle %d has guesstimate %f\n", i, guesstimate);
+      exit(1);
+    }
+  }
+
+  printf("All ok\n");
+
+  exit(1);
+#endif
+
   SDL_Init(SDL_INIT_EVERYTHING);
 
   g_speaker = new SDLSpeaker();
@@ -284,10 +371,10 @@ int main(int argc, char *argv[])
 
   while (1) {
     static uint32_t usleepcycles = 16384; // step-down for display drawing. FIXME: this constant works well for *my* machine. Dynamically generate?
-    static uint32_t ctr = 0;
-    if (++ctr == 0) {
-      printf("hit: %llu; miss: %llu; pct: %f\n", hitcount, misscount, (double)misscount / (double)(misscount + hitcount));
-    }
+    //    static uint32_t ctr = 0;
+    //    if (++ctr == 0) {
+    //      printf("hit: %llu; miss: %llu; pct: %f\n", hitcount, misscount, (double)misscount / (double)(misscount + hitcount));
+    //    }
 
     // fill disk buffer when needed
     ((AppleVM*)g_vm)->disk6->fillDiskBuffer();

@@ -474,7 +474,7 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
 
 
   case 0xC030: // SPEAKER
-    g_speaker->toggle();
+    g_speaker->toggle(g_cpu->cycles);
     break;
 
   case 0xC050: // CLRTEXT
@@ -614,6 +614,12 @@ void AppleMMU::writeSwitches(uint16_t address, uint8_t v)
   case 0xC01F:
     keyboardStrobe &= 0x7F;
     return;
+
+  case 0xC030: // SPEAKER
+    // Writes toggle the speaker twice
+    g_speaker->toggle(g_cpu->cycles);
+    g_speaker->toggle(g_cpu->cycles);
+    break;
 
   case 0xC050: // graphics mode
     if (switches & S_TEXT) {

@@ -7,7 +7,6 @@
 #define ORWL_GIGA UINT64_C(1000000000)
 #define NANOSECONDS_PER_SECOND 1000000000UL
 #define CYCLES_PER_SECOND 1023000UL
-#define NANOSECONDS_PER_CYCLE (NANOSECONDS_PER_SECOND / CYCLES_PER_SECOND)
 
 static double orwl_timebase = 0.0;
 static uint64_t orwl_timestart = 0;
@@ -26,7 +25,7 @@ static int do_gettime(struct timespec *tp) {
   return 0;
 }
 
-// adds the number of microseconds that 'cycles' takes to *start and
+// adds the number of nanoseconds that 'cycles' takes to *start and
 // returns it in *out
 static void timespec_add_cycles(struct timespec *start,
 			 uint32_t cycles,
@@ -35,14 +34,22 @@ static void timespec_add_cycles(struct timespec *start,
   out->tv_sec = start->tv_sec;
   out->tv_nsec = start->tv_nsec;
 
-  uint64_t nanosToAdd = NANOSECONDS_PER_CYCLE * cycles;
+  uint64_t nanosToAdd = (double)((double)cycles * (double) (NANOSECONDS_PER_SECOND) / (double)1023000);
+
   out->tv_sec += (nanosToAdd / NANOSECONDS_PER_SECOND);
   out->tv_nsec += (nanosToAdd % NANOSECONDS_PER_SECOND);
   
-  if (out->tv_nsec >= 1000000000L) {
+  if (out->tv_nsec >= NANOSECONDS_PER_SECOND) {
     out->tv_sec++ ;
-    out->tv_nsec -= 1000000000L;
+    out->tv_nsec -= NANOSECONDS_PER_SECOND;
   }
+}
+
+static unsigned long cycles_since_time(struct timespec *start)
+{
+  unsigned long ret = start->tv_sec * CYCLES_PER_SECOND;
+  ret += (double)((double)start->tv_nsec * (double)0.001023 + (double) 0.01); // 0.01 for rounding error; one cycle ~= 977517nS, and 977517 * .000001023 is only 0.999999891.
+  return ret;
 }
 
 // adds the number of microseconds given to *start and 
@@ -121,6 +128,7 @@ static int8_t tsCompare(struct timespec *A, struct timespec *B)
   return 0;
 }
 
+// return time1 - time2. If time1 <= time2, then return 0.
 static struct timespec tsSubtract(struct timespec time1, struct timespec time2)
 {
   struct timespec result;

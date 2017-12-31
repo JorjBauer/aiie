@@ -770,13 +770,13 @@ uint8_t Cpu::step()
       }
 #endif
       pc = param;
-      cycles++;
+      cyclesThisStep++;
     }
     break;
   case O_BVS:
     if (flags & F_V) {
       pc = param;
-      cycles++;
+      cyclesThisStep++;
     }
     break;
   case O_BRK:
@@ -806,7 +806,7 @@ uint8_t Cpu::step()
       }
 #endif
       pc = param;
-      cycles++;
+      cyclesThisStep++;
     }
     break;
   case O_TXA:
@@ -852,7 +852,7 @@ uint8_t Cpu::step()
   case O_BPL:
     if (!(flags & F_N)) {
       pc = param;
-      cycles++;
+      cyclesThisStep++;
     }    
     break;
   case O_CLC:
@@ -882,7 +882,7 @@ uint8_t Cpu::step()
   case O_BCC:
     if (!(flags & F_C)) {
       pc = param;
-      cycles++;
+      cyclesThisStep++;
     }
     break;
   case O_PLA:
@@ -904,13 +904,13 @@ uint8_t Cpu::step()
   case O_BCS:
     if (flags & F_C) {
       pc = param;
-      cycles++;
+      cyclesThisStep++;
     }
     break;
   case O_BMI:
     if (flags & F_N) {
       pc = param;
-      cycles++;
+      cyclesThisStep++;
     }
     break;
   case O_TAY:
@@ -924,7 +924,7 @@ uint8_t Cpu::step()
   case O_BVC:
     if (!(flags & F_V)) {
       pc = param;
-      cycles++;
+      cyclesThisStep++;
     }
     break;
   case O_INY:
@@ -1088,7 +1088,7 @@ uint8_t Cpu::step()
       int16_t c;
       uint8_t v;
       if (flags & F_D) {
-	cycles++;
+	cyclesThisStep++;
 	c = (a & 0x0F) + (memTemp & 0x0F) + (flags & F_C);
 	if (c < 0x10)
 	  c = (c - 0x06) & 0x0f;
@@ -1120,7 +1120,7 @@ uint8_t Cpu::step()
       int16_t c;
       uint8_t v;
       if (flags & F_D) {
-	cycles++;
+	cyclesThisStep++;
 	c = (a & 0x0F) + (memTemp & 0x0F) + (flags & F_C);
 	if (c > 0x09)
 	  c = (c - 0x0a) | 0x10;

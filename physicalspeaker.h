@@ -7,7 +7,7 @@ class PhysicalSpeaker {
  public:
   virtual ~PhysicalSpeaker() {}
 
-  virtual void toggle() = 0;
+  virtual void toggle(uint32_t c) = 0;
   virtual void maintainSpeaker(uint32_t c) = 0;
   virtual void beginMixing() = 0;
   virtual void mixOutput(uint8_t v) = 0;
