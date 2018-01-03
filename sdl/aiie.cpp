@@ -237,7 +237,6 @@ static void *cpu_thread(void *dummyptr) {
 	mmu->write(0x23, 24);
 	mmu->write(0x33, '>');
 	mmu->write(0x48, 0);  // from 0xfb2f: part of text init
-	*/
 #endif
 	  
 	  send_rst = 0;
