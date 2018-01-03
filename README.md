@@ -70,8 +70,8 @@ code, with the Teensy-specific code segregated as it is, I'm all ears...
 
 I compile this with optimization set to "Faster" for the Teensy 3.6 at
 180MHz. There's no need to overclock the CPU -- but it does give
-better video performance, all the way up to 240MHz. Do as you see fit
-:)
+better video performance, all the way up to 240MHz, but still not
+perfect. Do as you see fit :)
 
 Environment and Libraries
 -------------------------
@@ -100,13 +100,6 @@ eventually.
 
 	https://github.com/WMXZ-EU/uSDFS
 
-### RingBuffer ###
-
-My library for dealing with ring and circular buffers.  Simplistic. 
-You'll need v1.2.0 or later.
-
-	 https://github.com/JorjBauer/RingBuffer
-
 ### RadioHead ###
 
 This library comes with TeensyDuino, but I found the version that's
@@ -130,8 +123,14 @@ The reset/menu button brings up a BIOS menu:
     Debug: off
     Insert/Eject Disk 1
     Insert/Eject Disk 2
+    Insert/Eject HD 1
+    Insert/Eject HD 2
     Volume +
     Volume -
+    Suspend
+    Restore
+    Prioritize Display/Audio
+
 
 Reset
 -----
@@ -195,7 +194,65 @@ This has several settings:
 	Show time
 
 ... these are all fairly self-explanatory.
-	
+
+Insert/Eject Disk1/2 HD1/2
+--------------------------
+
+Fairly self-explanatory. Disks may be .dsk, .po, or .nib images
+(although .nib images aren't very heavily tested, particularly for
+write support). Hard drives are raw 32MB files, whose filenames must
+end in .img.
+
+Suspend and Restore
+-------------------
+
+The Teensy can be fully suspended and restored - including what disks
+are inserted. It's a full VM hibernation. It currently writes to a
+file named "suspend.vm" in the root of the MicroSD card. (I would like
+to be able to select from multiple suspend/restore files
+eventually. It wouldn't be terribly hard; it's just that the BIOS
+interface is very limited.)
+
+Prioritize Display/Audio
+------------------------
+
+Any Apple emulator needs real-time support for audio. The hardware is
+very direct: when a particular memory location ($C030) is read from or
+written to, the speaker's state is toggled. By doing this at specific
+times, the Apple generates a square wave - and this is the basis of
+the built-in audio. Obviously, then, the CPU has to be running at a
+specific frequency and the updates to the speaker have to come at
+exactly the right time.
+
+The Mac version of AiiE runs the CPU a few cycles fast; and then while
+it's waiting for the CPU to catch up, it's slowly toggling the speaker
+at the right time. This works well because the actual computer it's
+running on is so much faster than the CPU it's emulating.
+
+The Teensy verison can't afford all that overhead. It runs the virtual
+CPU in batches of 24-ish cycles, unless it updates the speaker; in
+which case, the virtual CPU returns control to the main program
+early. This was important while the Teensy code was queueing... but
+the queueing has since been removed, and its virtual MMU directly
+toggles the speaker as the virtual CPU is running. (This isn't quite
+as accurate as the Mac verison but it's close enough; uses less RAM;
+and uses less CPU.)
+
+While all that's running, the display is also updating from the main
+loop. The trobule is that it takes quite a lot of time to update the
+display. Much longer than one CPU cycle. Much longer than hundreds of
+CPU cycles. Which means that one of two bad things happens.
+
+Either (a) the CPU can run and update the video while you're still
+pushing that video to the screen - which means you can wind up with
+(e.g.) half a cloud in Skyfox at the top of the screen, and nothing
+immediately below it, because the video is "tearing" (getting partial
+results that change over time as it scans down the screen); or (b) you
+block the CPU from running while updating the display, which means the
+CPU runs in fits and starts. Since the audio is directly coupled to
+the CPU that also means the audio will be very messed up.
+
+So this BIOS option lets you choose whether you want good audio or good video.
 
 Building (on a Mac)
 ===================
@@ -205,21 +262,16 @@ my first test target for most of the work. With MacOS 10.11.6 and
 Homebrew, you can build and run it like this:
 
 <pre>
-  $ make opencv
-  $ ./aiie-opencv /path/to/disk.dsk
+  $ make 
+  $ ./aiie-sdl /path/to/disk.dsk
 </pre>
 
-As the name implies, this requires that OpenCV is installed and in
+As the name implies, this requires that SDL is installed and in
 /usr/local/lib. I've done that with Homebrew like this
 
 <pre>
-  $ brew install opencv
+  $ brew install sdl2
 </pre>
-
-"Why OpenCV?" you might ask. Well, it's just because I had code from
-another project lying around that directly manipulated OpenCV bitmap
-data. It's functional, and the Mac build is only about functional
-testing (for me).
 
 Mockingboard
 ============
@@ -228,6 +280,12 @@ Mockingboard support is slowly taking shape, based on the schematic in
 the Apple II Documentation Project:
 
 https://mirrors.apple2.org.za/Apple%20II%20Documentation%20Project/Interface%20Cards/Audio/Sweet%20Microsystems%20Mockingboard/Schematics/Mockingboard%20Schematic.gif
+
+I'm not sure the Teensy 3.6 has enough horsepower to run this, so I'm
+not sure it will ever come to be. It struggles to refresh the display
+and run the speaker at full tilt; but maybe that's primarily a
+function of the throughput to the display, and adding the Mockingboard
+support won't require further sacrifice...
 
 VM
 ==
