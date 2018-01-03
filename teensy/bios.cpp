@@ -24,8 +24,9 @@ enum {
   ACT_VOLMINUS = 11,
   ACT_SUSPEND = 12,
   ACT_RESTORE = 13,
+  ACT_PRIMODE = 14,
 
-  NUM_ACTIONS = 14
+  NUM_ACTIONS = 15
 };
 
 const char *titles[NUM_ACTIONS] = { "Resume VM",
@@ -41,7 +42,8 @@ const char *titles[NUM_ACTIONS] = { "Resume VM",
 				    "Volume +",
 				    "Volume -",
 				    "Suspend",
-				    "Restore"
+				    "Restore",
+				    "Prioritize %s"
 };
 
 // FIXME: abstract the pin # rather than repeating it here
@@ -49,6 +51,8 @@ const char *titles[NUM_ACTIONS] = { "Resume VM",
 
 extern int16_t g_volume; // FIXME: external global. icky.
 extern uint8_t debugMode; // and another. :/
+extern bool g_prioritizeDisplay; // And a third!
+
 // FIXME: and these need abstracting out of the main .ino !
 enum {
   D_NONE        = 0,
@@ -111,6 +115,9 @@ bool BIOS::runUntilDone()
     case ACT_DEBUG:
       debugMode++;
       debugMode %= 8; // FIXME: abstract max #
+      break;
+    case ACT_PRIMODE:
+      g_prioritizeDisplay = !g_prioritizeDisplay;
       break;
     case ACT_DISK1:
       if (((AppleVM *)g_vm)->DiskName(0)[0] != '\0') {
@@ -245,6 +252,7 @@ bool BIOS::isActionActive(int8_t action)
   case ACT_MONITOR:
   case ACT_DISPLAYTYPE:
   case ACT_DEBUG:
+  case ACT_PRIMODE:
   case ACT_DISK1:
   case ACT_DISK2:
   case ACT_HD1:
@@ -315,6 +323,11 @@ void BIOS::DrawMainMenu(int8_t selection)
 	sprintf(buf, titles[i], "Show time");
 	break;
       }
+    } else if (i == ACT_PRIMODE) {
+      if (g_prioritizeDisplay)
+	sprintf(buf, titles[i], "display");
+      else
+	sprintf(buf, titles[i], "r/t audio");
     } else {
       strcpy(buf, titles[i]);
     }
@@ -328,7 +341,7 @@ void BIOS::DrawMainMenu(int8_t selection)
 
   // draw the volume bar
   uint16_t volCutoff = 300.0 * (float)((float) g_volume / 15.0);
-  for (uint8_t y=220; y<=230; y++) {
+  for (uint8_t y=234; y<=235; y++) {
     ((TeensyDisplay *)g_display)->moveTo(10, y);
     for (uint16_t x = 0; x< 300; x++) {
       ((TeensyDisplay *)g_display)->drawNextPixel( x <= volCutoff ? 0xFFFF : 0x0010 );

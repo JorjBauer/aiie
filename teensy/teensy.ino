@@ -20,8 +20,8 @@
 #include "globals.h"
 #include "teensy-crash.h"
 
-volatile float nextInstructionMicros;
-volatile float startMicros;
+uint32_t nextInstructionMicros;
+uint32_t startMicros;
 
 FATFS fatfs;      /* File system object */
 BIOS bios;
@@ -37,6 +37,9 @@ enum {
   D_SHOWTIME    = 7
 };
 uint8_t debugMode = D_NONE;
+bool g_prioritizeDisplay = false; // prioritize real-time audio by default, not the display
+
+#define SPEEDCTL 0.97751710654936461388 // that's how many microseconds per cycle @ 1.023 MHz
 
 static   time_t getTeensy3Time() {  return Teensy3Clock.get(); }
 
@@ -132,16 +135,18 @@ void setup()
 
   Serial.println("free-running");
 
-  startMicros = 0;
-  nextInstructionMicros = micros();
+  startMicros = nextInstructionMicros = micros();
 
   // Debugging: insert a disk on startup...
   //  ((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/UTIL/mock2dem.dsk", false);
   //  ((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/JORJ/disk_s6d1.dsk", false);
-  // ((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/GAMES/ALIBABA.DSK", false);
+  //  ((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/GAMES/ALIBABA.DSK", false);
 
   pinMode(56, OUTPUT);
   pinMode(57, OUTPUT);
+
+  Serial.print("Free RAM: ");
+  Serial.println(FreeRamEstimate());
 
   Timer1.initialize(3);
   Timer1.attachInterrupt(runCPU);
@@ -198,7 +203,7 @@ void biosInterrupt()
   nextInstructionMicros = micros();
   startMicros = micros();
   // Drain the speaker queue (FIXME: a little hacky)
-  g_speaker->maintainSpeaker(-1);
+  g_speaker->maintainSpeaker(-1, -1);
 
   // Force the display to redraw
   ((AppleDisplay*)(g_vm->vmdisplay))->modeChange();
@@ -214,27 +219,30 @@ void biosInterrupt()
 
 void runCPU()
 {
-  if (micros() >= nextInstructionMicros) {
+  // Debugging: to watch when the speaker is triggered...
+  //  static bool debugState = false;
+  //  debugState = !debugState;
+  //  digitalWrite(56, debugState);
+   
+  // Relatively critical timing: CPU needs to run ahead at least 4
+  // cycles, b/c we're calling this interrupt (runCPU, that is) just
+  // about 1/3 as fast as we should; and the speaker is updated
+  // directly from within it, so it needs to be real-ish time.
+  if (micros() > nextInstructionMicros) {
     // Debugging: to watch when the CPU is triggered...
-    //debugState = !debugState;
-    //    digitalWrite(56, debugState);
+    static bool debugState = false;
+    debugState = !debugState;
+    digitalWrite(56, debugState);
     
     uint8_t executed = g_cpu->Run(24);
 
     // The CPU of the Apple //e ran at 1.023 MHz. Adjust when we think
     // the next instruction should run based on how long the execution
     // was ((1000/1023) * numberOfCycles) - which is about 97.8%.
-    nextInstructionMicros = startMicros + (float)g_cpu->cycles * 0.978;
+    nextInstructionMicros = startMicros + ((double)g_cpu->cycles * (double)SPEEDCTL);
 
-    // Timing-critical paddle and keyboard handling
     ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
   }
-
-  // Timing-crtical audio handling
-  g_speaker->beginMixing();
-  // estimate of current cpu cycle counter, delayed a bit
-  float speakerTick = ((float)micros() - 100.0 - (float)startMicros) / 0.978;
-  g_speaker->maintainSpeaker(speakerTick);
 }
 
 void loop()
@@ -266,9 +274,11 @@ void loop()
   // 
   // The Timer1.stop()/start() is bad. Using it, the display doesn't
   // tear; but the audio is also broken. Taking it out, audio is good
-  // but the display tears.
+  // but the display tears. So there's a global - g_prioritizeDisplay - 
+  // which lets the user pick which they want.
 
-  Timer1.stop();
+  if (g_prioritizeDisplay)
+    Timer1.stop();
   g_vm->vmdisplay->lockDisplay();
   if (g_vm->vmdisplay->needsRedraw()) {
     AiieRect what = g_vm->vmdisplay->getDirtyRect();
@@ -276,8 +286,9 @@ void loop()
     g_display->blit(what);
   }
   g_vm->vmdisplay->unlockDisplay();
-  Timer1.start();
-
+  if (g_prioritizeDisplay)
+    Timer1.start();
+  
   static unsigned long nextBattCheck = 0;
   static int batteryLevel = 0; // static for debugging code! When done
 			       // debugging, this can become a local

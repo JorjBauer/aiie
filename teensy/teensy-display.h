@@ -19,8 +19,8 @@ enum {
 
 #define cbi(reg, bitmask) *reg &= ~bitmask
 #define sbi(reg, bitmask) *reg |= bitmask
-#define pulse_high(reg, bitmask) sbi(reg, bitmask); cbi(reg, bitmask);
-#define pulse_low(reg, bitmask) cbi(reg, bitmask); sbi(reg, bitmask);
+#define pulse_high(reg, bitmask) { sbi(reg, bitmask); cbi(reg, bitmask); }
+#define pulse_low(reg, bitmask) { cbi(reg, bitmask); sbi(reg, bitmask); }
 
 #define cport(port, data) port &= data
 #define sport(port, data) port |= data
@@ -72,11 +72,11 @@ class TeensyDisplay : public PhysicalDisplay {
   void drawPixel(uint16_t x, uint16_t y, uint16_t color);
   void drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b);
 
-  void LCD_Writ_Bus(uint8_t VH,uint8_t VL);
-  void LCD_Write_COM(uint8_t VL);
-  void LCD_Write_DATA(uint8_t VH,uint8_t VL);
-  void LCD_Write_DATA(uint8_t VL);
-  void LCD_Write_COM_DATA(uint8_t com1,uint16_t dat1);
+  inline void LCD_Writ_Bus(uint8_t VH,uint8_t VL) __attribute__((always_inline));
+  inline void LCD_Write_COM(uint8_t VL) __attribute__((always_inline));
+  inline void LCD_Write_DATA(uint8_t VH,uint8_t VL) __attribute__((always_inline));
+  inline void LCD_Write_DATA(uint8_t VL) __attribute__((always_inline));
+  inline void LCD_Write_COM_DATA(uint8_t com1,uint16_t dat1) __attribute__((always_inline));
 
   bool needsRedraw;
   bool driveIndicator[2];

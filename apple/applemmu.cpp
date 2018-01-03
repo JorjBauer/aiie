@@ -475,6 +475,9 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
 
   case 0xC030: // SPEAKER
     g_speaker->toggle(g_cpu->cycles);
+    g_cpu->realtime(); // cause the CPU to stop processing its outer
+		       // loop b/c the speaker might need attention
+		       // immediately
     break;
 
   case 0xC050: // CLRTEXT
@@ -619,6 +622,9 @@ void AppleMMU::writeSwitches(uint16_t address, uint8_t v)
     // Writes toggle the speaker twice
     g_speaker->toggle(g_cpu->cycles);
     g_speaker->toggle(g_cpu->cycles);
+    g_cpu->realtime(); // cause the CPU to stop processing its outer
+		       // loop b/c the speaker might need attention
+		       // immediately
     break;
 
   case 0xC050: // graphics mode

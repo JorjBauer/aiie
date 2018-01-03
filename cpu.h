@@ -60,6 +60,8 @@ class Cpu {
  public:
   void SetMMU(MMU *mmu) { this->mmu = mmu; }
 
+  void realtime();
+
  public:
   uint16_t pc;
   uint8_t sp;
@@ -73,6 +75,8 @@ class Cpu {
   bool irqPending;
   
   MMU *mmu;
+
+  bool realtimeProcessing;
 };
 
 

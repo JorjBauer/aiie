@@ -9,8 +9,6 @@ TeensySpeaker::TeensySpeaker(uint8_t pinNum) : PhysicalSpeaker()
   speakerPin = pinNum;
   pinMode(speakerPin, OUTPUT); // analog speaker output, used as digital volume control
   mixerValue = numMixed = 0;
-
-  toggleCount = toggleReadPtr = toggleWritePtr = 0;
 }
 
 TeensySpeaker::~TeensySpeaker()
@@ -19,38 +17,20 @@ TeensySpeaker::~TeensySpeaker()
 
 void TeensySpeaker::toggle(uint32_t c)
 {
-  toggleTimes[toggleWritePtr] = c;
-  if (toggleCount < SPEAKERQUEUESIZE-1) {
-    toggleWritePtr++;
-    if (toggleWritePtr >= SPEAKERQUEUESIZE)
-      toggleWritePtr = 0;
-    toggleCount++;
-  } else {
-    // speaker overflow
-    Serial.println("spkr overflow");
-  }
+  toggleState = !toggleState;
+
+  mixerValue = (toggleState ? 0x1FF : 0x00);
+  mixerValue >>= (16-g_volume);
+  
+  // FIXME: glad it's DAC0 and all, but... how does that relate to the pin passed in the constructor?
+  analogWriteDAC0(mixerValue);
 }
 
-void TeensySpeaker::maintainSpeaker(uint32_t c)
+void TeensySpeaker::maintainSpeaker(uint32_t c, uint64_t runtimeInMicros)
 {
-  bool didChange = false;
-
-  while (toggleCount && c >= toggleTimes[toggleReadPtr]) {
-    toggleState = !toggleState;
-    toggleCount--;
-    toggleReadPtr++;
-    if (toggleReadPtr >= SPEAKERQUEUESIZE)
-      toggleReadPtr = 0;
-    didChange = true;
-  }
-
-  if (didChange) {
-    mixerValue = (toggleState ? 0x1FF : 0x00);
-    mixerValue >>= (16-g_volume);
-    
-    // FIXME: glad it's DAC0 and all, but... how does that relate to the pin passed in the constructor?
-    analogWriteDAC0(mixerValue);
-  }
+  // Nothing to do here. We can't run the speaker async, b/c not
+  // enough CPU time. So we run the CPU close to sync and hope that
+  // the direct pulsing of the speaker is reasonably close to on-time.
 }
 
 void TeensySpeaker::beginMixing()

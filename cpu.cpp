@@ -511,7 +511,9 @@ void Cpu::Reset()
 
   sp = 0xFD;
 
-  cycles = 6; // according to the datasheet, the reset routine takes 6 clock cycles             
+  cycles = 6; // according to the datasheet, the reset routine takes 6 clock cycles
+
+  realtimeProcessing = false;
 }
 
 void Cpu::nmi()
@@ -582,7 +584,8 @@ void Cpu::irq()
 uint8_t Cpu::Run(uint8_t numSteps)
 {
   uint8_t runtime = 0;
-  while (runtime < numSteps) {
+  realtimeProcessing = false;
+  while (runtime < numSteps && !realtimeProcessing) {
     runtime += step();
   }
   return runtime;
@@ -1276,4 +1279,9 @@ uint16_t Cpu::popS16()
 void Cpu::stageIRQ()
 {
   irqPending = true;
+}
+
+void Cpu::realtime()
+{
+  realtimeProcessing = true;
 }
