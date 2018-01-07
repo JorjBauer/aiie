@@ -8,6 +8,7 @@
 #include "physicalspeaker.h"
 #include "physicalpaddles.h"
 #include "physicalprinter.h"
+#include "vmui.h"
 
 extern FileManager *g_filemanager;
 extern Cpu *g_cpu;
@@ -17,5 +18,6 @@ extern PhysicalKeyboard *g_keyboard;
 extern PhysicalSpeaker *g_speaker;
 extern PhysicalPaddles *g_paddles;
 extern PhysicalPrinter *g_printer;
+extern VMui *g_ui;
 extern int16_t g_volume;
 extern uint8_t g_displayType;

@@ -2,7 +2,7 @@
 #include "teensy-display.h"
 
 #include "bios-font.h"
-#include "images.h"
+#include "appleui.h"
 
 #define RS 16
 #define WR 17
@@ -212,19 +212,11 @@ void TeensyDisplay::redraw()
 
   moveTo(0, 0);
 
-  for (int y=0; y<TEENSY_DHEIGHT; y++) {
-    for (int x=0; x<TEENSY_DWIDTH; x++) {
-      uint8_t r = pgm_read_byte(&displayBitmap[(y * DBITMAP_WIDTH + x)*3 + 0]);
-      uint8_t g = pgm_read_byte(&displayBitmap[(y * DBITMAP_WIDTH + x)*3 + 1]);
-      uint8_t b = pgm_read_byte(&displayBitmap[(y * DBITMAP_WIDTH + x)*3 + 2]);
-      uint16_t color16 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | ((b & 0xF8) >> 3);
-      setPixel(color16);
-    }
-  }
+  g_ui->drawStaticUIElement(UIeOverlay);
 
   if (g_vm) {
-    drawDriveDoor(0, ((AppleVM *)g_vm)->DiskName(0)[0] == '\0');
-    drawDriveDoor(1, ((AppleVM *)g_vm)->DiskName(1)[0] == '\0');
+    g_ui->drawOnOffUIElement(UIeDisk1_state, ((AppleVM *)g_vm)->DiskName(0)[0] == '\0');
+    g_ui->drawOnOffUIElement(UIeDisk2_state, ((AppleVM *)g_vm)->DiskName(1)[0] == '\0');
   }
 
   cbi(P_CS, B_CS);
@@ -411,8 +403,6 @@ void TeensyDisplay::blit(AiieRect r)
   
     drawString(M_SELECTDISABLED, 1, 240 - 16 - 12, overlayMessage);
   }
-
-  redrawDriveIndicators();
 }
 
 void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
@@ -470,98 +460,25 @@ void TeensyDisplay::drawString(uint8_t mode, uint16_t x, uint8_t y, const char *
   }
 }
 
-void TeensyDisplay::drawDriveDoor(uint8_t which, bool isOpen)
+void TeensyDisplay::drawImageOfSizeAt(const uint8_t *img, 
+				      uint16_t sizex, uint8_t sizey, 
+				      uint16_t wherex, uint8_t wherey)
 {
-  // location of drive door for left drive
+  uint8_t r, g, b;
 
-  uint16_t xoff = 55;
-  uint16_t yoff = 216;
-
-  // location for right drive
-
-  if (which == 1) {
-    xoff += 134;
+  if (sizex == DISPLAYWIDTH) {
+    moveTo(0,0);
   }
 
-  for (int y=0; y<20; y++) {
-    for (int x=0; x<43; x++) {
-      uint8_t r, g, b;
-      if (isOpen) {
-	r = pgm_read_byte(&driveLatchOpen[(y * 43 + x)*3 + 0]);
-	g = pgm_read_byte(&driveLatchOpen[(y * 43 + x)*3 + 1]);
-	b = pgm_read_byte(&driveLatchOpen[(y * 43 + x)*3 + 2]);
-      } else {
-	r = pgm_read_byte(&driveLatch[(y * 43 + x)*3 + 0]);
-	g = pgm_read_byte(&driveLatch[(y * 43 + x)*3 + 1]);
-	b = pgm_read_byte(&driveLatch[(y * 43 + x)*3 + 2]);
-      }
-      drawPixel(x+xoff, y+yoff, r, g, b);
+  for (uint8_t y=0; y<sizey; y++) {
+    if (sizex != DISPLAYWIDTH) {
+      moveTo(wherex, wherey + y);
+    }
+    for (uint16_t x=0; x<sizex; x++) {
+      r = pgm_read_byte(&img[(y*sizex + x)*3 + 0]);
+      g = pgm_read_byte(&img[(y*sizex + x)*3 + 1]);
+      b = pgm_read_byte(&img[(y*sizex + x)*3 + 2]);
+      setPixel((((r&248)|g>>5) << 8) | ((g&28)<<3|b>>3));
     }
   }
 }
-
-void TeensyDisplay::setDriveIndicator(uint8_t which, bool isRunning)
-{
-  driveIndicator[which] = isRunning;
-  driveIndicatorDirty = true;
-}
-
-void TeensyDisplay::redrawDriveIndicators()
-{
-  if (driveIndicatorDirty) {
-    // location of status indicator for left drive                                
-    uint16_t xoff = 125;
-    uint16_t yoff = 213;
-    
-    for (int which = 0; which <= 1; which++,xoff += 135) {
-      
-      for (int y=0; y<2; y++) {
-	for (int x=0; x<6; x++) {
-	  drawPixel(x + xoff, y + yoff, driveIndicator[which] ? 0xF800 : 0x8AA9);
-	}
-      }
-    }
-    driveIndicatorDirty = false;
-  }
-}
-
-void TeensyDisplay::drawBatteryStatus(uint8_t percent)
-{
-  uint16_t xoff = 300;
-  uint16_t yoff = 222;
-
-  // the area around the apple is 12 wide
-  // it's exactly 11 high
-  // the color is 210/202/159
-
-  float watermark = ((float)percent / 100.0) * 11;
-
-  for (int y=0; y<11; y++) {
-    uint8_t bgr = 210;
-    uint8_t bgg = 202;
-    uint8_t bgb = 159;
-    if (11-y > watermark) {
-      // black...
-      bgr = bgg = bgb = 0;
-    }
-
-    for (int x=0; x<11; x++) {
-      uint8_t *p = &appleBitmap[(y * 10 + (x-1))*4];
-      // It's RGBA; blend w/ background color
-
-      uint8_t r,g,b;
-      float alpha = (float)pgm_read_byte(&appleBitmap[(y * 10 + (x-1))*4 + 3]) / 255.0;
-
-      r = (float)pgm_read_byte(&appleBitmap[(y * 10 + (x-1))*4 + 0]) 
-	* alpha + (bgr * (1.0 - alpha));
-      g = (float)pgm_read_byte(&appleBitmap[(y * 10 + (x-1))*4 + 1]) 
-	* alpha + (bgr * (1.0 - alpha));
-      b = (float)pgm_read_byte(&appleBitmap[(y * 10 + (x-1))*4 + 2]) 
-	* alpha + (bgr * (1.0 - alpha));
-
-
-      drawPixel(x+xoff, y+yoff, r, g, b);
-    }
-  }
-}
-

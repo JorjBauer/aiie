@@ -13,6 +13,7 @@
 #include "applemmu.h" // for FLOATING
 
 #include "globals.h"
+#include "appleui.h"
 
 #include "diskii-rom.h"
 
@@ -195,12 +196,12 @@ uint8_t DiskII::readSwitches(uint8_t s)
 
   case 0x08: // drive off
     indicatorIsOn[selectedDisk] = 99;
-    g_display->setDriveIndicator(selectedDisk, false); // FIXME: after a spell...
+    g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false); // FIXME: delay a bit? Queue for later drawing?
     checkFlush(curHalfTrack[selectedDisk]>>1);
     break;
   case 0x09: // drive on
     indicatorIsOn[selectedDisk] = 100;
-    g_display->setDriveIndicator(selectedDisk, true);
+    g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, true); // FIXME: delay a bit? Queue for later drawing?
     break;
 
   case 0x0A: // select drive 1
@@ -238,12 +239,12 @@ uint8_t DiskII::readSwitches(uint8_t s)
   if (!indicatorIsOn[selectedDisk]) {
     //    printf("Unexpected read while disk isn't on?\n");
     indicatorIsOn[selectedDisk] = 100;
-    g_display->setDriveIndicator(selectedDisk, true);
+    g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, true); // FIXME: queue for later drawing?
   }
   if (indicatorIsOn[selectedDisk] > 0 && indicatorIsOn[selectedDisk] < 100) {
     // slowly spin it down...
     if (--indicatorIsOn[selectedDisk] == 0) {
-      g_display->setDriveIndicator(selectedDisk, false);
+      g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false); // FIXME: queue for later drawing?
     }
 
   }
@@ -426,7 +427,7 @@ void DiskII::insertDisk(int8_t driveNum, const char *filename, bool drawIt)
   ejectDisk(driveNum);
   disk[driveNum] = g_filemanager->openFile(filename);
   if (drawIt)
-    g_display->drawDriveDoor(driveNum, false);
+    g_ui->drawOnOffUIElement(UIeDisk1_state + driveNum, false);
 
   if (_endsWithI(filename, ".nib")) {
     diskType[driveNum] = nibDisk;
@@ -446,7 +447,7 @@ void DiskII::ejectDisk(int8_t driveNum)
   if (disk[driveNum] != -1) {
     g_filemanager->closeFile(disk[driveNum]);
     disk[driveNum] = -1;
-    g_display->drawDriveDoor(driveNum, true);
+    g_ui->drawOnOffUIElement(UIeDisk1_state + driveNum, true);
   }
 }
 
@@ -457,7 +458,7 @@ void DiskII::select(int8_t which)
 
   if (which != selectedDisk) {
     indicatorIsOn[selectedDisk] = 0;
-    g_display->setDriveIndicator(selectedDisk, false);
+    g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false); // FIXME: queue for later drawing?
 
     checkFlush(curHalfTrack[selectedDisk]>>1);
 

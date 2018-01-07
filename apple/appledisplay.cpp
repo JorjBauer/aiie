@@ -40,7 +40,7 @@
 
 #if DISPLAYRUN == 512
 
-#define drawPixel(c, x, y) {                                     \
+#define drawApplePixel(c, x, y) {                                     \
     uint16_t idx = (((y) << 9) + (x)) >> 1;			 \
     if ((x) & 1) {                                               \
       videoBuffer[idx] = (videoBuffer[idx] & 0xF0) | (c);	 \
@@ -56,7 +56,7 @@
 
 #else
 
-#define drawPixel(c, x, y) {                                     \
+#define drawApplePixel(c, x, y) {                                     \
     uint16_t idx = ((y) * DISPLAYRUN + (x)) / 2;	         \
     if ((x) & 1) {                                               \
       videoBuffer[idx] = (videoBuffer[idx] & 0xF0) | (c);	 \
@@ -76,13 +76,13 @@
   uint8_t pixel = c & 0x0F;             \
   for (uint8_t y2 = 0; y2<4; y2++) {    \
     for (int8_t x2 = 6; x2>=0; x2--) {  \
-      drawPixel(pixel, x*7+x2, y*8+y2); \
+      drawApplePixel(pixel, x*7+x2, y*8+y2); \
     }                                   \
   }                                     \
   pixel = (c >> 4);                     \
   for (uint8_t y2 = 4; y2<8; y2++) {    \
     for (int8_t x2 = 6; x2>=0; x2--) {  \
-      drawPixel(pixel, x*7+x2, y*8+y2); \
+      drawApplePixel(pixel, x*7+x2, y*8+y2); \
     }                                   \
   }                                     \
 }
@@ -243,8 +243,8 @@ inline void AppleDisplay::Draw14DoubleHiresPixelsAt(uint16_t addr)
     // pixels for every color.
 
     for (int8_t xoff = 0; xoff < 14; xoff += 2) {
-      drawPixel(bitTrain & 0x0F, col+xoff, row);
-      drawPixel(bitTrain & 0x0F, col+xoff+1, row);
+      drawApplePixel(bitTrain & 0x0F, col+xoff, row);
+      drawApplePixel(bitTrain & 0x0F, col+xoff+1, row);
 
       bitTrain >>= 4;
     }
@@ -425,10 +425,10 @@ void AppleDisplay::redraw80ColumnText(uint8_t startingY)
 	  bool pixelOn = ( (d & (1<<x2)) | (d & (1<<(x2+1))) );
 	  if (pixelOn) {
 	    uint8_t val = (invert ? c_black : textColor);
-	    drawPixel(val, (basex+x2)/2, row*8+y2);
+	    drawApplePixel(val, (basex+x2)/2, row*8+y2);
 	  } else {
 	    uint8_t val = (invert ? textColor : c_black);
-	    drawPixel(val, (basex+x2)/2, row*8+y2);
+	    drawApplePixel(val, (basex+x2)/2, row*8+y2);
 	  }
 	}
       }
@@ -442,10 +442,10 @@ void AppleDisplay::redraw80ColumnText(uint8_t startingY)
 	  bool pixelOn = ( (d & (1<<x2)) | (d & (1<<(x2+1))) );
 	  if (pixelOn) {
 	    uint8_t val = (invert ? c_black : textColor);
-	    drawPixel(val, (basex+x2)/2, row*8+y2);
+	    drawApplePixel(val, (basex+x2)/2, row*8+y2);
 	  } else {
 	    uint8_t val = (invert ? textColor : c_black);
-	    drawPixel(val, (basex+x2)/2, row*8+y2);
+	    drawApplePixel(val, (basex+x2)/2, row*8+y2);
 	  }
 	}
       }
@@ -480,10 +480,10 @@ void AppleDisplay::redraw40ColumnText(uint8_t startingY)
 	for (uint8_t x2 = 0; x2 < 7; x2++) {
 	  if (d & 1) {
 	    uint8_t val = (invert ? c_black : textColor);
-	    drawPixel(val, col*7+x2, row*8+y2);
+	    drawApplePixel(val, col*7+x2, row*8+y2);
 	  } else {
 	    uint8_t val = (invert ? textColor : c_black);
-	    drawPixel(val, col*7+x2, row*8+y2);
+	    drawApplePixel(val, col*7+x2, row*8+y2);
 	  }
 	  d >>= 1;
 	}
@@ -562,14 +562,14 @@ void AppleDisplay::Draw80LoresPixelAt(uint8_t c, uint8_t x, uint8_t y, uint8_t o
   uint8_t pixel = c & 0x0F;
   for (uint8_t y2 = 0; y2<4; y2++) {
     for (int8_t x2 = 3; x2>=offset; x2--) {
-      drawPixel(pixel, x*7+x2+offset*3, y*8+y2);
+      drawApplePixel(pixel, x*7+x2+offset*3, y*8+y2);
     }
   }
 
   pixel = (c >> 4);
   for (uint8_t y2 = 4; y2<8; y2++) {
     for (int8_t x2 = 3; x2>=offset; x2--) {
-      drawPixel(pixel, x*7+x2+offset*3, y*8+y2);
+      drawApplePixel(pixel, x*7+x2+offset*3, y*8+y2);
     }
   }
 }

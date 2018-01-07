@@ -28,12 +28,11 @@ class SDLDisplay : public PhysicalDisplay {
   virtual void blit(AiieRect r);
   virtual void redraw();
 
-  virtual void drawDriveDoor(uint8_t which, bool isOpen);
-  virtual void setDriveIndicator(uint8_t which, bool isRunning);
-  virtual void drawBatteryStatus(uint8_t percent);
+  virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint8_t sizey, uint16_t wherex, uint8_t wherey);
 
-  void drawPixel(uint16_t x, uint8_t y, uint16_t color);
-  void drawPixel(uint16_t x, uint8_t y, uint8_t r, uint8_t g, uint8_t b);
+  virtual void drawPixel(uint16_t x, uint16_t y, uint16_t color);
+  virtual void drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b);
+
   virtual void drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c);
   virtual void drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str);
   virtual void debugMsg(const char *msg);
@@ -41,9 +40,6 @@ class SDLDisplay : public PhysicalDisplay {
  private:
   SDL_Window *screen;
   SDL_Renderer *renderer;
-
-  bool driveIndicator[2];
-  bool driveIndicatorDirty;
 };
 
 #endif

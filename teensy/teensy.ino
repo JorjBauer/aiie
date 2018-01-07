@@ -11,6 +11,7 @@
 #include "teensy-speaker.h"
 #include "teensy-paddles.h"
 #include "teensy-filemanager.h"
+#include "appleui.h"
 
 #define RESETPIN 39
 #define BATTERYPIN A19
@@ -94,6 +95,9 @@ void setup()
   Serial.println(" display");
   g_display = new TeensyDisplay();
 
+  Serial.println(" UI");
+  g_ui = new AppleUI();
+
   // Next create the virtual CPU. This needs the VM's MMU in order to
   // run, but we don't have that yet.
   Serial.println(" cpu");
@@ -128,8 +132,6 @@ void setup()
   Serial.println("Reading prefs");
   readPrefs(); // read from eeprom and set anything we need setting
 
-  Serial.println("free-running");
-
   startMicros = nextInstructionMicros = micros();
 
   // Debugging: insert a disk on startup...
@@ -142,6 +144,8 @@ void setup()
 
   Serial.print("Free RAM: ");
   Serial.println(FreeRamEstimate());
+
+  Serial.println("free-running");
 
   Timer1.initialize(3);
   Timer1.attachInterrupt(runCPU);
@@ -323,7 +327,7 @@ void loop()
       batteryLevel = 168;
 
     batteryLevel = map(batteryLevel, 146, 168, 0, 100);
-    g_display->drawBatteryStatus(batteryLevel);
+    g_ui->drawPercentageUIElement(UIePowerPercentage, batteryLevel);
   }
 }
 

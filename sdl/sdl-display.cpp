@@ -7,6 +7,8 @@
 #include "globals.h"
 #include "applevm.h"
 
+#include "apple/appleui.h"
+
 // RGB map of each of the lowres colors
 const uint8_t loresPixelColors[16][3] = { { 0, 0, 0 }, // black
 					  { 195, 0, 48 }, // magenta
@@ -53,84 +55,27 @@ void SDLDisplay::redraw()
   // primarily for the device, where it's in and out of the
   // bios. Draws the background image.
   printf("redraw background\n");
+  g_ui->drawStaticUIElement(UIeOverlay);
 
-  for (int y=0; y<DISPLAYHEIGHT; y++) {
-    for (int x=0; x<DISPLAYWIDTH; x++) {
-      uint8_t *p = &displayBitmap[(y * DBITMAP_WIDTH + x)*3];
-      drawPixel(x, y, p[0], p[1], p[2]);
-    }
-  }
-
-  if (g_vm) {
-    drawDriveDoor(0, ((AppleVM *)g_vm)->DiskName(0)[0] == '\0');
-    drawDriveDoor(1, ((AppleVM *)g_vm)->DiskName(1)[0] == '\0');
+  if (g_vm && g_ui) {
+    // determine whether or not a disk is inserted & redraw each drive
+    g_ui->drawOnOffUIElement(UIeDisk1_state, ((AppleVM *)g_vm)->DiskName(0)[0] == '\0');
+    g_ui->drawOnOffUIElement(UIeDisk2_state, ((AppleVM *)g_vm)->DiskName(1)[0] == '\0');
   }
 }
 
-void SDLDisplay::setDriveIndicator(uint8_t which, bool isRunning)
+void SDLDisplay::drawImageOfSizeAt(const uint8_t *img,
+				   uint16_t sizex, uint8_t sizey,
+				   uint16_t wherex, uint8_t wherey)
 {
-  driveIndicator[which] = isRunning;
-  driveIndicatorDirty = true;
-}
-
-void SDLDisplay::drawDriveDoor(uint8_t which, bool isOpen)
-{
-  // location of drive door for left drive
-  uint16_t xoff = 55;
-  uint16_t yoff = 216;
-
-  // location for right drive
-  if (which == 1) {
-    xoff += 134;
-  }
-
-  for (int y=0; y<20; y++) {
-    for (int x=0; x<43; x++) {
-      uint8_t *p = &driveLatch[(y * 43 + x)*3];
-      if (isOpen) {
-	p = &driveLatchOpen[(y * 43 + x)*3];
-      }
-      drawPixel(x+xoff, y+yoff, p[0], p[1], p[2]);
+  for (uint8_t y=0; y<sizey; y++) {
+    for (uint16_t x=0; x<sizex; x++) {
+      const uint8_t *p = &img[(y * sizex + x)*3];
+      p = &img[(y * sizex + x)*3];
+      drawPixel(x+wherex, y+wherey, p[0], p[1], p[2]);
     }
   }
 }
-
-void SDLDisplay::drawBatteryStatus(uint8_t percent)
-{
-  uint16_t xoff = 300;
-  uint16_t yoff = 222;
-
-  // the area around the apple is 12 wide
-  // it's exactly 11 high
-  // the color is 210/202/159
-
-  float watermark = ((float)percent / 100.0) * 11;
-
-  for (int y=0; y<11; y++) {
-    uint8_t bgr = 210;
-    uint8_t bgg = 202;
-    uint8_t bgb = 159;
-
-    if (11-y > watermark) {
-      // black...
-      bgr = bgg = bgb = 0;
-    }
-    
-    for (int x=0; x<11; x++) {
-      uint8_t *p = &appleBitmap[(y * 10 + (x-1))*4];
-      // It's RGBA; blend w/ background color
-
-      uint8_t r,g,b;
-      float alpha = (float)p[3] / 255.0;
-      r = (float)p[0] * alpha + (bgr * (1.0 - alpha));
-      g = (float)p[1] * alpha + (bgg * (1.0 - alpha));
-      b = (float)p[2] * alpha + (bgb * (1.0 - alpha));
-
-      drawPixel(x+xoff, y+yoff, r, g, b);
-    }
-  }
-}
-
 
 #define BASEX 36
 #define BASEY 26
@@ -162,20 +107,6 @@ void SDLDisplay::blit(AiieRect r)
     drawString(M_SELECTDISABLED, 1, 240 - 16 - 12, overlayMessage);
   }
 
-  if (driveIndicatorDirty) {
-    // location of status indicator for left drive
-    uint16_t xoff = 125;
-    uint16_t yoff = 213;
-    for (int which=0; which<2; which++,xoff+=135) { // +135 for right drive
-      for (int y=0; y<1; y++) {
-	for (int x=0; x<6; x++) {
-	  drawPixel(x + xoff, y + yoff, driveIndicator[which] ? 0xF800 : 0x8AA9);
-	}
-      }
-    }
-    driveIndicatorDirty = false;
-  }
-
   SDL_RenderPresent(renderer);
 }
 
@@ -185,7 +116,7 @@ inline void putpixel(SDL_Renderer *renderer, int x, int y, uint8_t r, uint8_t g,
   SDL_RenderDrawPoint(renderer, x, y);
 }
 
-void SDLDisplay::drawPixel(uint16_t x, uint8_t y, uint16_t color)
+void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
 {
   uint8_t
     r = (color & 0xF800) >> 8,
@@ -201,7 +132,7 @@ void SDLDisplay::drawPixel(uint16_t x, uint8_t y, uint16_t color)
   }
 }
 
-void SDLDisplay::drawPixel(uint16_t x, uint8_t y, uint8_t r, uint8_t g, uint8_t b)
+void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b)
 {
   // Pixel-doubling
   for (int yoff=0; yoff<2; yoff++) {

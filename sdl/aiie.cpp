@@ -11,6 +11,7 @@
 #include "sdl-paddles.h"
 #include "sdl-filemanager.h"
 #include "sdl-printer.h"
+#include "appleui.h"
 
 #include "globals.h"
 
@@ -286,6 +287,8 @@ int main(int argc, char *argv[])
   g_display = new SDLDisplay();
   //  g_displayType = m_blackAndWhite;
 
+  g_ui = new AppleUI();
+
   // paddles have to be created after g_display created the window
   g_paddles = new SDLPaddles();
 
@@ -356,7 +359,7 @@ int main(int argc, char *argv[])
 
     g_printer->update();
     g_keyboard->maintainKeyboard();
-    g_display->drawBatteryStatus(100);
+    g_ui->drawPercentageUIElement(UIePowerPercentage, 100);
 
     // calculate FPS & dynamically step up/down as necessary
     static time_t startAt = time(NULL);
