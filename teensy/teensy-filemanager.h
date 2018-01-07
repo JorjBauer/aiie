@@ -31,6 +31,8 @@ class TeensyFileManager : public FileManager {
   bool _prepCache(int8_t fd);
 
  private:
+  bool enabled;
+
   int8_t numCached;
 };
 

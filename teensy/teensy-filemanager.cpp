@@ -1,42 +1,22 @@
 #include <Arduino.h>
 #include <wchar.h>
-#include "ff.h"                   // File System
+#include <SdFat.h>
 #include "teensy-filemanager.h"
 #include <string.h> // strcpy
 
 
 // FIXME: globals are yucky.
-DIR dir;
-FILINFO fno;
-FIL fil;
+SdFatSdio sd;
+File file;
 
-int8_t rawFd = -1;
-FIL rawFil;
-
-static TCHAR *char2tchar( const char *charString, int nn, TCHAR *output)
-{
-  int ii;
-  for (ii=0; ii<nn; ii++) {
-    output[ii] = (TCHAR)charString[ii];
-    if (!charString[ii])
-      break;
-  }
-  return output;
-}
-
-static char * tchar2char( const TCHAR * tcharString, int nn, char * charString)
-{   int ii;
-  for(ii = 0; ii<nn; ii++)
-    { charString[ii] = (char)tcharString[ii];
-      if(!charString[ii]) break;
-    }
-  return charString;
-}
-
+uint8_t rawFd;
+File rawFile;
 
 TeensyFileManager::TeensyFileManager()
 {
   numCached = 0;
+
+  enabled = sd.begin();
 }
 
 TeensyFileManager::~TeensyFileManager()
@@ -45,9 +25,8 @@ TeensyFileManager::~TeensyFileManager()
 
 int8_t TeensyFileManager::openFile(const char *name)
 {
-  // invalidate the raw file cache
   if (rawFd != -1) {
-    f_close(&rawFil);
+    rawFile.close();
     rawFd = -1;
   }
 
@@ -77,11 +56,8 @@ int8_t TeensyFileManager::openFile(const char *name)
 
 void TeensyFileManager::closeFile(int8_t fd)
 {
-  // invalidate the raw file cache
   if (rawFd != -1) {
-    Serial.print("Invalidating raw file cache ");
-    Serial.println(rawFd);
-    f_close(&rawFil);
+    rawFile.close();
     rawFd = -1;
   }
 
@@ -115,35 +91,28 @@ int8_t TeensyFileManager::readDir(const char *where, const char *suffix, char *o
   }
 
   int8_t idxCount = 1;
-  TCHAR buf[MAXPATH];
-  char2tchar(where, MAXPATH, buf);
-  buf[strlen(where)-1] = '\0'; // this library doesn't want trailing slashes
-  FRESULT rc = f_opendir(&dir, buf);
-  if (rc) {
-    Serial.printf("f_opendir '%s' failed: %d\n", where, rc);
-    return -1;
-  }
+  File f = sd.open(where);
 
   while (1) {
-    rc = f_readdir(&dir, &fno);
-    if (rc || !fno.fname[0]) {
+    File e = f.openNextFile();
+    if (!e) {
       // No more - all done.
-      f_closedir(&dir);
+      f.close();
       return -1;
     }
 
-    if (fno.fname[0] == '.' || fno.fname[0] == '_' || fno.fname[0] == '~') {
-      // skip MAC fork files and any that have been deleted :/
+    // Skip MAC fork files
+    e.getName(outputFN, maxlen-1); // -1 for trailing '/' on directories
+    if (outputFN[0] == '.') {
+      e.close();
       continue;
     }
 
-    // skip anything that has the wrong suffix
-    char fn[MAXPATH];
-    tchar2char(fno.fname, MAXPATH, fn);
-    if (suffix && !(fno.fattrib & AM_DIR) && strlen(fn) >= 3) {
-      const char *fsuff = &fn[strlen(fn)-3];
+    // skip anything that has the wrong suffix and isn't a directory
+    if (suffix && !e.isDirectory() && strlen(outputFN) >= 3) {
+      const char *fsuff = &outputFN[strlen(outputFN)-3];
       if (strstr(suffix, ","))  {
-	// multiple suffixes to check
+	// multiple suffixes to check - all must be 3 chars long, FIXME
 	bool matchesAny = false;
 	const char *p = suffix;
 	while (p && strlen(p)) {
@@ -153,21 +122,25 @@ int8_t TeensyFileManager::readDir(const char *where, const char *suffix, char *o
 	  }
 	  p = strstr(p, ",")+1;
 	}
-	if (!matchesAny)
+	if (!matchesAny) {
+	  e.close();
 	  continue;
+	}
       } else {
 	// one suffix to check
-	if (strcasecmp(fsuff, suffix))
+	if (strcasecmp(fsuff, suffix)) {
+	  e.close();
 	  continue;
+	}
       }
     }
 
     if (idxCount == startIdx) {
-      if (fno.fattrib & AM_DIR) {
-	strcat(fn, "/");
+      if (e.isDirectory()) {
+      	strcat(outputFN, "/");
       }
-      strncpy(outputFN, fn, maxlen);
-      f_closedir(&dir);
+      e.close();
+      f.close();
       return idxCount;
     }
 
@@ -195,25 +168,21 @@ bool TeensyFileManager::readTrack(int8_t fd, uint8_t *toWhere, bool isNib)
     return false;
 
   // open, seek, read, close.
-  TCHAR buf[MAXPATH];
-  char2tchar(cachedNames[fd], MAXPATH, buf);
-  FRESULT rc = f_open(&fil, (TCHAR*) buf, FA_READ);
-  if (rc) {
+  File f = sd.open(cachedNames[fd], FILE_READ);
+  if (!f) {
     Serial.println("failed to open");
     return false;
   }
 
-  rc = f_lseek(&fil, fileSeekPositions[fd]);
-  if (rc) {
+  if (!f.seek(fileSeekPositions[fd])) {
     Serial.println("readTrack: seek failed");
-    f_close(&fil);
+    f.close();
     return false;
   }
 
-  UINT v;
-  f_read(&fil, toWhere, isNib ? 0x1a00 : (256 * 16), &v);
-  f_close(&fil);
-  return (v == (isNib ? 0x1a00 : (256 * 16)));
+  int nRead = f.read(toWhere, isNib ? 0x1a00 : (256 * 16));
+  f.close();
+  return (nRead == (isNib ? 0x1a00 : (256 * 16)));
 }
 
 bool TeensyFileManager::readBlock(int8_t fd, uint8_t *toWhere, bool isNib)
@@ -226,24 +195,21 @@ bool TeensyFileManager::readBlock(int8_t fd, uint8_t *toWhere, bool isNib)
     return false;
 
   // open, seek, read, close.
-  TCHAR buf[MAXPATH];
-  char2tchar(cachedNames[fd], MAXPATH, buf);
-  FRESULT rc = f_open(&fil, (TCHAR*) buf, FA_READ);
-  if (rc) {
+  File f = sd.open(cachedNames[fd], FILE_READ);
+  if (!f) {
     Serial.println("failed to open");
     return false;
   }
 
-  rc = f_lseek(&fil, fileSeekPositions[fd]);
-  if (rc) {
+  if (!f.seek(fileSeekPositions[fd])) {
     Serial.println("readBlock: seek failed");
-    f_close(&fil);
+    f.close();
     return false;
   }
-  UINT v;
-  f_read(&fil, toWhere, isNib ? 416 : 256, &v);
-  f_close(&fil);
-  return (v == (isNib ? 416 : 256));
+
+  int nRead = f.read(toWhere, isNib ? 416 : 256);
+  f.close();
+  return (nRead == (isNib ? 416 : 256));
 }
 
 bool TeensyFileManager::writeBlock(int8_t fd, uint8_t *fromWhere, bool isNib)
@@ -260,14 +226,16 @@ bool TeensyFileManager::writeBlock(int8_t fd, uint8_t *fromWhere, bool isNib)
     return false;
 
   // open, seek, write, close.
-  TCHAR buf[MAXPATH];
-  char2tchar(cachedNames[fd], MAXPATH, buf);
-  FRESULT rc = f_open(&fil, (TCHAR*) buf, FA_WRITE);
-  rc = f_lseek(&fil, fileSeekPositions[fd]);
-  UINT v;
-  f_write(&fil, fromWhere, 256, &v);
-  f_close(&fil);
-  return (v == 256);
+  File f = sd.open(cachedNames[fd], FILE_WRITE);
+  if (!f ||
+      !f.seek(fileSeekPositions[fd])) {
+    f.close();
+    return false;
+  }
+
+  int nWritten = f.write(fromWhere, 256);
+  f.close();
+  return (nWritten == 256);
 }
 
 bool TeensyFileManager::writeTrack(int8_t fd, uint8_t *fromWhere, bool isNib)
@@ -280,20 +248,22 @@ bool TeensyFileManager::writeTrack(int8_t fd, uint8_t *fromWhere, bool isNib)
     return false;
 
   // open, seek, write, close.
-  TCHAR buf[MAXPATH];
-  char2tchar(cachedNames[fd], MAXPATH, buf);
-  FRESULT rc = f_open(&fil, (TCHAR*) buf, FA_WRITE);
-  rc = f_lseek(&fil, fileSeekPositions[fd]);
-  UINT v;
-  f_write(&fil, fromWhere, isNib ? 0x1a00 : (256*16), &v);
-  f_close(&fil);
-  return (v == (isNib ? 0x1a00 : (256*16)));
+  File f = sd.open(cachedNames[fd], FILE_WRITE);
+  if (!f)
+    return false;
+
+  if (!f.seek(fileSeekPositions[fd])) {
+    f.close();
+    return false;
+  }
+
+  int nWritten = f.write(fromWhere, isNib ? 0x1a00 : (256*16));
+  f.close();
+  return (nWritten == (isNib ? 0x1a00 : (256*16)));
 }
 
 bool TeensyFileManager::_prepCache(int8_t fd)
 {
-  FRESULT rc;
-
   if (rawFd == -1 ||
       rawFd != fd) {
 
@@ -301,16 +271,13 @@ bool TeensyFileManager::_prepCache(int8_t fd)
     if (rawFd != -1) {
       // Close the old one if we had one
       Serial.println("closing old cache file");
-      f_close(&rawFil);
+      rawFile.close();
       rawFd = -1;
     }
 
     Serial.println("opening new cache file");
     // Open the new one
-    TCHAR buf[MAXPATH];
-    char2tchar(cachedNames[fd], MAXPATH, buf);
-    rc = f_open(&rawFil, (TCHAR*) buf, FA_READ|FA_WRITE|FA_OPEN_ALWAYS);
-    if (rc) {
+    if (!sd.open(cachedNames[fd], O_RDWR | O_CREAT)) {
       Serial.print("_prepCache: failed to open ");
       Serial.println(cachedNames[fd]);
       return false;
@@ -322,7 +289,7 @@ bool TeensyFileManager::_prepCache(int8_t fd)
     //    Serial.println("reopning same cache");
   }
 
-  return (!rc);
+  return true; // FIXME error handling
 }
 
 uint8_t TeensyFileManager::readByteAt(int8_t fd, uint32_t pos)
@@ -334,21 +301,14 @@ uint8_t TeensyFileManager::readByteAt(int8_t fd, uint32_t pos)
   if (cachedNames[fd][0] == 0)
     return false;
 
-  FRESULT rc;
-
   _prepCache(fd);
 
-  rc = f_lseek(&rawFil, pos);
-  if (rc) {
+  if (!rawFile.seek(pos)) {
     Serial.println("readByteAt: seek failed");
     return false;
   }
   uint8_t b;
-  UINT v;
-  f_read(&rawFil, &b, 1, &v);
-
-  // FIXME: check v == 1 & handle error
-  return b;
+  return (rawFile.read(&b, 1) == 1);
 }
 
 bool TeensyFileManager::writeByteAt(int8_t fd, uint8_t v, uint32_t pos)
@@ -360,15 +320,12 @@ bool TeensyFileManager::writeByteAt(int8_t fd, uint8_t v, uint32_t pos)
   if (cachedNames[fd][0] == 0)
     return false;
 
-  FRESULT rc;
-
   _prepCache(fd);
 
-  rc = f_lseek(&rawFil, pos);
-  UINT ret;
-  f_write(&rawFil, &v, 1, &ret);
+  if (!rawFile.seek(pos))
+    return false;
 
-  return (ret == 1);
+  return (rawFile.write(&v, 1) == 1);
 }
 
 uint8_t TeensyFileManager::readByte(int8_t fd)
@@ -380,22 +337,17 @@ uint8_t TeensyFileManager::readByte(int8_t fd)
   if (cachedNames[fd][0] == 0)
     return false;
 
-  FRESULT rc;
-
   _prepCache(fd);
 
   uint32_t pos = fileSeekPositions[fd];
 
-  rc = f_lseek(&rawFil, pos);
-  if (rc) {
+  if (!rawFile.seek(pos)) {
     Serial.println("readByteAt: seek failed");
     return false;
   }
-  uint8_t b;
-  UINT v;
-  f_read(&rawFil, &b, 1, &v);
 
-  fileSeekPositions[fd]++;
+  uint8_t b;
+  rawFile.read(&b, 1);
 
   // FIXME: check v == 1 & handle error
   return b;
@@ -414,22 +366,20 @@ bool TeensyFileManager::writeByte(int8_t fd, uint8_t v)
     return false;
   }
 
-  FRESULT rc;
-
   _prepCache(fd);
 
   uint32_t pos = fileSeekPositions[fd];
 
-  rc = f_lseek(&rawFil, pos);
-  UINT ret;
-  f_write(&rawFil, &v, 1, &ret);
+  if (!rawFile.seek(pos)) {
+    return false;
+  }
+
+  if (rawFile.write(&v, 1) != 1) {
+    return false;
+  }
 
   fileSeekPositions[fd]++;
 
-  if (ret != 1) {
-    Serial.println("Write failed");
-  }
-
-  return (ret == 1);
+  return true;
 }
 

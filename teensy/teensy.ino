@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <ff.h> // uSDFS
 #include <SPI.h>
 #include <EEPROM.h>
 #include <TimeLib.h>
@@ -23,7 +22,6 @@
 uint32_t nextInstructionMicros;
 uint32_t startMicros;
 
-FATFS fatfs;      /* File system object */
 BIOS bios;
 
 enum {
@@ -71,9 +69,6 @@ void setup()
   } else {
     Serial.println("Error while setting RTC");
   }
-
-  TCHAR *device = (TCHAR *)_T("0:/");
-  f_mount (&fatfs, device, 0);      /* Mount/Unmount a logical drive */
 
   pinMode(RESETPIN, INPUT);
   digitalWrite(RESETPIN, HIGH);

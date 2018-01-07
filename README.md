@@ -92,20 +92,12 @@ case-insensitive, you'll have to do something like this:
 
 I'm also using these libraries that don't come with TeensyDuino:
 
-### uSDFS ###
+### SdFat ###
 
-This has long filename support, where the Teensy SD library
-doesn't. It's pretty messy code, though, and I hope to abandon it
-eventually.
+SD card support - accelerated for the Teensy, and with long filename support.
 
-	https://github.com/WMXZ-EU/uSDFS
+     https://github.com/greiman/SdFat
 
-### RadioHead ###
-
-This library comes with TeensyDuino, but I found the version that's
-with 1.35 hangs. Using the stock v1.70 seems to be fine.
-
-     http://www.airspayce.com/mikem/arduino/RadioHead
 
 
 
