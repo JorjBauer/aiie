@@ -2,7 +2,7 @@
 #include "teensy-display.h"
 
 #include "bios-font.h"
-#include "display-bg.h"
+#include "images.h"
 
 #define RS 16
 #define WR 17

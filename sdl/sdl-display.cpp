@@ -2,7 +2,7 @@
 #include "sdl-display.h"
 
 #include "bios-font.h"
-#include "display-bg.h"
+#include "images.h"
 
 #include "globals.h"
 #include "applevm.h"
