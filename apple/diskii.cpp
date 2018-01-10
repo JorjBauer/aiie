@@ -22,7 +22,6 @@
 DiskII::DiskII(AppleMMU *mmu)
 {
   this->trackBuffer = new LRingBuffer(NIBTRACKSIZE);
-  this->rawTrackBuffer = (uint8_t *)malloc(4096);
 
   this->mmu = mmu;
 
@@ -46,7 +45,6 @@ DiskII::DiskII(AppleMMU *mmu)
 DiskII::~DiskII()
 {
   delete this->trackBuffer; this->trackBuffer = NULL;
-  free(this->rawTrackBuffer); this->rawTrackBuffer = NULL;
 }
 
 bool DiskII::Serialize(int8_t fd)

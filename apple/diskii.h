@@ -56,7 +56,7 @@ class DiskII : public Slot {
   volatile bool trackDirty; // does this track need flushing to disk?
   uint8_t readWriteLatch;
   LRingBuffer *trackBuffer; // nibblized data
-  uint8_t *rawTrackBuffer; // not nibblized data
+  uint8_t rawTrackBuffer[4096]; // not nibblized data
   
   bool writeMode;
   bool writeProt;
