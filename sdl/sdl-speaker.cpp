@@ -35,7 +35,13 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
     }
   } else {
     // Audio underrun
-    printf("Audio underrun!\n");
+    static uint8_t occurrenceCount = 0;
+    if (++occurrenceCount < 10) {
+      printf("Audio underrun!\n");
+      if (occurrenceCount == 9) {
+	printf("  (Suppressing further audio errors)\n");
+      }
+    }
     memset(stream, 0, len);
   }
   pthread_mutex_unlock(&sndmutex);
