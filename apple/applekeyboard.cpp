@@ -127,11 +127,11 @@ void AppleKeyboard::keyDepressed(uint8_t k)
     mmu->keyboardInput(keyThatIsRepeating);
   } else if (k == LA) {
     // Special handling: apple keys
-    mmu->isOpenApplePressed = true;
+    mmu->setAppleKey(0, true);
     return;
   } else if (k == RA) {
     // Special handling: apple keys
-    mmu->isClosedApplePressed = true;
+    mmu->setAppleKey(1, true);
     return;
   } else if (k == LOCK) {
     // Special handling: caps lock
@@ -146,11 +146,11 @@ void AppleKeyboard::keyReleased(uint8_t k)
 
   // Special handling: apple keys
   if (k == LA) {
-    mmu->isOpenApplePressed = false;
+    mmu->setAppleKey(0, false);
     return;
   }
   if (k == RA) {
-    mmu->isClosedApplePressed = false;
+    mmu->setAppleKey(1, false);
     return;
   }
   if (k == LOCK) {

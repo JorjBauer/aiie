@@ -2,7 +2,7 @@
 #define __VM_H
 
 #include <stdint.h>
-#include <stdlib.h> // for calloc
+#include <stdlib.h> // for NULL
 
 #include "mmu.h"
 #include "vmdisplay.h"
@@ -14,8 +14,8 @@
 
 class VM {
  public:
-  VM() { mmu=NULL; vmdisplay = NULL; videoBuffer = (uint8_t *)calloc(DISPLAYRUN * DISPLAYHEIGHT / 2, 1); hasIRQ = false;}
-  virtual ~VM() { if (mmu) delete mmu; if (vmdisplay) delete vmdisplay; free(videoBuffer); }
+  VM() { mmu=NULL; vmdisplay = NULL; hasIRQ = false;}
+  virtual ~VM() { if (mmu) delete mmu; if (vmdisplay) delete vmdisplay; }
 
   virtual void Suspend(const char *fn) = 0;
   virtual void Resume(const char *fn) = 0;
@@ -28,7 +28,8 @@ class VM {
 
   virtual void triggerPaddleInCycles(uint8_t paddleNum, uint16_t cycleCount) = 0;
 
-  uint8_t *videoBuffer;
+  uint8_t videoBuffer[DISPLAYRUN * DISPLAYHEIGHT / 2];
+
   VMDisplay *vmdisplay;
   MMU *mmu;
   bool hasIRQ;

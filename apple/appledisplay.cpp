@@ -1,5 +1,4 @@
 #include <ctype.h> // isgraph
-#include <stdlib.h> // calloc
 #include <string.h> // strlen
 #include "appledisplay.h"
 #include "applemmu.h" // for switch constants

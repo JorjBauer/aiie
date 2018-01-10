@@ -53,6 +53,8 @@ class AppleMMU : public MMU {
 
   void setSlot(int8_t slotnum, Slot *peripheral);
 
+  void setAppleKey(int8_t which, bool isDown);
+
  protected:
   void allocateMemory();
 
@@ -81,17 +83,10 @@ class AppleMMU : public MMU {
 
   Slot *slots[8]; // slots 0-7
 
-  uint8_t *ramPages[0x100][5];
-  uint8_t *readPages[0x100];
-  uint8_t *writePages[0x100];
+  uint16_t readPages[0x100];
+  uint16_t writePages[0x100];
 
-  uint8_t keyboardStrobe;
   bool anyKeyDown;
-
- public:
-  // FIXME: build a private API for these
-  bool isOpenApplePressed;
-  bool isClosedApplePressed;
 };
 
 #endif

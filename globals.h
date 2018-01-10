@@ -9,6 +9,7 @@
 #include "physicalpaddles.h"
 #include "physicalprinter.h"
 #include "vmui.h"
+#include "vmram.h"
 
 extern FileManager *g_filemanager;
 extern Cpu *g_cpu;
@@ -21,3 +22,4 @@ extern PhysicalPrinter *g_printer;
 extern VMui *g_ui;
 extern int16_t g_volume;
 extern uint8_t g_displayType;
+extern VMRam g_ram;

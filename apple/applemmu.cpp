@@ -1,9 +1,10 @@
 #ifdef TEENSYDUINO
 #include <Arduino.h>
+#define assert(x)
 #else
 #include <stdio.h>
 #include <unistd.h>
-
+#include <assert.h>
 #endif
 
 #include "applemmu.h"
@@ -29,19 +30,74 @@ pages 0x0C - 0x1F: straight ram
 hires page 1: pages 0x20 - 0x3F
 hires page 2: pages 0x40 - 0x5F
 pages 0x60 - 0xBF: straight ram
-page 0xc0: I/O switches
+page 0xc0: I/O switches (some store 1-byte state)
 pages 0xc1 - 0xcf: slot ROMs
 pages 0xd0 - 0xdf: Basic ROM
 pages 0xe0 - 0xff: monitor ROM
 */
 
+/* 
+
+   The memory model for this is...
+
+page 0-1    4 pages (1k) [altzp]
+2-0xBF      190 * 2 pages = 380 pages = 95k [auxRamRead/Write, S_HIRES, S_80STORE, S_PAGE2]
+0xC0        1 page (256 bytes) (1-byte state for virtual I/O switches)
+0xC1-0xCF   15 * 2 pages = 30 pages (7.5k) [intcxrom, slotLatch]
+0xD0 - 0xDF 16 * 5 pages = 80 pages (20k) [altzp, bank2, {r,w}bsr]
+0xE0 - 0xFF 32 * 3 pages = 96 pages (24k) [altzp, {r,w}bsr]
+
+= 147.75k (591 pages) stored off-chip
+
+Current read page table [512 bytes] in real ram
+Current write page table [512 bytes] in real ram
+
+ */
+
+// All the pages...
+enum {
+  MP_ZP  = 0,   // page 0/1 * 2 page variants; 0..3
+  MP_C1 = 4,   // start of 0xC1-0xCF * 2 page variants = 30, 4..33
+  MP_D0 = 34,  // start of 0xD0-0xDF * 5 page variants = 80; 34..113
+  MP_E0 = 114, // start of 0xE0-0xFF * 3 page variants = 96; 114..209
+  MP_2  = 210, // start of 0x02-0xBF * 2 page variants = 380; 210..589
+  MP_C0 = 590 
+              // = 591 pages in all (147.75k)
+};
+
+static uint16_t _pageNumberForRam(uint8_t highByte, uint8_t variant)
+{
+  if (highByte <= 1) {
+    // zero page.
+    return highByte + (variant*2) + MP_ZP;
+  }
+
+  if (highByte <= 0xBF) {
+    // 2-0xBF      190 * 2 pages = 380 pages = 95k
+    return ((highByte - 2) * 2 + variant + MP_2);
+  }
+
+  if (highByte == 0xC0) {
+    return MP_C0;
+  }
+
+  if (highByte <= 0xCF) {
+    // 0xC1-0xCF   15 * 2 pages = 30 pages (7.5k)
+    return ((highByte - 0xC1) * 2 + variant + MP_C1);
+  }
+
+  if (highByte <= 0xDF) {
+    // 0xD0 - 0xDF 16 * 5 pages = 80 pages (20k)
+    return ((highByte - 0xD0) * 5 + variant + MP_D0);
+  }
+
+  // 0xE0 - 0xFF 32 * 3 pages = 96 pages (24k)
+  return ((highByte - 0xE0) * 3 + variant + MP_E0);
+}
+
 AppleMMU::AppleMMU(AppleDisplay *display)
 {
   anyKeyDown = false;
-  keyboardStrobe = 0x00;
-
-  isOpenApplePressed = false;
-  isClosedApplePressed = false;
 
   for (int8_t i=0; i<=7; i++) {
     slots[i] = NULL;
@@ -77,9 +133,9 @@ bool AppleMMU::Serialize(int8_t fd)
   g_filemanager->writeByte(fd, slot3rom ? 1 : 0);
   g_filemanager->writeByte(fd, slotLatch);
   g_filemanager->writeByte(fd, preWriteFlag ? 1 : 0);
-  g_filemanager->writeByte(fd, anyKeyDown ? 1 : 0);
-  g_filemanager->writeByte(fd, keyboardStrobe);
 
+  // FIXME: write the RAM
+#if 0
   for (uint16_t i=0; i<0x100; i++) {
     for (uint8_t j=0; j<5; j++) {
       g_filemanager->writeByte(fd, MMUMAGIC);
@@ -93,7 +149,7 @@ bool AppleMMU::Serialize(int8_t fd)
       }
     }
   }
-
+#endif
   // readPages & writePages don't need suspending, but we will need to
   // recalculate after resume
 
@@ -124,8 +180,6 @@ bool AppleMMU::Deserialize(int8_t fd)
   slot3rom = g_filemanager->readByte(fd);
   slotLatch = g_filemanager->readByte(fd);
   preWriteFlag = g_filemanager->readByte(fd);
-  anyKeyDown = g_filemanager->readByte(fd);
-  keyboardStrobe = g_filemanager->readByte(fd);
 
   for (uint16_t i=0; i<0x100; i++) {
     for (uint8_t j=0; j<5; j++) {
@@ -135,7 +189,9 @@ bool AppleMMU::Deserialize(int8_t fd)
 #endif
 	return false;
       }
-      
+
+      // FIXME: deserialize RAM
+#if 0      
       if (g_filemanager->readByte(fd)) {
 	// This page has data
 #ifndef TEENSYDUINO
@@ -155,6 +211,7 @@ bool AppleMMU::Deserialize(int8_t fd)
 	}
 #endif
       }
+#endif
     }
   }
 
@@ -201,15 +258,16 @@ uint8_t AppleMMU::read(uint16_t address)
     updateMemoryPages();
   }
 
-  uint8_t res = readPages[address >> 8][address & 0xFF];
-
+  uint8_t res = g_ram.readByte((readPages[address >> 8] << 8) | (address & 0xFF));
   return res;
 }
 
 // Bypass MMU and read directly from a given page - also bypasses switches
 uint8_t AppleMMU::readDirect(uint16_t address, uint8_t fromPage)
 {
-  return ramPages[address >> 8][fromPage][address & 0xFF];
+  uint16_t page = _pageNumberForRam(address >> 8, fromPage);
+
+  return g_ram.readByte((page << 8) | (address & 0xFF));
 }
 
 void AppleMMU::write(uint16_t address, uint8_t v)
@@ -228,7 +286,7 @@ void AppleMMU::write(uint16_t address, uint8_t v)
     return;
   }
 
-  writePages[address >> 8][address & 0xFF] = v;
+  g_ram.writeByte((writePages[address >> 8] << 8) | (address & 0xFF), v);
 
   if (address >= 0x400 &&
       address <= 0x7FF) {
@@ -262,8 +320,6 @@ void AppleMMU::handleMemorySwitches(uint16_t address, uint16_t lastSwitch)
   // many of these are spelled out here: 
   // http://apple2.org.za/gswv/a2zine/faqs/csa2pfaq.html
   switch (address) {
-
-    // These are write-only and perform no action on read
 
   case 0xC000: // CLR80STORE
     switches &= ~S_80STORE;
@@ -384,7 +440,8 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
   switch (address) {
   case 0xC010:
     // consume the keyboard strobe flag
-    keyboardStrobe &= 0x7F;
+    g_ram.writeByte((writePages[0xC0] << 8) | 0x10, 
+		    g_ram.readByte((readPages[0xC0] << 8) | 0x10) & 0x7F);
     return (anyKeyDown ? 0x80 :  0x00);
 
   case 0xC080:
@@ -410,27 +467,27 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
     // by even read access
     preWriteFlag = (address & 0x01);
 
-    break;
+    return FLOATING;
 
   case 0xC00C: // CLR80VID disable 80-col video mode
     if (switches & S_80COL) {
       switches &= ~S_80COL;
       resetDisplay();
     }
-    break;
+    break; // fall through
   case 0xC00D: // SET80VID enable 80-col video mode
     if (!(switches & S_80COL)) {
       switches |= S_80COL;
       resetDisplay();
     }
-    break;
+    break; // fall through
 
   case 0xC00E: // CLRALTCH use main char set - norm LC, flash UC
     switches &= ~S_ALTCH;
-    break;
+    break; // fall through
   case 0xC00F: // SETALTCH use alt char set - norm inverse, LC; no flash
     switches |= S_ALTCH;
-    break;
+    break; // fall through
 
 
   case 0xC011: // RDLCBNK2
@@ -478,7 +535,7 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
     g_cpu->realtime(); // cause the CPU to stop processing its outer
 		       // loop b/c the speaker might need attention
 		       // immediately
-    break;
+    return FLOATING;
 
   case 0xC050: // CLRTEXT
     if (switches & S_TEXT) {
@@ -555,25 +612,36 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
     return FLOATING;
 
     // paddles
+    /* Fall through for apple keys; they're just RAM in this model 
   case 0xC061: // OPNAPPLE
     return isOpenApplePressed ? 0x80 : 0x00;
   case 0xC062: // CLSAPPLE
     return isClosedApplePressed ? 0x80 : 0x00;
+*/
     
   case 0xC070: // PDLTRIG
     // It doesn't matter if we update readPages or writePages, because 0xC0 
     // has only one page.
-    readPages[0xC0][0x64] = readPages[0xC0][0x65] = 0xFF;
+    g_ram.writeByte((writePages[0xC0] << 8) | 0x64, 0xFF);
+    g_ram.writeByte((writePages[0xC0] << 8) | 0x65, 0xFF);
     g_paddles->startReading();
     return FLOATING;
   }
 
   if (address >= 0xc000 && address <= 0xc00f) {
     // This is the keyboardStrobe support referenced in the switch statement above.
-    return keyboardStrobe;
+    return g_ram.readByte((readPages[0xC0] << 8) | 0x10);
   }
 
-  return readPages[address >> 8][address & 0xFF];
+  /* *** FIXME: 
+SETIOUDIS= $C07E ;enable DHIRES & disable $C058-5F (W) 
+CLRIOUDIS= $C07E ;disable DHIRES & enable $C058-5F (W) 
+0xC05e and 0xc05f should fall through if that IOUDIS is not activated
+
+need to see if that's a toggle, or if it's a typo (c07f, maybe?)
+   */
+
+  return g_ram.readByte((readPages[address >> 8] << 8) | (address & 0xFF));
 }
 
 void AppleMMU::writeSwitches(uint16_t address, uint8_t v)
@@ -592,7 +660,6 @@ void AppleMMU::writeSwitches(uint16_t address, uint8_t v)
 	  address <= (0xC08F | (i << 4))) {
 	if (slots[i]) {
 	  slots[i]->writeSwitches(address & ~(0xC080 | (i<<4)), v);
-	  return;
 	}
       }
     }
@@ -615,7 +682,9 @@ void AppleMMU::writeSwitches(uint16_t address, uint8_t v)
   case 0xC01D:
   case 0xC01E:
   case 0xC01F:
-    keyboardStrobe &= 0x7F;
+    // Consume keyboard strobe
+    g_ram.writeByte((writePages[0xC0] << 8) | 0x10, 
+		    g_ram.readByte((readPages[0xC0] << 8) | 0x10) & 0x7F);
     return;
 
   case 0xC030: // SPEAKER
@@ -625,7 +694,7 @@ void AppleMMU::writeSwitches(uint16_t address, uint8_t v)
     g_cpu->realtime(); // cause the CPU to stop processing its outer
 		       // loop b/c the speaker might need attention
 		       // immediately
-    break;
+    return;
 
   case 0xC050: // graphics mode
     if (switches & S_TEXT) {
@@ -708,8 +777,9 @@ void AppleMMU::writeSwitches(uint16_t address, uint8_t v)
     // paddles
   case 0xC070:
     g_paddles->startReading();
-    writePages[0xC0][0x64] = writePages[0xC0][0x65] = 0xFF;
-    break;
+    g_ram.writeByte((writePages[0xC0] << 8) | 0x64, 0xFF);
+    g_ram.writeByte((writePages[0xC0] << 8) | 0x65, 0xFF);
+    return;
 
   case 0xC080:
   case 0xC081:
@@ -743,33 +813,40 @@ void AppleMMU::writeSwitches(uint16_t address, uint8_t v)
   case 0xC00A:
   case 0xC00B:
     handleMemorySwitches(address, lastWriteSwitch);
-    break;
+    return;
 
   case 0xC00C: // CLR80VID disable 80-col video mode
     if (switches & S_80COL) {
       switches &= ~S_80COL;
       resetDisplay();
     }
-    break;
+    return;
+
   case 0xC00D: // SET80VID enable 80-col video mode
     if (!(switches & S_80COL)) {
       switches |= S_80COL;
       resetDisplay();
     }
-    break;
+    return;
 
   case 0xC00E: // CLRALTCH use main char set - norm LC, flash UC
     switches &= ~S_ALTCH;
-    break;
+    return;
   case 0xC00F: // SETALTCH use alt char set - norm inverse, LC; no flash
     switches |= S_ALTCH;
-    break;
+    return;
   }
+
+  // Anything that falls through gets written to RAM.
+  g_ram.writeByte((writePages[0xC0] << 8) | (address & 0xFF),
+		  v);
 }
 
 void AppleMMU::keyboardInput(uint8_t v)
 {
-  keyboardStrobe = v | 0x80;
+  // Set keyboard strobe
+  g_ram.writeByte((writePages[0xC0] << 8) | 0x10, 
+		  v | 0x80);
   anyKeyDown = true;
 }
 
@@ -780,7 +857,7 @@ void AppleMMU::setKeyDown(bool isTrue)
 
 void AppleMMU::triggerPaddleTimer(uint8_t paddle)
 {
-  writePages[0xC0][0x64 + paddle] = 0x00;
+  g_ram.writeByte((writePages[0xC0] << 8) | (0x64 + paddle), 0);
 }
 
 void AppleMMU::resetRAM()
@@ -801,17 +878,9 @@ void AppleMMU::resetRAM()
 
   preWriteFlag = false;
 
-  // Clear all the pages
-  for (uint16_t i=0; i<=0xFF; i++) {
-    for (uint8_t j=0; j<5; j++) {
-      if (ramPages[i][j]) {
-	for (uint16_t k=0; k<0x100; k++) {
-	  ramPages[i][j][k] = 0;
-	}
-      }
-    }
-    // and set our expectation of what we're reading from/writing to
-    readPages[i] = writePages[i] = ramPages[i][0];
+  g_ram.init();
+  for (uint16_t i=0; i<0x100; i++) {
+    readPages[i] = writePages[i] = _pageNumberForRam(i, 0);
   }
 
   // Load system ROM
@@ -827,6 +896,8 @@ void AppleMMU::resetRAM()
 	// For the ROM section from 0xc100 .. 0xcfff, we load in to 
 	// an alternate page space (INTCXROM).
 
+	uint16_t page0 = _pageNumberForRam(i, 0);
+
 	if (i >= 0xc1 && i <= 0xcf) {
 	  // If we want to convince the VM we've got 128k of RAM, we 
 	  // need to load C3 ROM in page 0 (but not 1, meaning there's 
@@ -834,24 +905,37 @@ void AppleMMU::resetRAM()
 	  // (meaning there's an extended 80-column ROM available, 
 	  // that is also physically in the slot).
 	  // Everything else goes in page [1].
-	  if (i == 0xc3) 
-	    ramPages[i][0][k] = v;
-	  else if (i >= 0xc8)
-	    ramPages[i][0][k] = ramPages[i][1][k] = v;
-	  else
-	    ramPages[i][1][k] = v;
+
+	  uint16_t page1 = _pageNumberForRam(i, 1);
+
+	  if (i == 0xc3) {
+	    g_ram.writeByte((page0 << 8) | (k & 0xFF), v);
+	  }
+	  else if (i >= 0xc8) {
+	    g_ram.writeByte((page0 << 8) | (k & 0xFF), v);
+	    g_ram.writeByte((page1 << 8) | (k & 0xFF), v);
+	  }
+	  else {
+	    g_ram.writeByte((page1 << 8) | (k & 0xFF), v);
+	  }
 	} else {
 	  // Everything else goes in page 0.
-	  ramPages[i][0][k] = v;
+	  g_ram.writeByte((page0 << 8) | (k & 0xFF), v);
 	}
       }
     }
   }
 
   // have each slot load its ROM
-  for (uint8_t slotnum = 0; slotnum <= 7; slotnum++) {
+  for (uint8_t slotnum = 1; slotnum <= 7; slotnum++) {
+    uint16_t page0 = _pageNumberForRam(0xC0 + slotnum, 0);
     if (slots[slotnum]) {
-      slots[slotnum]->loadROM(ramPages[0xC0 + slotnum][0]);
+      uint8_t tmpBuf[256];
+      memset(tmpBuf, 0, sizeof(tmpBuf));
+      slots[slotnum]->loadROM(tmpBuf);
+      for (int i=0; i<256; i++) {
+	g_ram.writeByte( (page0 << 8) + i, tmpBuf[i] );
+      }
     }
   }
 
@@ -869,50 +953,40 @@ void AppleMMU::setSlot(int8_t slotnum, Slot *peripheral)
 
   slots[slotnum] = peripheral;
   if (slots[slotnum]) {
-    slots[slotnum]->loadROM(ramPages[0xC0 + slotnum][0]);
+    uint16_t page0 = _pageNumberForRam(0xC0 + slotnum, 0);
+    uint8_t tmpBuf[256];
+    memset(tmpBuf, 0, sizeof(tmpBuf));
+    slots[slotnum]->loadROM(tmpBuf);
+    for (int i=0; i<256; i++) {
+      g_ram.writeByte( (page0 << 8) + i, tmpBuf[i] );
+    }
   }
 }
 
 void AppleMMU::allocateMemory()
 {
-  for (uint16_t i=0; i<0xC0; i++) {
-    for (uint8_t j=0; j<2; j++) {
-      ramPages[i][j] = (uint8_t *)malloc(0x100);
-    }
-    for (uint8_t j=2; j<5; j++) {
-      ramPages[i][j] = NULL;
-    }
-    readPages[i] = ramPages[i][0];
-    writePages[i] = ramPages[i][0];
-  }
-  for (uint16_t i=0xC0; i<0x100; i++) {
-    for (uint8_t j=0; j<5; j++) {
-      ramPages[i][j] = (uint8_t *)malloc(0x100);
-    }
-    readPages[i] = ramPages[i][0];
-    writePages[i] = ramPages[i][0];
-  }
+  // FIXME: don't need this any more, I don't think, since it's allocated by g_ram
 }
 
 void AppleMMU::updateMemoryPages()
 {
   if (auxRamRead) {
     for (uint8_t idx = 0x02; idx < 0xc0; idx++) {
-      readPages[idx] = ramPages[idx][1];
+      readPages[idx] = _pageNumberForRam(idx, 1);
     }
   } else {
     for (uint8_t idx = 0x02; idx < 0xc0; idx++) {
-      readPages[idx] = ramPages[idx][0];
+      readPages[idx] = _pageNumberForRam(idx, 0);
     }
   }
 
   if (auxRamWrite) {
     for (uint8_t idx = 0x02; idx < 0xc0; idx++) {
-      writePages[idx] = ramPages[idx][1];
+      writePages[idx] = _pageNumberForRam(idx, 1);
     }
   } else {
     for (uint8_t idx = 0x02; idx < 0xc0; idx++) {
-      writePages[idx] = ramPages[idx][0];
+      writePages[idx] = _pageNumberForRam(idx, 0);
     }
   }
 
@@ -922,8 +996,7 @@ void AppleMMU::updateMemoryPages()
     if (switches & S_PAGE2) {
       // Regardless of HIRESON/OFF, pages 0x400-0x7ff are switched on S_PAGE2
       for (uint8_t idx = 0x04; idx < 0x08; idx++) {
-	readPages[idx] = ramPages[idx][1];
-	writePages[idx] = ramPages[idx][1];
+	readPages[idx] = writePages[idx] = _pageNumberForRam(idx, 1);
       }
 
       // but 2000-3fff switches based on S_PAGE2 only if HIRES is on.
@@ -935,33 +1008,30 @@ void AppleMMU::updateMemoryPages()
 
       // If HIRES is on, then we honor the PAGE2 setting; otherwise, we don't
       for (uint8_t idx = 0x20; idx < 0x40; idx++) {
-	readPages[idx] = ramPages[idx][(switches & S_HIRES) ? 1 : 0];
-	writePages[idx] = ramPages[idx][(switches & S_HIRES) ? 1 : 0];
+	readPages[idx] = writePages[idx] = _pageNumberForRam(idx, (switches & S_HIRES) ? 1 : 0);
       }
     } else {
       for (uint8_t idx = 0x04; idx < 0x08; idx++) {
-	readPages[idx] = ramPages[idx][0];
-	writePages[idx] = ramPages[idx][0];
+	readPages[idx] = writePages[idx] = _pageNumberForRam(idx, 0);
       }
       for (uint8_t idx = 0x20; idx < 0x40; idx++) {
-	readPages[idx] = ramPages[idx][0];
-	writePages[idx] = ramPages[idx][0];
+	readPages[idx] = writePages[idx] = _pageNumberForRam(idx, 0);
       }
     }
   }
 
   if (intcxrom) {
     for (uint8_t idx = 0xc1; idx < 0xd0; idx++) {
-      readPages[idx] = ramPages[idx][1];
+      readPages[idx] = _pageNumberForRam(idx, 1);
     }
   } else {
     for (uint8_t idx = 0xc1; idx < 0xd0; idx++) {
-      readPages[idx] = ramPages[idx][0];
+      readPages[idx] = _pageNumberForRam(idx, 0);
     }
     if (slot3rom) {
-      readPages[0xc3] = ramPages[0xc3][1];
+      readPages[0xc3] = _pageNumberForRam(0xc3, 1);
       for (int i=0xc8; i<=0xcf; i++) {
-	readPages[i] = ramPages[i][1];
+      readPages[i] = _pageNumberForRam(i, 1);
       }
     }
   }
@@ -973,7 +1043,7 @@ void AppleMMU::updateMemoryPages()
     // the 80-column card.
     if (slotLatch == 3) {
       for (int i=0xc8; i <= 0xcf; i++) {
-	readPages[i] = ramPages[i][1];
+	readPages[i] = _pageNumberForRam(i, 1);
       }
     }
   }
@@ -981,13 +1051,11 @@ void AppleMMU::updateMemoryPages()
   // set zero-page & stack pages based on altzp flag
   if (altzp) {
     for (uint8_t idx = 0x00; idx < 0x02; idx++) {
-      readPages[idx] = ramPages[idx][1];
-      writePages[idx] = ramPages[idx][1];
+      readPages[idx] = writePages[idx] = _pageNumberForRam(idx, 1);
     }
   } else {
     for (uint8_t idx = 0x00; idx < 0x02; idx++) {
-      readPages[idx] = ramPages[idx][0];
-      writePages[idx] = ramPages[idx][0];
+      readPages[idx] = writePages[idx] = _pageNumberForRam(idx, 0);
     }
   }
 
@@ -998,44 +1066,49 @@ void AppleMMU::updateMemoryPages()
       // Bank 1 RAM: either in main RAM (1) or in the extended memory
       // card (3):
       for (uint8_t idx = 0xd0; idx < 0xe0; idx++) {
-	readPages[idx] = ramPages[idx][altzp ? 3 : 1];
+	readPages[idx] = _pageNumberForRam(idx, altzp ? 3 : 1);
       }
     } else {
       // Bank 2 RAM: either in main RAM (2) or in the extended memory
       // card (4):
       for (uint8_t idx = 0xd0; idx < 0xe0; idx++) {
-	readPages[idx] = ramPages[idx][altzp ? 4 : 2];
+	readPages[idx] = _pageNumberForRam(idx, altzp ? 4 : 2);
       }
     }
     // ... but 0xE0 - 0xFF has just the motherboard RAM (1) and
     // extended memory card RAM (2):
     for (uint16_t idx = 0xe0; idx < 0x100; idx++) {
-      readPages[idx] = ramPages[idx][altzp ? 2 : 1];
+      readPages[idx] = _pageNumberForRam(idx, altzp ? 2 : 1);
     }
   } else {
     // Built-in ROM
     for (uint16_t idx = 0xd0; idx < 0x100; idx++) {
-      readPages[idx] = ramPages[idx][0];
+      readPages[idx] = _pageNumberForRam(idx, 0);
     }
   }
 
   if (writebsr) {
     if (!bank2) {
       for (uint8_t idx = 0xd0; idx < 0xe0; idx++) {
-	writePages[idx] = ramPages[idx][altzp ? 3 : 1];
+	writePages[idx] = _pageNumberForRam(idx, altzp ? 3 : 1);
       }
     } else {
       for (uint8_t idx = 0xd0; idx < 0xe0; idx++) {
-	writePages[idx] = ramPages[idx][altzp ? 4 : 2];
+	writePages[idx] = _pageNumberForRam(idx, altzp ? 4 : 2);
       }
     }
     for (uint16_t idx = 0xe0; idx < 0x100; idx++) {
-      writePages[idx] = ramPages[idx][altzp ? 2 : 1];
+      writePages[idx] = _pageNumberForRam(idx, altzp ? 2 : 1);
     }
   } else {
     for (uint16_t idx = 0xd0; idx < 0x100; idx++) {
-      writePages[idx] = ramPages[idx][0];
+      writePages[idx] = _pageNumberForRam(idx, 0);
     }
   }
 }
 
+void AppleMMU::setAppleKey(int8_t which, bool isDown)
+{
+  assert(which <= 1);
+  g_ram.writeByte(0xC061 + which, isDown ? 0x80 : 0x00);
+}
