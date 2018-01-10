@@ -56,8 +56,6 @@ class AppleMMU : public MMU {
   void setAppleKey(int8_t which, bool isDown);
 
  protected:
-  void allocateMemory();
-
   void resetDisplay();
   uint8_t readSwitches(uint16_t address);
   void writeSwitches(uint16_t address, uint8_t v);

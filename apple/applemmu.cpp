@@ -103,8 +103,6 @@ AppleMMU::AppleMMU(AppleDisplay *display)
     slots[i] = NULL;
   }
 
-  allocateMemory();
-
   this->display = display;
   this->display->setSwitches(&switches);
   resetRAM(); // initialize RAM, load ROM
@@ -113,7 +111,6 @@ AppleMMU::AppleMMU(AppleDisplay *display)
 AppleMMU::~AppleMMU()
 {
   delete display;
-  // FIXME: clean up the memory we allocated
 }
 
 bool AppleMMU::Serialize(int8_t fd)
@@ -134,27 +131,14 @@ bool AppleMMU::Serialize(int8_t fd)
   g_filemanager->writeByte(fd, slotLatch);
   g_filemanager->writeByte(fd, preWriteFlag ? 1 : 0);
 
-  // FIXME: write the RAM
-#if 0
-  for (uint16_t i=0; i<0x100; i++) {
-    for (uint8_t j=0; j<5; j++) {
-      g_filemanager->writeByte(fd, MMUMAGIC);
-      if (ramPages[i][j]) {
-	g_filemanager->writeByte(fd, 1);
-	for (uint16_t k=0; k<0x100; k++) {
-	  g_filemanager->writeByte(fd, ramPages[i][j][k]);
-	}
-      } else {
-	g_filemanager->writeByte(fd, 0);
-      }
-    }
-  }
-#endif
+  if (!g_ram.Serialize(fd))
+    return false;
+
   // readPages & writePages don't need suspending, but we will need to
   // recalculate after resume
 
   // Not suspending/resuming slots b/c they're a fixed configuration
-  // in this project.
+  // in this project. Should probably checksum them though. FIXME.
 
   g_filemanager->writeByte(fd, MMUMAGIC);
   return true;
@@ -181,38 +165,8 @@ bool AppleMMU::Deserialize(int8_t fd)
   slotLatch = g_filemanager->readByte(fd);
   preWriteFlag = g_filemanager->readByte(fd);
 
-  for (uint16_t i=0; i<0x100; i++) {
-    for (uint8_t j=0; j<5; j++) {
-      if (g_filemanager->readByte(fd) != MMUMAGIC) {
-#ifndef TEENSYDUINO
-	printf("Page %d/%d bad magic\n", i, j);
-#endif
-	return false;
-      }
-
-      // FIXME: deserialize RAM
-#if 0      
-      if (g_filemanager->readByte(fd)) {
-	// This page has data
-#ifndef TEENSYDUINO
-	if (!ramPages[i][j]) {
-	  printf("ERROR: shouldn't be writing to this page\n");
-	  exit(1);
-	}
-#endif
-	for (uint16_t k=0; k<0x100; k++) {
-	  ramPages[i][j][k] = g_filemanager->readByte(fd);
-	}
-      } else {
-#ifndef TEENSYDUINO
-	if (ramPages[i][j]) {
-	  printf("ERROR: this page exists but wasn't serialized?\n");
-	  exit(1);
-	}
-#endif
-      }
-#endif
-    }
+  if (!g_ram.Deserialize(fd)) {
+    return false;
   }
 
   if (g_filemanager->readByte(fd) != MMUMAGIC)
@@ -961,11 +915,6 @@ void AppleMMU::setSlot(int8_t slotnum, Slot *peripheral)
       g_ram.writeByte( (page0 << 8) + i, tmpBuf[i] );
     }
   }
-}
-
-void AppleMMU::allocateMemory()
-{
-  // FIXME: don't need this any more, I don't think, since it's allocated by g_ram
 }
 
 void AppleMMU::updateMemoryPages()
