@@ -1,0 +1,49 @@
+SainSmart 3.2" SSD1289 touch screen: $17.59
+
+https://www.amazon.com/SainSmart-3-2-Inch-SSD1289-Arduino-Raspberry/dp/B008FWSG3S
+
+63 6mmx6mm momentary pushbuttons: $2.23 (for 100)
+
+https://www.amazon.com/Yonger-6x6x4-5mm-Momentary-Tactile-Button/dp/B01L95LP8K
+
+Joystick: $6.99
+
+https://www.amazon.com/KY-023-Joystick-Sensor-Module-Arduino/dp/B01FDGUC58
+
+on/off switch (SPDT 3mm): $4.33 - check its current rating though
+
+https://www.amazon.com/Uxcell-a12013100ux0116-Position-Vertical-Switch/dp/B007QAJUUS
+
+... or via sparkfun, $0.75? - .2A @ 30vDC; should we get a beefier switch?
+
+https://www.sparkfun.com/products/9609
+
+battery holder: $4.35 (for 10)
+
+https://www.amazon.com/yueton-Battery-Storage-Holder-Single/dp/B013DUOJV4
+
+batteries & charger: $13.99
+
+https://www.amazon.com/EBL-lithium-Rechargeable-Batteries-3000mAh/dp/B0129F9BXK
+
+standoffs, black, 25mm x m3; $9.72 / 100
+
+https://smile.amazon.com/M3x25mm-Female-Thread-Standoff-Spacer/dp/B015K4AT6K
+
+PCBs (both)
+
+printer/serial port?
+
+wifi?
+
+wiring for touch screen?
+
+voltage divider for battery sensor: resistors + cap
+
+header for the LCD PCB
+standoffs for the LCD PCB
+M3 screws
+
+25mm M3 male/female brass standoffs: $7.01 / 20 ($9.52 / 100)
+
+https://smile.amazon.com/M3x25mm-Female-Thread-Standoff-Spacer/dp/B015K4AT6K/ref=sr_1_2?ie=UTF8&qid=1491143911&sr=8-2&keywords=pcb+standoff+25mm

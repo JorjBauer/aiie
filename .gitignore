@@ -1,6 +1,9 @@
+__MACOSX
+.DS_Store
 apple2e.rom
 disk.rom
 parallel.rom
+HDDRVR.BIN
 *~
 *.o
 apple/applemmu-rom.h
