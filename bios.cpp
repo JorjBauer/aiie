@@ -708,7 +708,7 @@ void BIOS::stripDirectory()
 
 void BIOS::DrawDiskNames(uint8_t page, int8_t selection)
 {
-  uint8_t fileCount = GatherFilenames(page);
+  uint8_t fileCount = GatherFilenames(page, "dsk,.po,nib,img");
   g_display->clrScr();
   g_display->drawString(M_NORMAL, 0, 12, "BIOS Configuration - pick disk");
 
@@ -739,14 +739,14 @@ void BIOS::DrawDiskNames(uint8_t page, int8_t selection)
 }
 
 
-uint8_t BIOS::GatherFilenames(uint8_t pageOffset)
+uint8_t BIOS::GatherFilenames(uint8_t pageOffset, const char *filter)
 {
   uint8_t startNum = 10 * pageOffset;
   uint8_t count = 0; // number we're including in our listing
 
   while (1) {
     char fn[BIOS_MAXPATH];
-    int8_t idx = g_filemanager->readDir(rootPath, "dsk,.po,nib,img", fn, startNum + count, BIOS_MAXPATH);
+    int8_t idx = g_filemanager->readDir(rootPath, filter, fn, startNum + count, BIOS_MAXPATH);
 
     if (idx == -1) {
       return count;
