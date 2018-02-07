@@ -267,7 +267,10 @@ uint8_t BIOS::GetAction(int8_t selection)
 	   (digitalRead(RESETPIN) == HIGH)
 #endif
 	   ) {
-      ;
+#ifndef TEENSYDUINO
+      usleep(100)
+#endif
+	;
       // Wait for either a keypress or the reset button to be pressed
     }
 
