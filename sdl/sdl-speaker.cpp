@@ -25,7 +25,7 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
   if (g_biosInterrupt) {
     // While the BIOS is running, we don't put samples in the audio
     // queue.
-    memset(stream, 0, len);
+    memset(stream, 0x80, len);
     pthread_mutex_unlock(&sndmutex);
     return;
   }
