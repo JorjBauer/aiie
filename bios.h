@@ -21,6 +21,7 @@ class BIOS {
  private:
   void DrawMenuBar();
   void DrawCurrentMenu();
+  void DrawAiieMenu();
   void DrawVMMenu();
   void DrawHardwareMenu();
   void DrawDisksMenu();
@@ -39,6 +40,8 @@ class BIOS {
   uint8_t GatherFilenames(uint8_t pageOffset);
 
   void stripDirectory();
+
+  void showAbout();
 
  private:
   int8_t selectedFile;

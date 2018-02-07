@@ -24,11 +24,14 @@ enum {
   ACT_RESTORE = 14,
   ACT_PRIMODE = 15,
   ACT_SPEED = 16,
+  ACT_ABOUT = 17,
 };
 
-#define NUM_TITLES 3
-const char *menuTitles[NUM_TITLES] = { "VM", "Hardware", "Disks" };
-const uint8_t titleWidths[NUM_TITLES] = { 28, 80, 45 };
+#define NUM_TITLES 4
+const char *menuTitles[NUM_TITLES] = { "Aiie", "VM", "Hardware", "Disks" };
+const uint8_t titleWidths[NUM_TITLES] = {45 , 28, 80, 45 };
+
+const uint8_t aiieActions[] = { ACT_ABOUT };
 
 const uint8_t vmActions[] = { ACT_EXIT, ACT_RESET, ACT_COLDBOOT, ACT_MONITOR,
 			      ACT_DEBUG, ACT_SUSPEND, ACT_RESTORE };
@@ -56,7 +59,7 @@ const char *staticPathConcat(const char *rootPath, const char *filePath)
 
 BIOS::BIOS()
 {
-  selectedMenu = 0;
+  selectedMenu = 1;
   selectedMenuItem = 0;
 
   selectedFile = -1;
@@ -132,6 +135,9 @@ bool BIOS::runUntilDone()
       g_displayType++;
       g_displayType %= 4; // FIXME: abstract max #
       ((AppleDisplay*)g_display)->displayTypeChanged();
+      break;
+    case ACT_ABOUT:
+      showAbout();
       break;
     case ACT_SPEED:
       currentCPUSpeedIndex++;
@@ -310,15 +316,19 @@ int8_t BIOS::getCurrentMenuAction()
   int8_t ret = -1;
 
   switch (selectedMenu) {
-  case 0: // VM
+  case 0: // Aiie
+    if (isActionActive(aiieActions[selectedMenuItem]))
+      return aiieActions[selectedMenuItem];
+    break;
+  case 1: // VM
     if (isActionActive(vmActions[selectedMenuItem]))
       return vmActions[selectedMenuItem];
     break;
-  case 1: // Hardware
+  case 2: // Hardware
     if (isActionActive(hardwareActions[selectedMenuItem]))
       return hardwareActions[selectedMenuItem];
     break;
-  case 2: // Disks
+  case 3: // Disks
     if (isActionActive(diskActions[selectedMenuItem]))
       return diskActions[selectedMenuItem];
     break;
@@ -337,6 +347,7 @@ bool BIOS::isActionActive(int8_t action)
   case ACT_MONITOR:
   case ACT_DISPLAYTYPE:
   case ACT_SPEED:
+  case ACT_ABOUT:
   case ACT_DEBUG:
   case ACT_PRIMODE:
   case ACT_DISK1:
@@ -355,6 +366,29 @@ bool BIOS::isActionActive(int8_t action)
 
   /* NOTREACHED */
   return false;
+}
+
+void BIOS::DrawAiieMenu()
+{
+  if (selectedMenuItem < 0)
+    selectedMenuItem = sizeof(aiieActions)-1;
+  selectedMenuItem %= sizeof(aiieActions);
+
+  char buf[40];
+  for (int i=0; i<sizeof(aiieActions); i++) {
+    switch (aiieActions[i]) {
+    case ACT_ABOUT:
+      sprintf(buf, "About...");
+      break;
+    }
+
+    if (isActionActive(aiieActions[i])) {
+      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, 10, 20 + 14 * i, buf);
+    } else {
+      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, 10, 20 + 14 * i,
+			    buf);
+    }
+  }
 }
 
 void BIOS::DrawVMMenu()
@@ -570,13 +604,16 @@ void BIOS::DrawDisksMenu()
 void BIOS::DrawCurrentMenu()
 {
   switch (selectedMenu) {
-  case 0: // VM
+  case 0: // Aiie
+    DrawAiieMenu();
+    break;
+  case 1: // VM
     DrawVMMenu();
     break;
-  case 1: // Hardware
+  case 2: // Hardware
     DrawHardwareMenu();
     break;
-  case 2: // Disks
+  case 3: // Disks
     DrawDisksMenu();
     break;
   }
@@ -726,3 +763,31 @@ uint8_t BIOS::GatherFilenames(uint8_t pageOffset)
   }
 }
 
+void BIOS::showAbout()
+{
+  g_display->clrScr();
+
+  g_display->drawString(M_SELECTED,
+			0,
+			0,
+			"Aiie! - an Apple //e emulator");
+
+  g_display->drawString(M_NORMAL, 
+			15, 20,
+			"(c) 2017 Jorj Bauer");
+
+  g_display->drawString(M_NORMAL,
+			15, 38,
+			"https://github.com/JorjBauer/aiie/");
+
+  g_display->drawString(M_NORMAL,
+			0,
+			200,
+			"Press any key");
+
+  g_display->flush();
+
+  while (!g_keyboard->kbhit())
+    ;
+  g_keyboard->read(); // throw out the keypress
+}
