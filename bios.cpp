@@ -214,11 +214,17 @@ bool BIOS::runUntilDone()
       break;
 
     case ACT_SUSPEND:
+      g_display->clrScr();
+      g_display->drawString(M_SELECTED, 80, 100,"Suspending VM...");
+      g_display->flush();
       // CPU is already suspended, so this is safe...
       ((AppleVM *)g_vm)->Suspend("suspend.vm");
       break;
     case ACT_RESTORE:
       // CPU is already suspended, so this is safe...
+      g_display->clrScr();
+      g_display->drawString(M_SELECTED, 80, 100,"Resuming VM...");
+      g_display->flush();
       ((AppleVM *)g_vm)->Resume("suspend.vm");
       break;
     }
