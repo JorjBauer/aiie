@@ -20,6 +20,13 @@ void SDLKeyboard::handleKeypress(SDL_KeyboardEvent *key)
 {
   bool releaseEvent = key->type == SDL_KEYUP;
 
+  if (key->type == SDL_KEYDOWN &&
+      key->keysym.sym == SDLK_F10) {
+    // Invoke BIOS
+    g_biosInterrupt = true;
+    return;
+  }
+
   if ( (key->keysym.sym >= 'a' && key->keysym.sym <= 'z') ||
        (key->keysym.sym >= '0' && key->keysym.sym <= '9') ||
        key->keysym.sym == '-' ||
@@ -54,76 +61,76 @@ void SDLKeyboard::handleKeypress(SDL_KeyboardEvent *key)
   // delete key
   if (key->keysym.sym == 8) {
     if (releaseEvent)
-      vmkeyboard->keyReleased(DEL);
+      vmkeyboard->keyReleased(PK_DEL);
     else
-      vmkeyboard->keyDepressed(DEL);
+      vmkeyboard->keyDepressed(PK_DEL);
     return;
   }
 
   //modifier handling
   if (key->keysym.sym == SDLK_CAPSLOCK) {
     if (releaseEvent)
-      vmkeyboard->keyReleased(LOCK);
+      vmkeyboard->keyReleased(PK_LOCK);
     else
-      vmkeyboard->keyDepressed(LOCK);
+      vmkeyboard->keyDepressed(PK_LOCK);
   }
 
   if (key->keysym.sym == SDLK_LSHIFT ||
       key->keysym.sym == SDLK_RSHIFT) {
     if (releaseEvent)
-      vmkeyboard->keyReleased(LSHFT);
+      vmkeyboard->keyReleased(PK_LSHFT);
     else
-      vmkeyboard->keyDepressed(LSHFT);
+      vmkeyboard->keyDepressed(PK_LSHFT);
   }
 
   // arrows
   if (key->keysym.sym == SDLK_LEFT) {
     if (releaseEvent)
-      vmkeyboard->keyReleased(LARR);
+      vmkeyboard->keyReleased(PK_LARR);
     else
-      vmkeyboard->keyDepressed(LARR);
+      vmkeyboard->keyDepressed(PK_LARR);
   }
   if (key->keysym.sym == SDLK_RIGHT) {
     if (releaseEvent)
-      vmkeyboard->keyReleased(RARR);
+      vmkeyboard->keyReleased(PK_RARR);
     else
-      vmkeyboard->keyDepressed(RARR);
+      vmkeyboard->keyDepressed(PK_RARR);
   }
 
   if (key->keysym.sym == SDLK_LEFT) {
     if (releaseEvent)
-      vmkeyboard->keyReleased(LARR);
+      vmkeyboard->keyReleased(PK_LARR);
     else
-      vmkeyboard->keyDepressed(LARR);
+      vmkeyboard->keyDepressed(PK_LARR);
   }
 
   if (key->keysym.sym == SDLK_UP) {
     if (releaseEvent)
-      vmkeyboard->keyReleased(UARR);
+      vmkeyboard->keyReleased(PK_UARR);
     else
-      vmkeyboard->keyDepressed(UARR);
+      vmkeyboard->keyDepressed(PK_UARR);
   }
     
   if (key->keysym.sym == SDLK_DOWN) {
     if (releaseEvent)
-      vmkeyboard->keyReleased(DARR);
+      vmkeyboard->keyReleased(PK_DARR);
     else
-      vmkeyboard->keyDepressed(DARR);
+      vmkeyboard->keyDepressed(PK_DARR);
   }
 
   // Paddles
   if (key->keysym.sym == SDLK_LGUI) {
     if (releaseEvent)
-      vmkeyboard->keyReleased(LA);
+      vmkeyboard->keyReleased(PK_LA);
     else
-      vmkeyboard->keyDepressed(LA);
+      vmkeyboard->keyDepressed(PK_LA);
   }
 
   if (key->keysym.sym == SDLK_RGUI) {
     if (releaseEvent)
-      vmkeyboard->keyReleased(RA);
+      vmkeyboard->keyReleased(PK_RA);
     else
-      vmkeyboard->keyDepressed(RA);
+      vmkeyboard->keyDepressed(PK_RA);
   }
 }
 
@@ -155,3 +162,64 @@ void SDLKeyboard::maintainKeyboard()
     }
   }
 }
+
+bool hasKeyPending;
+uint8_t keyPending;
+
+bool SDLKeyboard::kbhit()
+{
+  SDL_Event event;
+  if (SDL_PollEvent( &event ) &&
+      event.type == SDL_KEYDOWN) {
+    SDL_KeyboardEvent *key = &event.key;
+    if ( (key->keysym.sym >= 'a' && key->keysym.sym <= 'z') ||
+	 (key->keysym.sym >= '0' && key->keysym.sym <= '9') ||
+	 key->keysym.sym == '-' ||
+	 key->keysym.sym == '=' ||
+	 key->keysym.sym == '[' ||
+	 key->keysym.sym == '`' ||
+	 key->keysym.sym == ']' ||
+	 key->keysym.sym == '\\' ||
+	 key->keysym.sym == ';' ||
+	 key->keysym.sym == '\'' ||
+	 key->keysym.sym == ',' ||
+	 key->keysym.sym == '.' ||
+	 key->keysym.sym == '/' ||
+	 key->keysym.sym == ' ' ||
+	 key->keysym.sym == 27 || // ESC
+	 key->keysym.sym == 13 || // return
+	 key->keysym.sym == 9) { // tab
+      keyPending = key->keysym.sym;
+      hasKeyPending = true;
+    } else {
+      switch (key->keysym.sym) {
+      case SDLK_UP:
+	keyPending = PK_UARR;
+	hasKeyPending = true;
+	break;
+      case SDLK_DOWN:
+	keyPending = PK_DARR;
+	hasKeyPending = true;
+	break;
+      case SDLK_RIGHT:
+	keyPending = PK_RARR;
+	hasKeyPending = true;
+	break;
+      case SDLK_LEFT:
+	keyPending = PK_LARR;
+	hasKeyPending = true;
+	break;
+      }
+    }
+  }
+  return hasKeyPending;
+}
+
+int8_t SDLKeyboard::read()
+{
+  // Meh
+  hasKeyPending = false;
+  return keyPending;
+}
+
+

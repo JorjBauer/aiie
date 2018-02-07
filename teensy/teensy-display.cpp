@@ -436,18 +436,31 @@ void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
   }
 
   temp=(c*ysize);
+
+  // FIXME: the embedded moveTo() and setPixel() calls *should* work
+  // -- and do, for the most part. But in the BIOS they cut off after
+  // about half the screen. Using drawPixel() is substantially less
+  // efficient, but works properly.
+
   for (int8_t y_off = 0; y_off <= ysize; y_off++) {
-    moveTo(x, y + y_off);
+    //moveTo(x, y + y_off); // does a cbi(P_CS, B_CS)
     uint8_t ch = pgm_read_byte(&BiosFont[temp]);
     for (int8_t x_off = 0; x_off <= xsize; x_off++) {
       if (ch & (1 << (7-x_off))) {
-	setPixel(onPixel);
+	drawPixel(x+x_off, y+y_off, onPixel);
+	//setPixel(onPixel);
       } else {
-	setPixel(offPixel);
+	drawPixel(x+x_off, y+y_off, offPixel);
+	//setPixel(offPixel);
       }
     }
     temp++;
   }
+
+  // Need to leave cbi set for the next draw operation. Particularly important 
+  // on startup, when transitioning from '@' to 'Apple //e', while also drawing 
+  // overlay text.
+  cbi(P_CS, B_CS);
 }
 
 void TeensyDisplay::drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str)

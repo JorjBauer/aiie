@@ -55,8 +55,14 @@ void AppleUI::drawOnOffUIElement(uint8_t element, bool state)
       if (element == UIeDisk2_activity)
 	xoff += 135;
       for (int x=0; x<6; x++) {
-	g_display->drawPixel(x + xoff, yoff, state ? 0xF800 : 0x8AA9);
-	g_display->drawPixel(x + xoff, yoff + 1, state ? 0xF800 : 0x8AA9);
+	// Can't draw this from inside the interrupt; might already be
+	// drawing the screen from outside the interrupt. Temporary
+	// hack - remove this completely; FIXME: update diskii.cpp to
+	// queue it somehow, for drawing in a maintenance function, to
+	// be called from the main thread and not the interrupt
+
+	//	g_display->drawPixel(x + xoff, yoff, state ? 0xF800 : 0x8AA9);
+	//	g_display->drawPixel(x + xoff, yoff + 1, state ? 0xF800 : 0x8AA9);
       }
     }
 

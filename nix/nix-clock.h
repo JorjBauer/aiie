@@ -1,16 +1,18 @@
-#ifndef __SDLCLOCK_H
-#define __SDLCLOCK_H
+#ifndef __NIXCLOCK_H
+#define __NIXCLOCK_H
 
 #include <stdint.h>
 #include <stdio.h>
 
-#include "Slot.h"
+#include "slot.h"
 #include "applemmu.h"
 
-class SDLClock : public Slot {
+// Simple clock for *nix
+
+class NixClock : public Slot {
  public:
-  SDLClock(AppleMMU *mmu);
-  virtual ~SDLClock();
+  NixClock(AppleMMU *mmu);
+  virtual ~NixClock();
 
   virtual bool Serialize(int8_t fd);
   virtual bool Deserialize(int8_t fd);

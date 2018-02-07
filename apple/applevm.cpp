@@ -30,8 +30,8 @@ AppleVM::AppleVM()
   teensyClock = new TeensyClock((AppleMMU *)mmu);
   ((AppleMMU *)mmu)->setSlot(5, teensyClock);
 #else
-  sdlClock = new SDLClock((AppleMMU *)mmu);
-  ((AppleMMU *)mmu)->setSlot(5, sdlClock);
+  nixClock = new NixClock((AppleMMU *)mmu);
+  ((AppleMMU *)mmu)->setSlot(5, nixClock);
 #endif
 
   hd32 = new HD32((AppleMMU *)mmu);
@@ -43,7 +43,7 @@ AppleVM::~AppleVM()
 #ifdef TEENSYDUINO
   delete teensyClock;
 #else
-  delete sdlClock;
+  delete nixClock;
 #endif
   delete disk6;
   delete parallel;

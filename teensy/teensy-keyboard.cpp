@@ -7,11 +7,11 @@ const byte ROWS = 5;
 const byte COLS = 13;
 
 char keys[ROWS][COLS] = {
-  {  '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', DEL },
-  {  ESC, 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']' },
-  { _CTRL, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', RET },
-  { LSHFT, 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', RSHFT, 0 },
-  { LOCK, '`', TAB, '\\', LA, ' ', RA, LARR, RARR, DARR, UARR, 0, 0 }
+  {  '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', PK_DEL },
+  {  PK_ESC, 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']' },
+  { PK_CTRL, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', PK_RET },
+  { PK_LSHFT, 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', PK_RSHFT, 0 },
+  { PK_LOCK, '`', PK_TAB, '\\', PK_LA, ' ', PK_RA, PK_LARR, PK_RARR, PK_DARR, PK_UARR, 0, 0 }
 };
 
 uint8_t rowsPins[ROWS] = { 33, 34, 35, 36, 37 };
@@ -62,29 +62,29 @@ void TeensyKeyboard::pressedKey(uint8_t key)
   if (key & 0x80) {
     // it's a modifier key.
     switch (key) {
-    case _CTRL:
+    case PK_CTRL:
       ctrlPressed = 1;
       break;
-    case LSHFT:
+    case PK_LSHFT:
       leftShiftPressed = 1;
       break;
-    case RSHFT:
+    case PK_RSHFT:
       rightShiftPressed = 1;
       break;
-    case LOCK:
+    case PK_LOCK:
       capsLock = !capsLock;
       break;
-    case LA:
+    case PK_LA:
       leftApplePressed = 1;
       break;
-    case RA:
+    case PK_RA:
       rightApplePressed = 1;
       break;
     }
     return;
   }
 
-  if (key == ' ' || key == DEL || key == ESC || key == RET || key == TAB) {
+  if (key == ' ' || key == PK_DEL || key == PK_ESC || key == PK_RET || key == PK_TAB) {
     buffer.addByte(key);
     return;
   }
@@ -151,19 +151,19 @@ void TeensyKeyboard::releasedKey(uint8_t key)
   if (key & 0x80) {
     // it's a modifier key.
     switch (key) {
-    case _CTRL:
+    case PK_CTRL:
       ctrlPressed = 0;
       break;
-    case LSHFT:
+    case PK_LSHFT:
       leftShiftPressed = 0;
       break;
-    case RSHFT:
+    case PK_RSHFT:
       rightShiftPressed = 0;
       break;
-    case LA:
+    case PK_LA:
       leftApplePressed = 0;
       break;
-    case RA:
+    case PK_RA:
       rightApplePressed = 0;
       break;
     }

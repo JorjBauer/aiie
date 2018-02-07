@@ -142,7 +142,10 @@ uint8_t LRingBuffer::consumeByte()
 
 uint8_t LRingBuffer::peek(int16_t idx)
 {
-  uint16_t p = (this->ptr + idx) % this->max;
+  if (!this->fill)
+    return 0; // No data in buffer; nothing to see
+
+  uint16_t p = (this->ptr + idx) % this->fill;
   return this->buffer[p];
 }
 

@@ -10,7 +10,7 @@
 
 #include "filemanager.h"
 #include "applemmu.h"
-#include "Slot.h"
+#include "slot.h"
 
 #include "LRingBuffer.h"
 

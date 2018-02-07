@@ -110,6 +110,8 @@ class FileManager {
   virtual uint8_t readByte(int8_t fd) = 0;
   virtual bool writeByte(int8_t fd, uint8_t v) = 0;
 
+  virtual void getRootPath(char *toWhere, int8_t maxLen) = 0;
+
  protected:
   unsigned long fileSeekPositions[MAXFILES];
   char cachedNames[MAXFILES][MAXPATH];

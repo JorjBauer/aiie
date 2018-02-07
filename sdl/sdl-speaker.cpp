@@ -20,13 +20,18 @@ static pthread_mutex_t togmutex = PTHREAD_MUTEX_INITIALIZER;
 
 static void audioCallback(void *unused, Uint8 *stream, int len)
 {
-  FILE *f = (FILE *)unused;
-
   pthread_mutex_lock(&sndmutex);
+
+  if (g_biosInterrupt) {
+    // While the BIOS is running, we don't put samples in the audio
+    // queue.
+    memset(stream, 0, len);
+    pthread_mutex_unlock(&sndmutex);
+    return;
+  }
+
   if (bufIdx >= len) {
     memcpy(stream, soundBuf, len);
-
-    fwrite(soundBuf, 1, len, f);
 
     if (bufIdx > len) {
       // move the remaining data down
@@ -52,7 +57,7 @@ void ResetDCFilter(); // FIXME: remove
 SDLSpeaker::SDLSpeaker()
 {
   toggleState = false;
-  mixerValue = 0x8000;
+  mixerValue = 0x80;
 
   toggleCount = toggleReadPtr = toggleWritePtr = 0;
 
@@ -66,8 +71,6 @@ SDLSpeaker::SDLSpeaker()
   lastCycleCount = 0;
   lastSampleCount = 0;
 
-  FILE *f = fopen("out.dat", "w");
-
   SDL_AudioSpec audioDevice;
   SDL_AudioSpec audioActual;
   SDL_memset(&audioDevice, 0, sizeof(audioDevice));
@@ -76,7 +79,7 @@ SDLSpeaker::SDLSpeaker()
   audioDevice.channels = 1;
   audioDevice.samples = 4096; // 4096 bytes @ 44100Hz is about 1/10th second out of sync - should be okay for this testing
   audioDevice.callback = audioCallback;
-  audioDevice.userdata = (void *)f;
+  audioDevice.userdata = NULL;
 
   SDL_OpenAudio(&audioDevice, &audioActual); // FIXME retval
   printf("Actual: freq %d channels %d samples %d\n", 
@@ -87,7 +90,6 @@ SDLSpeaker::SDLSpeaker()
 
 SDLSpeaker::~SDLSpeaker()
 {
-  pclose(f);
 }
 
 void SDLSpeaker::toggle(uint32_t c)
@@ -140,22 +142,31 @@ void SDLSpeaker::maintainSpeaker(uint32_t c, uint64_t microseconds)
   bool didChange = false;
 
   pthread_mutex_lock(&togmutex);
-  while (toggleCount && c >= toggleTimes[toggleReadPtr]) {
-    // Override the mixer with a 1-bit "Terribad" audio sample change
-    toggleState = !toggleState;
-    toggleCount--;
-    toggleReadPtr++;
-    if (toggleReadPtr >= SPEAKERQUEUESIZE)
-      toggleReadPtr = 0;
-    didChange = true;
+
+  if (c == -1 && microseconds == -1) {
+    // flushing
+    printf("Flush sound output\n");
+    toggleReadPtr = toggleWritePtr = 0;
+    toggleCount = 0;
+  } else {
+    while (toggleCount && c >= toggleTimes[toggleReadPtr]) {
+      // Override the mixer with a 1-bit "Terribad" audio sample change
+      toggleState = !toggleState;
+      toggleCount--;
+      toggleReadPtr++;
+      if (toggleReadPtr >= SPEAKERQUEUESIZE)
+	toggleReadPtr = 0;
+      didChange = true;
+    }
   }
+
   pthread_mutex_unlock(&togmutex);
 
   // FIXME: removed all the mixing code
 
   // Add samples from the last time to this time
   //  mixerValue = (toggleState ? 0x1FF : 0x00);
-  mixerValue = (toggleState ? 0x8000 : ~0x8000);
+  mixerValue = (toggleState ? 0x00 : ~0x80);
   // FIXME: DC filter isn't correct yet
   //  mixerValue = DCFilter(mixerValue);
 
@@ -165,14 +176,18 @@ void SDLSpeaker::maintainSpeaker(uint32_t c, uint64_t microseconds)
   if (numSamples) {
     lastSampleCount = sampleCount;
 
-    mixerValue >>= 12; // convert from 16 bit to 8 bit; then drop volume by 50%
-    
     pthread_mutex_lock(&sndmutex);
 
     if (bufIdx + numSamples >= sizeof(soundBuf)) {
-      printf("Sound overrun!\n");
+      static uint8_t errcnt = 0;
+      if (++errcnt <= 10) {
+	printf("Sound overrun!\n");
+      }
       numSamples = sizeof(soundBuf) - bufIdx - 1;
     }
+
+    mixerValue >>= (8-(g_volume/2));
+
     memset(&soundBuf[bufIdx], mixerValue, numSamples);
     bufIdx += numSamples;
     pthread_mutex_unlock(&sndmutex);

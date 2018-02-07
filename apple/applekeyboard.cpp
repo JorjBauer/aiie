@@ -45,7 +45,7 @@ uint8_t AppleKeyboard::translateKeyWithModifiers(uint8_t k)
     k = k - 'A' + 'a';
   }
 
-  if (keysDown[_CTRL]) {
+  if (keysDown[PK_CTRL]) {
     if (k >= 'a' && k <= 'z') {
       return k - 'a' + 1;
     }
@@ -56,7 +56,7 @@ uint8_t AppleKeyboard::translateKeyWithModifiers(uint8_t k)
     return k - 'a' + 'A';
   }
 
-  if (keysDown[LSHFT] || keysDown[RSHFT]) {
+  if (keysDown[PK_LSHFT] || keysDown[PK_RSHFT]) {
     if (k >= 'a' && k <= 'z') {
       return k - 'a' + 'A';
     }
@@ -125,15 +125,15 @@ void AppleKeyboard::keyDepressed(uint8_t k)
     keyThatIsRepeating = translateKeyWithModifiers(k);
     startRepeatTimer = g_cpu->cycles + STARTREPEAT;
     mmu->keyboardInput(keyThatIsRepeating);
-  } else if (k == LA) {
+  } else if (k == PK_LA) {
     // Special handling: apple keys
     mmu->setAppleKey(0, true);
     return;
-  } else if (k == RA) {
+  } else if (k == PK_RA) {
     // Special handling: apple keys
     mmu->setAppleKey(1, true);
     return;
-  } else if (k == LOCK) {
+  } else if (k == PK_LOCK) {
     // Special handling: caps lock
     capsLockEnabled = !capsLockEnabled;
     return;
@@ -145,15 +145,15 @@ void AppleKeyboard::keyReleased(uint8_t k)
   keysDown[k] = false;  
 
   // Special handling: apple keys
-  if (k == LA) {
+  if (k == PK_LA) {
     mmu->setAppleKey(0, false);
     return;
   }
-  if (k == RA) {
+  if (k == PK_RA) {
     mmu->setAppleKey(1, false);
     return;
   }
-  if (k == LOCK) {
+  if (k == PK_LOCK) {
     // Nothing to do when the caps lock key is released.
     return;
   }

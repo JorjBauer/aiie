@@ -10,7 +10,7 @@
 
 #include "filemanager.h"
 #include "applemmu.h"
-#include "Slot.h"
+#include "slot.h"
 
 #include "LRingBuffer.h"
 #include "nibutil.h"
@@ -45,6 +45,7 @@ class DiskII : public Slot {
   uint8_t readOrWriteByte();
 
   void checkFlush(int8_t track);
+  void readDiskTrack(int8_t diskWeAreUsing, int8_t trackWeAreReading);
 
 #ifndef TEENSYDUINO
   void convertDskToNib(const char *outFN);
@@ -53,7 +54,6 @@ class DiskII : public Slot {
  private:
   volatile int8_t curHalfTrack[2];
   volatile int8_t curPhase[2];
-  volatile bool trackDirty; // does this track need flushing to disk?
   uint8_t readWriteLatch;
   LRingBuffer *trackBuffer; // nibblized data
   uint8_t rawTrackBuffer[4096]; // not nibblized data
@@ -65,11 +65,9 @@ class DiskII : public Slot {
   int8_t disk[2];
   volatile uint8_t indicatorIsOn[2];
   uint8_t diskType[2];
-
-  volatile int8_t trackToRead; // -1 when we're idle; not -1 when we need to read a track.
-  volatile int8_t selectedDisk;
   volatile int8_t trackToFlush; // -1 when there's none
-  volatile int8_t diskToFlush; // which selected disk are we writing to?
+
+  volatile int8_t selectedDisk;
 };
 
 #endif

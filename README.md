@@ -76,19 +76,12 @@ perfect. Do as you see fit :)
 Environment and Libraries
 -------------------------
 
-I built this with arduino 1.8.1 and TeensyDuino 1.35.
+I built this with arduino 1.8.5 and TeensyDuino 1.40.
 
       https://www.pjrc.com/teensy/td_download.html
 
 These libraries I'm using right from Teensy's environment: TimerOne;
 SPI; EEPROM; Time; Keypad.
-
-There's an error in the Time library. On Macs, where the filesystem is
-case-insensitive, you'll have to do something like this:
-
-<pre>
-  $ mv /Applications/Arduino.app/Contents/Java//hardware/teensy/avr/libraries/Time/Time.h /Applications/Arduino.app/Contents/Java//hardware/teensy/avr/libraries/Time/_Time.h
-</pre>
 
 I'm also using these libraries that don't come with TeensyDuino:
 

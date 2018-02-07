@@ -1,6 +1,8 @@
 #ifndef __VMDISPLAY_H
 #define __VMDISPLAY_H
 
+#include <stdint.h>
+
 class MMU;
 
 typedef struct {

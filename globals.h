@@ -11,6 +11,26 @@
 #include "vmui.h"
 #include "vmram.h"
 
+// display modes
+enum {
+  M_NORMAL = 0,
+  M_SELECTED = 1,
+  M_DISABLED = 2,
+  M_SELECTDISABLED = 3
+};
+
+// debug modes
+enum {
+  D_NONE        = 0,
+  D_SHOWFPS     = 1,
+  D_SHOWMEMFREE = 2,
+  D_SHOWPADDLES = 3,
+  D_SHOWPC      = 4,
+  D_SHOWCYCLES  = 5,
+  D_SHOWBATTERY = 6,
+  D_SHOWTIME    = 7
+};
+
 extern FileManager *g_filemanager;
 extern Cpu *g_cpu;
 extern VM *g_vm;
@@ -23,3 +43,8 @@ extern VMui *g_ui;
 extern int16_t g_volume;
 extern uint8_t g_displayType;
 extern VMRam g_ram;
+extern volatile bool g_inInterrupt;
+extern volatile uint8_t g_debugMode;
+extern bool g_prioritizeDisplay;
+extern volatile bool g_biosInterrupt;
+extern uint32_t g_speed;

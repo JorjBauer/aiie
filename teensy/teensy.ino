@@ -12,9 +12,8 @@
 #include "teensy-paddles.h"
 #include "teensy-filemanager.h"
 #include "appleui.h"
-
 #define RESETPIN 39
-#define BATTERYPIN A19
+#define BATTERYPIN 32
 #define SPEAKERPIN A21
 
 #include "globals.h"
@@ -25,20 +24,8 @@ uint32_t startMicros;
 
 BIOS bios;
 
-enum {
-  D_NONE        = 0,
-  D_SHOWFPS     = 1,
-  D_SHOWMEMFREE = 2,
-  D_SHOWPADDLES = 3,
-  D_SHOWPC      = 4,
-  D_SHOWCYCLES  = 5,
-  D_SHOWBATTERY = 6,
-  D_SHOWTIME    = 7
-};
-uint8_t debugMode = D_NONE;
-bool g_prioritizeDisplay = false; // prioritize real-time audio by default, not the display
-
-#define SPEEDCTL 0.97751710654936461388 // that's how many microseconds per cycle @ 1.023 MHz
+// How many microseconds per cycle
+#define SPEEDCTL ((float)1000000/(float)g_speed)
 
 static   time_t getTeensy3Time() {  return Teensy3Clock.get(); }
 
@@ -139,8 +126,8 @@ void setup()
   //  ((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/JORJ/disk_s6d1.dsk", false);
   //  ((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/GAMES/ALIBABA.DSK", false);
 
-  pinMode(56, OUTPUT);
-  pinMode(57, OUTPUT);
+  //  pinMode(56, OUTPUT);
+  //  pinMode(57, OUTPUT);
 
   Serial.print("Free RAM: ");
   Serial.println(FreeRamEstimate());
@@ -193,7 +180,7 @@ void biosInterrupt()
   }
 
   // if we turned off debugMode, make sure to clear the debugMsg
-  if (debugMode == D_NONE) {
+  if (g_debugMode == D_NONE) {
     g_display->debugMsg("");
   }
 
@@ -216,8 +203,10 @@ void biosInterrupt()
 //bool debugState = false;
 //bool debugLCDState = false;
 
+
 void runCPU()
 {
+  g_inInterrupt = true;
   // Debugging: to watch when the speaker is triggered...
   //  static bool debugState = false;
   //  debugState = !debugState;
@@ -229,9 +218,9 @@ void runCPU()
   // directly from within it, so it needs to be real-ish time.
   if (micros() > nextInstructionMicros) {
     // Debugging: to watch when the CPU is triggered...
-    static bool debugState = false;
-    debugState = !debugState;
-    digitalWrite(56, debugState);
+    //    static bool debugState = false;
+    //    debugState = !debugState;
+    //    digitalWrite(56, debugState);
     
     uint8_t executed = g_cpu->Run(24);
 
@@ -242,6 +231,8 @@ void runCPU()
 
     ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
   }
+
+  g_inInterrupt = false;
 }
 
 void loop()
@@ -276,6 +267,7 @@ void loop()
   // but the display tears. So there's a global - g_prioritizeDisplay - 
   // which lets the user pick which they want.
 
+  g_prioritizeDisplay = false;
   if (g_prioritizeDisplay)
     Timer1.stop();
   g_vm->vmdisplay->lockDisplay();
@@ -288,13 +280,13 @@ void loop()
   if (g_prioritizeDisplay)
     Timer1.start();
   
-  static unsigned long nextBattCheck = 0;
+  static unsigned long nextBattCheck = millis() + 30;// debugging
   static int batteryLevel = 0; // static for debugging code! When done
 			       // debugging, this can become a local
 			       // in the appropriate block below
   if (millis() >= nextBattCheck) {
     // FIXME: what about rollover?
-    nextBattCheck = millis() + 3 * 1000; // check every 30 seconds
+    nextBattCheck = millis() + 3 * 1000; // check every 3 seconds
 
     // This is a bit disruptive - but the external 3.3v will drop along with the battery level, so we should use the more stable (I hope) internal 1.7v.
     // The alternative is to build a more stable buck/boost regulator for reference...
@@ -316,7 +308,7 @@ void loop()
      *    3.46v = 144 - 146
      *    4.21v = 172
      */
-#if 1
+#if 0
     Serial.print("battery: ");
     Serial.println(batteryLevel);
 #endif
@@ -334,7 +326,7 @@ void loop()
 void doDebugging()
 {
   char buf[25];
-  switch (debugMode) {
+  switch (g_debugMode) {
   case D_SHOWFPS:
     // display some FPS data
     static uint32_t startAt = millis();

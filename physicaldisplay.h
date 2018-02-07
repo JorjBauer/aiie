@@ -10,6 +10,7 @@ class PhysicalDisplay {
   PhysicalDisplay() { overlayMessage[0] = '\0'; }
   virtual ~PhysicalDisplay() {};
 
+  virtual void flush() = 0; // flush any pending drawings
   virtual void redraw() = 0; // total redraw, assuming nothing
   virtual void blit(AiieRect r) = 0;   // redraw just the VM display area
 
@@ -21,6 +22,8 @@ class PhysicalDisplay {
 
   virtual void drawPixel(uint16_t x, uint16_t y, uint16_t color) = 0;
   virtual void drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b) = 0;
+
+  virtual void clrScr() = 0;
 
  protected:
   char overlayMessage[40];

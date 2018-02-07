@@ -115,7 +115,7 @@ int8_t TeensyFileManager::readDir(const char *where, const char *suffix, char *o
 	// multiple suffixes to check - all must be 3 chars long, FIXME
 	bool matchesAny = false;
 	const char *p = suffix;
-	while (p && strlen(p)) {
+	while (*p && strlen(p)) {
 	  if (!strncasecmp(fsuff, p, 3)) {
 	    matchesAny = true;
 	    break;
@@ -383,3 +383,8 @@ bool TeensyFileManager::writeByte(int8_t fd, uint8_t v)
   return true;
 }
 
+void TeensyFileManager::getRootPath(char *toWhere, int8_t maxLen)
+{
+  strcpy(toWhere, "/A2DISKS/");
+  //  strncpy(toWhere, "/A2DISKS/", maxLen);
+}

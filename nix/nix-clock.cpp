@@ -1,7 +1,7 @@
 #include <string.h> // memset
 #include <time.h>
 
-#include "sdl-clock.h"
+#include "nix-clock.h"
 #include "applemmu.h" // for FLOATING
 
 /*
@@ -28,30 +28,30 @@ static void timeToProDOS(uint16_t year, uint8_t month, uint8_t day, uint8_t hour
   proDOStimeOut[3] = minute & 0x3F;
 }
 
-SDLClock::SDLClock(AppleMMU *mmu)
+NixClock::NixClock(AppleMMU *mmu)
 {
   this->mmu = mmu;
 }
 
-SDLClock::~SDLClock()
+NixClock::~NixClock()
 {
 }
 
-bool SDLClock::Serialize(int8_t fd)
-{
-  return true;
-}
-
-bool SDLClock::Deserialize(int8_t fd)
+bool NixClock::Serialize(int8_t fd)
 {
   return true;
 }
 
-void SDLClock::Reset()
+bool NixClock::Deserialize(int8_t fd)
+{
+  return true;
+}
+
+void NixClock::Reset()
 {
 }
 
-uint8_t SDLClock::readSwitches(uint8_t s)
+uint8_t NixClock::readSwitches(uint8_t s)
 {
   // When any switch is read, we'll put the current time in the prodos time buffer
   time_t lt;
@@ -91,13 +91,13 @@ uint8_t SDLClock::readSwitches(uint8_t s)
   return FLOATING;
 }
 
-void SDLClock::writeSwitches(uint8_t s, uint8_t v)
+void NixClock::writeSwitches(uint8_t s, uint8_t v)
 {
   //  printf("unimplemented write to the clock - 0x%X\n", v);
 }
 
 // FIXME: this assumes slot #5
-void SDLClock::loadROM(uint8_t *toWhere)
+void NixClock::loadROM(uint8_t *toWhere)
 {
   memset(toWhere, 0xEA, 256); // fill the page with NOPs
 

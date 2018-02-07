@@ -28,8 +28,6 @@ DiskII::DiskII(AppleMMU *mmu)
   curPhase[0] = curPhase[1] = 0;
   curHalfTrack[0] = curHalfTrack[1] = 0;
 
-  trackDirty = false;
-  trackToRead = -1;
   trackToFlush = -1;
 
   writeMode = false;
@@ -51,10 +49,6 @@ bool DiskII::Serialize(int8_t fd)
 {
   /* Make sure to flush anything to disk first */
   checkFlush(curHalfTrack[selectedDisk]>>1);
-  if (trackToFlush != -1) {
-    flushTrack(trackToFlush, diskToFlush);
-  }
-  trackToFlush = -1;
 
   g_filemanager->writeByte(fd, DISKIIMAGIC);
 
@@ -81,13 +75,6 @@ bool DiskII::Serialize(int8_t fd)
 
   trackBuffer->Serialize(fd);
 
-  // FIXME: don't know if we need these
-  // trackDirty - should always be unset, since we just flushed
-  // rawTrackBuffer - only used when reading an image
-  // trackToRead - should be able to leave this unset & reread
-  // trackToFlush - just flushed
-  // diskToFlush - just flushed
-
   g_filemanager->writeByte(fd, DISKIIMAGIC);
 
   return true;
@@ -97,10 +84,6 @@ bool DiskII::Deserialize(int8_t fd)
 {
   /* Make sure to flush anything to disk first */
   checkFlush(curHalfTrack[selectedDisk]>>1);
-  if (trackToFlush != -1) {
-    flushTrack(trackToFlush, diskToFlush);
-  }
-  trackToFlush = -1;
 
   if (g_filemanager->readByte(fd) != DISKIIMAGIC) {
     return false;
@@ -130,10 +113,7 @@ bool DiskII::Deserialize(int8_t fd)
   trackBuffer->Deserialize(fd);
 
   // Reset the dirty caches and whatnot
-  trackDirty = -1;
-  trackToRead = -1;
   trackToFlush = -1;
-  diskToFlush = -1;
 
   if (g_filemanager->readByte(fd) != DISKIIMAGIC) {
     return false;
@@ -147,8 +127,6 @@ void DiskII::Reset()
   curPhase[0] = curPhase[1] = 0;
   curHalfTrack[0] = curHalfTrack[1] = 0;
 
-  trackDirty = false;
-  trackToRead = -1;
   trackToFlush = -1;
 
   writeMode = false;
@@ -159,12 +137,12 @@ void DiskII::Reset()
   ejectDisk(1);
 }
 
+// FIXME: why does this need an argument?
 void DiskII::checkFlush(int8_t track)
 {
-  if (trackDirty && trackToFlush == -1) {
-    diskToFlush = selectedDisk;
-    trackToFlush = track;
-    trackDirty = false; // just so we don't overwrite disk/track to flush before continuing...
+  if (trackToFlush != -1) {
+    flushTrack(trackToFlush, selectedDisk);
+    trackToFlush = -1;
   }
 }
 
@@ -249,11 +227,6 @@ uint8_t DiskII::readSwitches(uint8_t s)
 
   // Any even address read returns the readWriteLatch (UTA2E Table 9.1,
   // p. 9-12, note 2)
-  //  if ((s & 1) == 0 && curHalfTrack[selectedDisk] <= 3) {
-    //    printf("Read: %X\n", readWriteLatch);
-    //    fflush(stdout);
-  //  }
-
   return (s & 1) ? FLOATING : readWriteLatch;
 }
 
@@ -381,8 +354,11 @@ void DiskII::setPhase(uint8_t phase)
   if (curHalfTrack[selectedDisk]>>1 != prevHalfTrack>>1) {
     // We're changing track - flush the old track back to disk
     checkFlush(prevHalfTrack>>1);
-    // mark the new track to be read
-    trackToRead = curHalfTrack[selectedDisk]>>1;
+
+    // Prime the cache by reading the current track
+    if (disk[selectedDisk] != -1) {
+      readDiskTrack(selectedDisk, curHalfTrack[selectedDisk]>>1);
+    }
   }
 }
 
@@ -438,11 +414,19 @@ void DiskII::insertDisk(int8_t driveNum, const char *filename, bool drawIt)
     //    convertDskToNib("/tmp/debug.nib");
 #endif
   }
+
+  if (driveNum == selectedDisk) {
+    readDiskTrack(selectedDisk, curHalfTrack[selectedDisk]>>1);
+  }
 }
 
 void DiskII::ejectDisk(int8_t driveNum)
 {
   if (disk[driveNum] != -1) {
+    if (selectedDisk == driveNum) {
+      checkFlush(0); // FIXME: bogus argument
+      trackBuffer->clear();
+    }
     g_filemanager->closeFile(disk[driveNum]);
     disk[driveNum] = -1;
     g_ui->drawOnOffUIElement(UIeDisk1_state + driveNum, true);
@@ -463,11 +447,10 @@ void DiskII::select(int8_t which)
     // set the selected disk drive
     selectedDisk = which;
 
-    //  trackToRead = curHalfTrack[selectedDisk]>>1;
-    trackToRead = -1; // Assume we don't have to read anything on the
-		      // newly selected drive. When we get the first
-		      // read, we'll notice the track buffer is empty...
-    trackBuffer->clear();
+    // Preread the current track
+    if (disk[selectedDisk] != -1) {
+      readDiskTrack(selectedDisk, curHalfTrack[selectedDisk]>>1);
+    }
   }
 }
 
@@ -481,11 +464,15 @@ uint8_t DiskII::readOrWriteByte()
 
     if (!trackBuffer->hasData()) {
       // Error: writing to empty track buffer? That's a raw write w/o
-      // knowing where we are on the disk.
+      // knowing where we are on the disk. Dangerous, at very least;
+      // I'm not sure what the best action would be here. For the 
+      // moment, just refuse to write it.
+
+      g_display->debugMsg("DII: unguarded write");
       return GAP;
     }
 
-    trackDirty = true;
+    trackToFlush = curHalfTrack[selectedDisk]>>1;
     // It's possible that a badly behaving OS could try to write more
     // data than we have buffer to handle. Don't let it. We should
     // only need something like 500 bytes, at worst. In the typical
@@ -520,15 +507,6 @@ uint8_t DiskII::readOrWriteByte()
     return 0;
   }
 
-  // trackToRead is -1 when we have a filled buffer, or we have no data at all.
-  // trackToRead is != -1 when we're flushing our buffer and re-filling it.
-  // 
-  // Don't fill it right here, b/c we don't want to bog down the CPU
-  // thread/ISR.
-  if (trackToRead == curHalfTrack[selectedDisk]>>1) {// waiting for a read to complete for the current track
-    return GAP;
-  }
-
   // return 0x00 every other byte. Helps the logic sequencer stay in sync.
   // Otherwise we wind up waiting long periods of time for it to sync up, 
   // presumably because we're overrunning it (returning data faster than 
@@ -541,43 +519,13 @@ uint8_t DiskII::readOrWriteByte()
 
   whitespace = !whitespace;
 
-  if ((trackToRead != -1) || !trackBuffer->hasData()) {
-    checkFlush(curHalfTrack[selectedDisk]>>1);
-
-    // Need to read in a track of data and nibblize it. We'll return 0xFF
-    // until that completes.
-
-    // This might update trackToRead with a different track than the
-    // one we're reading. When we finish the read, we'll need to check
-    // to be sure that we're still trying to read the same track that
-    // we started with.
-    trackToRead = curHalfTrack[selectedDisk]>>1;
-
-    // While we're waiting for the sector to come around, we'll return
-    // GAP bytes.
-    return GAP;
-  }
-
-  return trackBuffer->peekNext();
+  uint8_t ret = trackBuffer->peekNext();
+  return ret;
 }
 
-void DiskII::fillDiskBuffer()
+void DiskII::readDiskTrack(int8_t diskWeAreUsing, int8_t trackWeAreReading)
 {
-  if (trackToFlush != -1) {
-    flushTrack(trackToFlush, diskToFlush); // in case it's dirty: flush before changing drives
-    trackBuffer->clear();
-    
-    trackToFlush = -1;
-  }
-
-  // No work to do if trackToRead is -1
-  if (trackToRead == -1)
-    return;
-
-  trackDirty = false;
-
-  int8_t trackWeAreReading = trackToRead;
-  int8_t diskWeAreUsing = selectedDisk;
+  checkFlush(trackWeAreReading); // FIXME: bogus argument
 
   trackBuffer->clear();
   trackBuffer->setPeekCursor(0);
@@ -592,7 +540,7 @@ void DiskII::fillDiskBuffer()
       g_filemanager->seekBlock(disk[diskWeAreUsing], trackWeAreReading * 16 + i, true);
       if (!g_filemanager->readBlock(disk[diskWeAreUsing], rawTrackBuffer, true)) {
 	// FIXME: error handling?
-	trackToRead = -1;
+	g_display->debugMsg("DII: FM nib read failure");
 	return;
       }
       trackBuffer->addBytes(rawTrackBuffer, 416);
@@ -603,22 +551,16 @@ void DiskII::fillDiskBuffer()
     g_filemanager->seekBlock(disk[diskWeAreUsing], trackWeAreReading * 16, false);
     if (!g_filemanager->readTrack(disk[diskWeAreUsing], rawTrackBuffer, false)) {
       // FIXME: error handling?
-      trackToRead = -1;
+      g_display->debugMsg("DII: FM block read failure");
       return;
     }
 
     nibblizeTrack(trackBuffer, rawTrackBuffer, diskType[diskWeAreUsing], curHalfTrack[selectedDisk]>>1);
   }
+}
 
-  // Make sure we're still intending to read the track we just read
-  if (trackWeAreReading != trackToRead ||
-      diskWeAreUsing != selectedDisk) {
-    // Abort and let it start over next time
-    return;
-  }
-
-  // Buffer is full, we're done - reset trackToRead and that will let the reads reach the CPU!
-  trackToRead = -1;
+void DiskII::fillDiskBuffer()
+{
 }
 
 const char *DiskII::DiskName(int8_t num)
@@ -646,19 +588,20 @@ void DiskII::flushTrack(int8_t track, int8_t sel)
 {
   // safety check: if we're write-protected, then how did we get here?
   if (writeProt) {
-    g_display->debugMsg("Write Protected");
+    g_display->debugMsg("DII: Write Protected");
     return;
   }
 
   if (!trackBuffer->hasData()) {
     // Dunno what happened - we're writing but haven't initialized the sector buffer?
+    g_display->debugMsg("DII: uninit'd write");
     return;
   }
 
   if (diskType[sel] == nibDisk) {
     // Write the whole track out exactly as we've got it. Hopefully
     // someone has re-calcuated appropriate checksums on it...
-    g_display->debugMsg("Not writing Nib image");
+    g_display->debugMsg("DII: Not writing Nib image");
     return;
   }
 
@@ -670,6 +613,7 @@ void DiskII::flushTrack(int8_t track, int8_t sel)
     return;
 
   case errorMissingSectors:
+    // The nibblized track doesn't contain all possible sectors - so it's broken. Drop the write.
     g_display->debugMsg("DII: missing sectors");
     trackBuffer->clear();
     break;

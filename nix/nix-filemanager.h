@@ -1,13 +1,13 @@
-#ifndef __SDL_FILEMANAGER_H
-#define __SDL_FILEMANAGER_H
+#ifndef __NIX_FILEMANAGER_H
+#define __NIX_FILEMANAGER_H
 
 #include "filemanager.h"
 #include <stdint.h>
 
-class SDLFileManager : public FileManager {
+class NixFileManager : public FileManager {
  public:
-  SDLFileManager();
-  virtual ~SDLFileManager();
+  NixFileManager();
+  virtual ~NixFileManager();
 
   virtual int8_t openFile(const char *name);
   virtual void closeFile(int8_t fd);
@@ -26,6 +26,8 @@ class SDLFileManager : public FileManager {
 
   virtual uint8_t readByte(int8_t fd);
   virtual bool writeByte(int8_t fd, uint8_t v);
+
+  void getRootPath(char *toWhere, int8_t maxLen);
 
  private:
   int8_t numCached;

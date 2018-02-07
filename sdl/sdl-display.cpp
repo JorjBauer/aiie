@@ -50,6 +50,11 @@ SDLDisplay::~SDLDisplay()
   SDL_Quit();
 }
 
+void SDLDisplay::flush()
+{
+  SDL_RenderPresent(renderer);
+}
+
 void SDLDisplay::redraw()
 {
   // primarily for the device, where it's in and out of the
@@ -197,8 +202,10 @@ void SDLDisplay::drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str
   }
 }
 
-void SDLDisplay::debugMsg(const char *msg)
+void SDLDisplay::clrScr()
 {
-  printf("%s\n", msg);
+  SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // set to white
+  SDL_RenderClear(renderer); // clear it to the selected color
+  SDL_RenderPresent(renderer); // perform the render
 }
 

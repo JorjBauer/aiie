@@ -7,13 +7,6 @@
 #define TEENSY_DHEIGHT 240
 #define TEENSY_DWIDTH 320
 
-enum {
-  M_NORMAL = 0,
-  M_SELECTED = 1,
-  M_DISABLED = 2,
-  M_SELECTDISABLED = 3
-};
-
 #define regtype volatile uint8_t
 #define regsize uint8_t
 
@@ -40,7 +33,8 @@ class TeensyDisplay : public PhysicalDisplay {
   virtual void blit(AiieRect r);
   virtual void redraw();
 
-  void clrScr();
+  virtual void clrScr();
+  virtual void flush() {};
 
   virtual void drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c);
   virtual void drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str);

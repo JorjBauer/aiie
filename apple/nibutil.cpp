@@ -16,7 +16,7 @@
 // time. With this off, we present a minimum number of gaps (that
 // hopefully aren't too short for the ROM to be able to write
 // correctly)
-//#define LONGGAPS
+// #define LONGGAPS
 
 #define DISK_VOLUME 254
 

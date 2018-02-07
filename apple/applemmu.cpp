@@ -54,16 +54,43 @@ Current write page table [512 bytes] in real ram
 
  */
 
-// All the pages...
+// All the pages. Because we don't have enough RAM for both the
+// display's DMA and the Apple's 148k (128k + ROM space), we're using
+// an external SRAM for some of this. Anything that's accessed very
+// often should be in the *low* pages, b/c those are in internal
+// Teensy RAM. When we run out of preallocated RAM (cf. vmram.h), we
+// fall over to an external 256kB SRAM (which is much slower).
+//
+// Zero page (and its alts) are the most used pages (the stack is in
+// page 1).
+//
+// We want the video display pages in real RAM as much as possible,
+// since blits wind up touching so much of it. If we can keep that in
+// main RAM, then the blits won't try to read the external SRAM while
+// the CPU is writing to it.
+//
+//
+// After that it's all a guess. Should it be slot ROMs?
+// extended RAM? Hires RAM? FIXME: do some analysis of common memory
+// hotspots...
+
 enum {
-  MP_ZP  = 0,   // page 0/1 * 2 page variants; 0..3
-  MP_C1 = 4,   // start of 0xC1-0xCF * 2 page variants = 30, 4..33
-  MP_D0 = 34,  // start of 0xD0-0xDF * 5 page variants = 80; 34..113
-  MP_E0 = 114, // start of 0xE0-0xFF * 3 page variants = 96; 114..209
-  MP_2  = 210, // start of 0x02-0xBF * 2 page variants = 380; 210..589
+  // Pages we want to fall to internal RAM:
+  MP_ZP  = 0,   // page 0/1 * 2 page variants = 4; 0..3
+  MP_4 = 4, // 0x04 - 0x07 (text display pages) * 2 variants = 8; 4..11
+  MP_20 = 12,   // 0x20 - 0x5F * 2 variants = 128; 12..139
+  // Pages that can go to external SRAM:
+  MP_2 = 140, // 0x02 - 0x03 * 2 variants = 4; 140..143
+  MP_8 = 144, // 0x08 - 0x1F * 2 = 48; 144..191
+  MP_60 = 192, // 0x60 - 0xBF * 2 = 192; 192..383
+
+  MP_C1 = 384,   // start of 0xC1-0xCF * 2 page variants = 30; 384-413
+  MP_D0 = 414,  // start of 0xD0-0xDF * 5 page variants = 80; 414-493
+  MP_E0 = 493, // start of 0xE0-0xFF * 3 page variants = 96; 494-589
   MP_C0 = 590 
               // = 591 pages in all (147.75k)
 };
+
 
 static uint16_t _pageNumberForRam(uint8_t highByte, uint8_t variant)
 {
@@ -71,16 +98,24 @@ static uint16_t _pageNumberForRam(uint8_t highByte, uint8_t variant)
     // zero page.
     return highByte + (variant*2) + MP_ZP;
   }
-
-  if (highByte <= 0xBF) {
-    // 2-0xBF      190 * 2 pages = 380 pages = 95k
+  if (highByte <= 3) {
     return ((highByte - 2) * 2 + variant + MP_2);
   }
-
-  if (highByte == 0xC0) {
+  if (highByte <= 7) {
+    return ((highByte - 4) * 2 + variant + MP_4);
+  }
+  if (highByte <= 0x1f) {
+    return ((highByte - 8) * 2 + variant + MP_8);
+  }
+  if (highByte <= 0x5f) {
+    return ((highByte - 0x20) * 2 + variant + MP_20);
+  }
+  if (highByte <= 0xbf) {
+    return ((highByte - 0x60) * 2 + variant + MP_60);
+  }
+  if (highByte == 0xc0) {
     return MP_C0;
   }
-
   if (highByte <= 0xCF) {
     // 0xC1-0xCF   15 * 2 pages = 30 pages (7.5k)
     return ((highByte - 0xC1) * 2 + variant + MP_C1);
@@ -1059,5 +1094,5 @@ void AppleMMU::updateMemoryPages()
 void AppleMMU::setAppleKey(int8_t which, bool isDown)
 {
   assert(which <= 1);
-  g_ram.writeByte(0xC061 + which, isDown ? 0x80 : 0x00);
+  g_ram.writeByte((writePages[0xC0] << 8) | (0x61 + which), isDown ? 0x80 : 0x00);
 }

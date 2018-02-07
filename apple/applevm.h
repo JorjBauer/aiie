@@ -10,7 +10,7 @@
 #ifdef TEENSYDUINO
 #include "teensy-clock.h"
 #else
-#include "sdl-clock.h"
+#include "nix-clock.h"
 #endif
 
 #include "vm.h"
@@ -47,7 +47,7 @@ class AppleVM : public VM {
 #ifdef TEENSYDUINO
   TeensyClock *teensyClock;
 #else
-  SDLClock *sdlClock;
+  NixClock *nixClock;
 #endif
 };
 

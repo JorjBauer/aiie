@@ -1,16 +1,18 @@
 #include <stdio.h>
 #include <unistd.h>
-#include <curses.h>
 #include <termios.h>
 #include <pthread.h>
+#include <sys/vt.h>
+#include <sys/ioctl.h>
+#include <signal.h>
 
 #include "applevm.h"
-#include "sdl-display.h"
-#include "sdl-keyboard.h"
-#include "sdl-speaker.h"
-#include "sdl-paddles.h"
+#include "fb-display.h"
+#include "linux-keyboard.h"
+#include "linux-speaker.h"
+#include "fb-paddles.h"
 #include "nix-filemanager.h"
-#include "sdl-printer.h"
+#include "linux-printer.h"
 #include "appleui.h"
 #include "bios.h"
 
@@ -109,7 +111,7 @@ static void *cpu_thread(void *dummyptr) {
       }
       printf("BIOS block complete\n");
     }
-
+    
     if (wantSuspend) {
       printf("CPU halted; suspending VM\n");
       g_vm->Suspend("suspend.vm");
@@ -131,10 +133,13 @@ static void *cpu_thread(void *dummyptr) {
        sometimes a little behind and sometimes a little ahead; but the
        speaker has to be right on time. */
 
+    struct timespec diff;
+    
+#if 0
     // Wait until nextSpeakerCycle
     timespec_add_cycles(&startTime, nextSpeakerCycle, &nextCycleTime);
-
-    struct timespec diff = tsSubtract(nextCycleTime, currentTime);
+    
+    diff = tsSubtract(nextCycleTime, currentTime);
     if (diff.tv_sec >= 0 || diff.tv_nsec >= 0) {
       nanosleep(&diff, NULL);
     }
@@ -149,7 +154,7 @@ static void *cpu_thread(void *dummyptr) {
 
     // Bump speaker cycle for next go-round
     nextSpeakerCycle++;
-
+#endif
 
     /* Next up is the CPU. */
 
@@ -256,6 +261,37 @@ static void *cpu_thread(void *dummyptr) {
 
 int main(int argc, char *argv[])
 {
+  int fd;
+  struct vt_stat vts;
+  int newVT;
+  int initialVT;
+  
+  if ((fd=open("/dev/console", O_WRONLY)) < 0) {
+    perror("opening /dev/console");
+    exit(1);
+  }
+
+  ioctl(fd, VT_GETSTATE, &vts);
+  initialVT = vts.v_active; // find what VT we were on originally
+  ioctl(fd, VT_OPENQRY, &newVT);
+  if (newVT == -1) {
+    printf("No VTs available");
+    exit(1);
+  }
+
+  // Switch to new VT
+  ioctl(fd, VT_ACTIVATE, newVT);
+  ioctl(0, VT_WAITACTIVE, newVT);
+
+  printf("Now on VT %d\n", newVT);
+  
+  // If we want stdout/stderr to move with us to the new VT, do this sorta thing, but to the right TTY
+  //  freopen("/dev/tty2", "w", stdout);
+  //  freopen("/dev/tty2", "w", stderr);
+  
+  // Turn off cursor
+  system("echo 0 > /sys/class/graphics/fbcon/cursor_blink");
+  
 #if 0
   // Timing consistency check
 
@@ -284,21 +320,19 @@ int main(int argc, char *argv[])
   exit(1);
 #endif
 
-  SDL_Init(SDL_INIT_EVERYTHING);
-
-  g_speaker = new SDLSpeaker();
-  g_printer = new SDLPrinter();
+  g_speaker = new LinuxSpeaker();
+  g_printer = new LinuxPrinter();
 
   // create the filemanager - the interface to the host file system.
   g_filemanager = new NixFileManager();
 
-  g_display = new SDLDisplay();
+  g_display = new FBDisplay();
   //  g_displayType = m_blackAndWhite;
 
   g_ui = new AppleUI();
 
   // paddles have to be created after g_display created the window
-  g_paddles = new SDLPaddles();
+  g_paddles = new FBPaddles();
 
   // Next create the virtual CPU. This needs the VM's MMU in order to run, but we don't have that yet.
   g_cpu = new Cpu();
@@ -308,7 +342,7 @@ int main(int argc, char *argv[])
   // hardware (MMU, video driver, floppy, paddles, whatever).
   g_vm = new AppleVM();
 
-  g_keyboard = new SDLKeyboard(g_vm->getKeyboard());
+  g_keyboard = new LinuxKeyboard(g_vm->getKeyboard());
 
   // Now that the VM exists and it has created an MMU, we tell the CPU how to access memory through the MMU.
   g_cpu->SetMMU(g_vm->getMMU());
@@ -317,7 +351,6 @@ int main(int argc, char *argv[])
   g_vm->Reset();
   g_cpu->rst();
 
-  //  g_display->blit();
   g_display->redraw();
 
   if (argc >= 2) {
@@ -335,6 +368,7 @@ int main(int argc, char *argv[])
   // FIXME: fixed test disk...
   //  ((AppleVM *)g_vm)->insertHD(0, "hd32.img");
   
+  
   nonblock(NB_ENABLE);
 
   signal(SIGINT, sigint_handler);
@@ -349,11 +383,12 @@ int main(int argc, char *argv[])
     if (g_biosInterrupt) {
       printf("Invoking BIOS\n");
       if (bios.runUntilDone()) {
-	// if it returned true, we have something to store persistently in EEPROM.
-	//	writePrefs();
+	// if it returned true, we have something to store
+	// persistently in EEPROM.
+	//      writePrefs();
       }
       printf("BIOS done\n");
-      
+
       // if we turned off debugMode, make sure to clear the debugMsg
       if (g_debugMode == D_NONE) {
 	g_display->debugMsg("");
@@ -369,16 +404,16 @@ int main(int argc, char *argv[])
       // Drain the speaker queue (FIXME: a little hacky)
       g_speaker->maintainSpeaker(-1, -1);
 
-      /* FIXME
-      // Force the display to redraw
-      ((AppleDisplay*)(g_vm->vmdisplay))->modeChange();
+      /* FIXME                                                                  
+      // Force the display to redraw                                            
+      ((AppleDisplay*)(g_vm->vmdisplay))->modeChange();                         
       */
 
       // Poll the keyboard before we start, so we can do selftest on startup
       g_keyboard->maintainKeyboard();
     }
-
-
+    
+    
     static uint32_t usleepcycles = 16384; // step-down for display drawing. Dynamically updated based on FPS calculations.
 
     // fill disk buffer when needed
@@ -396,11 +431,10 @@ int main(int argc, char *argv[])
 
     g_printer->update();
     g_keyboard->maintainKeyboard();
-
-    doDebugging();
-
     g_ui->drawPercentageUIElement(UIePowerPercentage, 100);
 
+    doDebugging();
+    
     // calculate FPS & dynamically step up/down as necessary
     static time_t startAt = time(NULL);
     static uint32_t loopCount = 0;
@@ -493,14 +527,14 @@ void doDebugging()
     sprintf(buf, "%X", g_cpu->cycles);
     g_display->debugMsg(buf);
     break;
-    /*
-  case D_SHOWBATTERY:
-    //    sprintf(buf, "BAT %d", analogRead(BATTERYPIN));
-    //    g_display->debugMsg(buf);
-    break;
-  case D_SHOWTIME:
-    //    sprintf(buf, "%.2d:%.2d:%.2d", hour(), minute(), second());
-    //    g_display->debugMsg(buf);
+    /*                                                                          
+  case D_SHOWBATTERY:                                                           
+    //    sprintf(buf, "BAT %d", analogRead(BATTERYPIN));                       
+    //    g_display->debugMsg(buf);                                             
+    break;                                                                      
+  case D_SHOWTIME:                                                              
+    //    sprintf(buf, "%.2d:%.2d:%.2d", hour(), minute(), second());           
+    //    g_display->debugMsg(buf);                                             
     break;*/
   }
 }

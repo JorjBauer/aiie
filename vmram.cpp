@@ -1,3 +1,7 @@
+#ifdef TEENSYDUINO
+#include <Arduino.h>
+#endif
+
 #include "vmram.h"
 #include <string.h>
 #include "globals.h"
@@ -5,7 +9,8 @@
 #ifndef TEENSYDUINO
 #include <assert.h>
 #else
-#define assert(x)
+#define assert(x) { if (!(x)) {Serial.print("assertion failed at "); Serial.println(__LINE__); delay(10000);} }
+//#define assert(x) { }
 #endif
 
 // Serializing token for RAM data
@@ -22,9 +27,15 @@ void VMRam::init()
   }
 }
 
-uint8_t VMRam::readByte(uint32_t addr) { assert(addr < sizeof(preallocatedRam)); return preallocatedRam[addr]; }
+uint8_t VMRam::readByte(uint32_t addr) 
+{
+  return preallocatedRam[addr]; 
+}
 
-void VMRam::writeByte(uint32_t addr, uint8_t value) { assert(addr < sizeof(preallocatedRam)); preallocatedRam[addr] = value; }
+void VMRam::writeByte(uint32_t addr, uint8_t value)
+{ 
+  preallocatedRam[addr] = value;
+}
 
 bool VMRam::Serialize(int8_t fd)
 {
@@ -71,5 +82,10 @@ bool VMRam::Deserialize(int8_t fd)
     return false;
   }
 
+  return true;
+}
+
+bool VMRam::Test()
+{
   return true;
 }

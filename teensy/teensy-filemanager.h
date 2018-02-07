@@ -26,6 +26,8 @@ class TeensyFileManager : public FileManager {
 
   virtual uint8_t readByte(int8_t fd);
   virtual bool writeByte(int8_t fd, uint8_t v);
+
+  virtual void getRootPath(char *toWhere, int8_t maxLen);
   
  private:
   bool _prepCache(int8_t fd);

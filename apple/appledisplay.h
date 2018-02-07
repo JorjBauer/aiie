@@ -55,6 +55,8 @@ class AppleDisplay : public VMDisplay{
 
   void displayTypeChanged();
 
+  const unsigned char *xlateChar(uint8_t c, bool *invert);
+
  private:
 
   bool deinterlaceAddress(uint16_t address, uint8_t *row, uint8_t *col);
@@ -63,8 +65,6 @@ class AppleDisplay : public VMDisplay{
   void Draw14DoubleHiresPixelsAt(uint16_t addr);
   void Draw14HiresPixelsAt(uint16_t addr);
   void Draw80LoresPixelAt(uint8_t c, uint8_t x, uint8_t y, uint8_t offset);
-
-  const unsigned char *xlateChar(uint8_t c, bool *invert);
 
   void redraw40ColumnText(uint8_t startingY);
   void redraw80ColumnText(uint8_t startingY);

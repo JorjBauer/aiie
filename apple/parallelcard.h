@@ -9,7 +9,7 @@
 #endif
 
 #include "applemmu.h"
-#include "Slot.h"
+#include "slot.h"
 
 class Fx80;
 

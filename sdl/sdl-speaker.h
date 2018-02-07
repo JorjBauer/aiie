@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include "physicalspeaker.h"
 
-#define SPEAKERQUEUESIZE 64
+#define SPEAKERQUEUESIZE 1024
 
 class SDLSpeaker : public PhysicalSpeaker {
  public:
@@ -17,7 +17,7 @@ class SDLSpeaker : public PhysicalSpeaker {
   virtual void beginMixing();
   virtual void mixOutput(uint8_t v);
  private:
-  int16_t mixerValue;
+  uint8_t mixerValue;
   bool toggleState;
 
   uint32_t toggleTimes[SPEAKERQUEUESIZE];
@@ -27,8 +27,6 @@ class SDLSpeaker : public PhysicalSpeaker {
 
   uint64_t lastCycleCount;
   uint64_t lastSampleCount;
-
-  FILE *f;
 };
 
 #endif

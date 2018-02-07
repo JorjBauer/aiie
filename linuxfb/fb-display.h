@@ -1,27 +1,18 @@
-#ifndef __SDL_DISPLAY_H
-#define __SDL_DISPLAY_H
+#ifndef __FB_DISPLAY_H
+#define __FB_DISPLAY_H
 
 #include <stdlib.h>
-
-#include <SDL.h>
-#include <SDL_mutex.h>
-#include <SDL_events.h>
+#include <linux/fb.h>
 
 #include "physicaldisplay.h"
 
-
-#define SDLDISPLAY_WIDTH (320*2)
-#define SDLDISPLAY_HEIGHT (240*2)
-
-class SDLDisplay : public PhysicalDisplay {
+class FBDisplay : public PhysicalDisplay {
  public:
-  SDLDisplay();
-  virtual ~SDLDisplay();
+  FBDisplay();
+  virtual ~FBDisplay();
 
   virtual void blit(AiieRect r);
   virtual void redraw();
-
-  virtual void flush();
 
   virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint8_t sizey, uint16_t wherex, uint8_t wherey);
 
@@ -30,11 +21,15 @@ class SDLDisplay : public PhysicalDisplay {
 
   virtual void drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c);
   virtual void drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str);
+  virtual void flush();
   virtual void clrScr();
-
+  
  private:
-  SDL_Window *screen;
-  SDL_Renderer *renderer;
+  int fb_fd;
+  struct fb_fix_screeninfo finfo;
+  struct fb_var_screeninfo vinfo;
+  long screensize;
+  uint8_t *fbp;
 };
 
 #endif

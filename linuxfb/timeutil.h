@@ -1,5 +1,5 @@
 #include <time.h>
-#include <mach/mach_time.h>
+//#include <mach/mach_time.h>
 // Derived from
 // http://stackoverflow.com/questions/5167269/clock-gettime-alternative-in-mac-os-x
 
@@ -11,17 +11,23 @@
 static double orwl_timebase = 0.0;
 static uint64_t orwl_timestart = 0;
 static void _init_darwin_shim(void) {
+#if 0
   mach_timebase_info_data_t tb = { 0 };
   mach_timebase_info(&tb);
   orwl_timebase = tb.numer;
   orwl_timebase /= tb.denom;
   orwl_timestart = mach_absolute_time();
+#endif
 }
 
 static int do_gettime(struct timespec *tp) {
+#if 0
   double diff = (mach_absolute_time() - orwl_timestart) * orwl_timebase;
   tp->tv_sec = diff * ORWL_NANO;
   tp->tv_nsec = diff - (tp->tv_sec * ORWL_GIGA);
+#else
+  clock_gettime(CLOCK_MONOTONIC, tp);
+#endif
   return 0;
 }
 

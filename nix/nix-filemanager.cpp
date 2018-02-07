@@ -5,19 +5,22 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <errno.h>
+#include <dirent.h>
 
-#include "sdl-filemanager.h"
+#include "nix-filemanager.h"
 
-SDLFileManager::SDLFileManager()
+#define ROOTDIR "./disks/"
+
+NixFileManager::NixFileManager()
 {
   numCached = 0;
 }
 
-SDLFileManager::~SDLFileManager()
+NixFileManager::~NixFileManager()
 {
 }
 
-int8_t SDLFileManager::openFile(const char *name)
+int8_t NixFileManager::openFile(const char *name)
 {
   // See if there's a hole to re-use...
   for (int i=0; i<numCached; i++) {
@@ -43,7 +46,7 @@ int8_t SDLFileManager::openFile(const char *name)
   return numCached-1;
 }
 
-void SDLFileManager::closeFile(int8_t fd)
+void NixFileManager::closeFile(int8_t fd)
 {
   // invalid fd provided?
   if (fd < 0 || fd >= numCached)
@@ -53,7 +56,7 @@ void SDLFileManager::closeFile(int8_t fd)
   cachedNames[fd][0] = '\0';
 }
 
-const char *SDLFileManager::fileName(int8_t fd)
+const char *NixFileManager::fileName(int8_t fd)
 {
   if (fd < 0 || fd >= numCached)
     return NULL;
@@ -61,13 +64,96 @@ const char *SDLFileManager::fileName(int8_t fd)
   return cachedNames[fd];
 }
 
-int8_t SDLFileManager::readDir(const char *where, const char *suffix, char *outputFN, int8_t startIdx, uint16_t maxlen)
+int8_t NixFileManager::readDir(const char *where, const char *suffix, char *outputFN, int8_t startIdx, uint16_t maxlen)
 {
-  // not used in this version
-  return -1;
+  int idx = 1;
+  if (strcmp(where, ROOTDIR)) {
+    // First entry is always "../"
+    if (startIdx == 0) {
+      strcpy(outputFN, "../");
+      return 0;
+    }
+  } else {
+    idx = 0; // we skipped ROOTDIR
+  }
+
+  DIR *dirp = opendir(where);
+  if (!dirp)
+    return -1;
+
+  struct dirent *dp;
+
+  outputFN[0] = '\0';
+
+  while ((dp = readdir(dirp)) != NULL) {
+    if (dp->d_name[0] == '.') {
+      // Skip any dot files (and dot directories)
+      continue;
+    }
+
+    // FIXME: skip any non-files and non-directories
+
+    if (suffix && !(dp->d_type & DT_DIR) && strlen(dp->d_name) >= 3) {
+      // It's a valid file. If it doesn't match any of our suffixes,
+      // then skip it.
+      char pat[40];
+      strncpy(pat, suffix, sizeof(pat)); // make a working copy of the suffixes
+
+      char *fsuff = &dp->d_name[strlen(dp->d_name)-3];
+
+      if (strstr(pat, ",")) {
+	// We have a list of suffixes. Check each of them.
+
+	bool matchesAny = false;
+	char *tok = strtok((char *)pat, ",");
+	while (tok) {
+	  // FIXME: assumes 3 character suffixes
+	  if (!strncasecmp(fsuff, tok, 3)) {
+	    matchesAny = true;
+	    break;
+	  }
+	  
+	  tok = strtok(NULL, ",");
+	}
+
+	if (!matchesAny) {
+	  continue;
+	}
+      } else {
+	// One single suffix - check it
+	if (strcasecmp(fsuff, suffix)) {
+	  continue;
+	}
+      }
+    }
+    // If we get here, it's something we want to show.
+    if (idx == startIdx) {
+      // Fill in the reply
+      strncpy(outputFN, dp->d_name, maxlen-1);
+
+      if (dp->d_type & DT_DIR) {
+	// suffix
+	strcat(outputFN, "/");
+      }
+      break;
+    }
+
+    // Next!
+    idx++;
+  }
+
+  // Exited the loop - all done.
+  closedir(dirp);
+
+  if (!outputFN[0]) {
+    // didn't find any more
+    return -1;
+  }
+
+  return idx;
 }
 
-void SDLFileManager::seekBlock(int8_t fd, uint16_t block, bool isNib)
+void NixFileManager::seekBlock(int8_t fd, uint16_t block, bool isNib)
 {
   if (fd < 0 || fd >= numCached)
     return;
@@ -80,7 +166,7 @@ void SDLFileManager::seekBlock(int8_t fd, uint16_t block, bool isNib)
 }
 
 
-bool SDLFileManager::readTrack(int8_t fd, uint8_t *toWhere, bool isNib)
+bool NixFileManager::readTrack(int8_t fd, uint8_t *toWhere, bool isNib)
 {
   if (fd < 0 || fd >= numCached)
     return false;
@@ -104,7 +190,7 @@ bool SDLFileManager::readTrack(int8_t fd, uint8_t *toWhere, bool isNib)
   return ret;
 }
 
-bool SDLFileManager::readBlock(int8_t fd, uint8_t *toWhere, bool isNib)
+bool NixFileManager::readBlock(int8_t fd, uint8_t *toWhere, bool isNib)
 {
   // open, seek, read, close.
   if (fd < 0 || fd >= numCached)
@@ -129,7 +215,7 @@ bool SDLFileManager::readBlock(int8_t fd, uint8_t *toWhere, bool isNib)
   return ret;
 }
 
-bool SDLFileManager::writeBlock(int8_t fd, uint8_t *fromWhere, bool isNib)
+bool NixFileManager::writeBlock(int8_t fd, uint8_t *fromWhere, bool isNib)
 {
   // open, seek, write, close.
   if (fd < 0 || fd >= numCached)
@@ -159,7 +245,7 @@ bool SDLFileManager::writeBlock(int8_t fd, uint8_t *fromWhere, bool isNib)
   return true;
 }
 
-bool SDLFileManager::writeTrack(int8_t fd, uint8_t *fromWhere, bool isNib)
+bool NixFileManager::writeTrack(int8_t fd, uint8_t *fromWhere, bool isNib)
 {
   // open, seek, write, close.
   if (fd < 0 || fd >= numCached)
@@ -188,7 +274,7 @@ bool SDLFileManager::writeTrack(int8_t fd, uint8_t *fromWhere, bool isNib)
   return true;
 }
 
-uint8_t SDLFileManager::readByteAt(int8_t fd, uint32_t pos)
+uint8_t NixFileManager::readByteAt(int8_t fd, uint32_t pos)
 {
   if (fd < 0 || fd >= numCached)
     return -1; // FIXME: error handling?
@@ -215,7 +301,7 @@ uint8_t SDLFileManager::readByteAt(int8_t fd, uint32_t pos)
   return v;
 }
 
-bool SDLFileManager::writeByteAt(int8_t fd, uint8_t v, uint32_t pos)
+bool NixFileManager::writeByteAt(int8_t fd, uint8_t v, uint32_t pos)
 {
   if (fd < 0 || fd >= numCached)
     return false;
@@ -235,7 +321,7 @@ bool SDLFileManager::writeByteAt(int8_t fd, uint8_t v, uint32_t pos)
   return ret;
 }
 
-bool SDLFileManager::writeByte(int8_t fd, uint8_t v)
+bool NixFileManager::writeByte(int8_t fd, uint8_t v)
 {
   if (fd < 0 || fd >= numCached)
     return false;
@@ -263,7 +349,7 @@ bool SDLFileManager::writeByte(int8_t fd, uint8_t v)
   return ret;
 }
 
-uint8_t SDLFileManager::readByte(int8_t fd)
+uint8_t NixFileManager::readByte(int8_t fd)
 {
   if (fd < 0 || fd >= numCached)
     return -1; // FIXME: error handling?
@@ -293,3 +379,8 @@ uint8_t SDLFileManager::readByte(int8_t fd)
   return v;
 }
 
+void NixFileManager::getRootPath(char *toWhere, int8_t maxLen)
+{
+  strcpy(toWhere, ROOTDIR);
+  //  strncpy(toWhere, ROOTDIR, maxLen);
+}
