@@ -35,8 +35,8 @@ class BIOS {
   void WarmReset();
   void ColdReboot();
 
-  bool SelectDiskImage();
-  void DrawDiskNames(uint8_t page, int8_t selection);
+  bool SelectDiskImage(const char *filter);
+  void DrawDiskNames(uint8_t page, int8_t selection, const char *filter);
   uint8_t GatherFilenames(uint8_t pageOffset, const char *filter);
 
   void stripDirectory();

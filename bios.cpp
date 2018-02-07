@@ -168,7 +168,7 @@ bool BIOS::runUntilDone()
       if (((AppleVM *)g_vm)->DiskName(0)[0] != '\0') {
 	((AppleVM *)g_vm)->ejectDisk(0);
       } else {
-	if (SelectDiskImage()) {
+	if (SelectDiskImage("dsk,.po,nib")) {
 	  ((AppleVM *)g_vm)->insertDisk(0, staticPathConcat(rootPath, fileDirectory[selectedFile]), false);
 	  goto done;
 	}
@@ -178,7 +178,7 @@ bool BIOS::runUntilDone()
       if (((AppleVM *)g_vm)->DiskName(1)[0] != '\0') {
 	((AppleVM *)g_vm)->ejectDisk(1);
       } else {
-	if (SelectDiskImage()) {
+	if (SelectDiskImage("dsk,.po,nib")) {
 	  ((AppleVM *)g_vm)->insertDisk(1, staticPathConcat(rootPath, fileDirectory[selectedFile]), false);
 	  goto done;
 	}
@@ -188,7 +188,7 @@ bool BIOS::runUntilDone()
       if (((AppleVM *)g_vm)->HDName(0)[0] != '\0') {
 	((AppleVM *)g_vm)->ejectHD(0);
       } else {
-	if (SelectDiskImage()) {
+	if (SelectDiskImage("img")) {
 	  ((AppleVM *)g_vm)->insertHD(0, staticPathConcat(rootPath, fileDirectory[selectedFile]));
 	  goto done;
 	}
@@ -198,7 +198,7 @@ bool BIOS::runUntilDone()
       if (((AppleVM *)g_vm)->HDName(1)[0] != '\0') {
 	((AppleVM *)g_vm)->ejectHD(1);
       } else {
-	if (SelectDiskImage()) {
+	if (SelectDiskImage("img")) {
 	  ((AppleVM *)g_vm)->insertHD(1, staticPathConcat(rootPath, fileDirectory[selectedFile]));
 	  goto done;
 	}
@@ -637,13 +637,13 @@ void BIOS::DrawMainMenu()
 
 // return true if the user selects an image
 // sets selectedFile (index; -1 = "nope") and fileDirectory[][] (names of up to BIOS_MAXFILES files)
-bool BIOS::SelectDiskImage()
+bool BIOS::SelectDiskImage(const char *filter)
 {
   int8_t sel = 0;
   int8_t page = 0;
 
   while (1) {
-    DrawDiskNames(page, sel);
+    DrawDiskNames(page, sel, filter);
 
     while (!g_keyboard->kbhit())
       ;
@@ -709,9 +709,9 @@ void BIOS::stripDirectory()
   }
 }
 
-void BIOS::DrawDiskNames(uint8_t page, int8_t selection)
+void BIOS::DrawDiskNames(uint8_t page, int8_t selection, const char *filter)
 {
-  uint8_t fileCount = GatherFilenames(page, "dsk,.po,nib,img");
+  uint8_t fileCount = GatherFilenames(page, filter);
   g_display->clrScr();
   g_display->drawString(M_NORMAL, 0, 12, "BIOS Configuration - pick disk");
 
