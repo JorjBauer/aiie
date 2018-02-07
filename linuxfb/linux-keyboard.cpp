@@ -29,7 +29,7 @@ LinuxKeyboard::~LinuxKeyboard()
 
 static uint8_t keymap[] = {
   0, // keycode 0 doesn't exist
-  ESC,
+  PK_ESC,
   '1',
   '2',
   '3',
@@ -42,8 +42,8 @@ static uint8_t keymap[] = {
   '0',
   '-',
   '=',
-  DEL,
-  TAB,
+  PK_DEL,
+  PK_TAB,
   'q',
   'w',
   'e',
@@ -57,7 +57,7 @@ static uint8_t keymap[] = {
   '[',
   ']',
   13,
-  _CTRL,
+  PK_CTRL,
   'a',
   's',
   'd',
@@ -70,7 +70,7 @@ static uint8_t keymap[] = {
   ';',
   '\'',
   '`',
-  LSHFT,
+  PK_LSHFT,
   '\\',
   'z',
   'x',
@@ -82,11 +82,11 @@ static uint8_t keymap[] = {
   ',',
   '.',
   '/',
-  RSHFT,
+  PK_RSHFT,
   '*',
-  LA,
+  PK_LA,
   ' ',
-  LOCK,
+  PK_LOCK,
   0, // F1,
   0, // F2,
   0, // F3,
@@ -124,22 +124,22 @@ static uint8_t keymap[] = {
   0,
   0,
   0,
-  RET, // number pad enter?
-  _CTRL, // Right control?
+  PK_RET, // number pad enter?
+  PK_CTRL, // Right control?
   '/',
   0, // prtscr
-  RA,
+  PK_RA,
   0,
   0, // HOME
-  UARR,
+  PK_UARR,
   0, // PGUP
-  LARR,
-  RARR,
+  PK_LARR,
+  PK_RARR,
   0, // END
-  DARR,
+  PK_DARR,
   0, // PGDN
   0, // INSERT
-  DEL,
+  PK_DEL,
   0,
   0,
   0,
