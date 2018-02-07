@@ -9,7 +9,7 @@
 SdFatSdio sd;
 File file;
 
-uint8_t rawFd;
+int8_t rawFd;
 File rawFile;
 
 TeensyFileManager::TeensyFileManager()
@@ -270,14 +270,16 @@ bool TeensyFileManager::_prepCache(int8_t fd)
     // Not our cached file, or we have no cached file
     if (rawFd != -1) {
       // Close the old one if we had one
-      Serial.println("closing old cache file");
+      Serial.print("closing old cache file ");
+      Serial.println(rawFd);
       rawFile.close();
       rawFd = -1;
     }
 
     Serial.println("opening new cache file");
     // Open the new one
-    if (!sd.open(cachedNames[fd], O_RDWR | O_CREAT)) {
+    rawFile = sd.open(cachedNames[fd], O_RDWR | O_CREAT);
+    if (!rawFile) {
       Serial.print("_prepCache: failed to open ");
       Serial.println(cachedNames[fd]);
       return false;
@@ -304,8 +306,10 @@ uint8_t TeensyFileManager::readByteAt(int8_t fd, uint32_t pos)
   _prepCache(fd);
 
   if (!rawFile.seek(pos)) {
-    Serial.println("readByteAt: seek failed");
-    return false;
+    Serial.print("readByteAt: seek failed to pos ");
+    Serial.println(pos);
+    Serial.println("Trying to continue anyway");
+    //    return false;
   }
   uint8_t b;
   return (rawFile.read(&b, 1) == 1);
@@ -342,12 +346,14 @@ uint8_t TeensyFileManager::readByte(int8_t fd)
   uint32_t pos = fileSeekPositions[fd];
 
   if (!rawFile.seek(pos)) {
-    Serial.println("readByteAt: seek failed");
+    Serial.print("readByte: seek failed to byte ");
+    Serial.println(pos);
     return false;
   }
 
   uint8_t b;
   rawFile.read(&b, 1);
+  fileSeekPositions[fd]++;
 
   // FIXME: check v == 1 & handle error
   return b;

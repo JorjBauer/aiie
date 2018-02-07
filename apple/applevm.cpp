@@ -94,6 +94,7 @@ void AppleVM::Resume(const char *fn)
 #else
     printf("Unable to open resume file\n");
 #endif
+    g_filemanager->closeFile(fh);
     return;
   }
 
@@ -101,6 +102,7 @@ void AppleVM::Resume(const char *fn)
   for (int i=0; i<strlen(suspendHdr); i++) {
     if (g_filemanager->readByte(fh) != suspendHdr[i]) {
       /* Failed to read correct header; abort */
+      g_filemanager->closeFile(fh);
       return;
     }
   }
@@ -110,7 +112,9 @@ void AppleVM::Resume(const char *fn)
       disk6->Deserialize(fh) &&
       hd32->Deserialize(fh)
       ) {
-#ifndef TEENSYDUINO
+#ifdef TEENSYDUINO
+    Serial.println("Deserialization successful");
+#else
     printf("All deserialized successfully\n");
 #endif
   } else {
@@ -121,7 +125,6 @@ void AppleVM::Resume(const char *fn)
   }
 
   g_filemanager->closeFile(fh);
-
 }
 
 // fixme: make member vars
