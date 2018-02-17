@@ -26,25 +26,12 @@ AppleVM::AppleVM()
   parallel = new ParallelCard();
   ((AppleMMU *)mmu)->setSlot(1, parallel);
 
-#ifdef TEENSYDUINO
-  teensyClock = new TeensyClock((AppleMMU *)mmu);
-  ((AppleMMU *)mmu)->setSlot(5, teensyClock);
-#else
-  nixClock = new NixClock((AppleMMU *)mmu);
-  ((AppleMMU *)mmu)->setSlot(5, nixClock);
-#endif
-
   hd32 = new HD32((AppleMMU *)mmu);
   ((AppleMMU *)mmu)->setSlot(7, hd32);
 }
 
 AppleVM::~AppleVM()
 {
-#ifdef TEENSYDUINO
-  delete teensyClock;
-#else
-  delete nixClock;
-#endif
   delete disk6;
   delete parallel;
 }

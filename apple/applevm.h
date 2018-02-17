@@ -7,11 +7,6 @@
 #include "hd32.h"
 #include "vmkeyboard.h"
 #include "parallelcard.h"
-#ifdef TEENSYDUINO
-#include "teensy-clock.h"
-#else
-#include "nix-clock.h"
-#endif
 
 #include "vm.h"
 class AppleVM : public VM {
@@ -44,11 +39,6 @@ class AppleVM : public VM {
  protected:
   VMKeyboard *keyboard;
   ParallelCard *parallel;
-#ifdef TEENSYDUINO
-  TeensyClock *teensyClock;
-#else
-  NixClock *nixClock;
-#endif
 };
 
 

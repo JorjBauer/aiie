@@ -4,28 +4,17 @@
 #include <stdint.h>
 #include <stdio.h>
 
-#include "slot.h"
-#include "applemmu.h"
+#include "noslotclock.h"
 
-// Simple clock for *nix
-
-class NixClock : public Slot {
+class NixClock : public NoSlotClock {
  public:
   NixClock(AppleMMU *mmu);
   virtual ~NixClock();
 
-  virtual bool Serialize(int8_t fd);
-  virtual bool Deserialize(int8_t fd);
+ protected:
+  virtual void populateClockRegister();
+  virtual void updateClockFromRegister();
 
-  virtual void Reset();
-
-  virtual uint8_t readSwitches(uint8_t s);
-  virtual void writeSwitches(uint8_t s, uint8_t v);
-
-  virtual void loadROM(uint8_t *toWhere);
-
- private:
-  AppleMMU *mmu;
 };
 
 #endif

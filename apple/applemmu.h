@@ -5,6 +5,7 @@
 #include "appledisplay.h"
 #include "slot.h"
 #include "mmu.h"
+#include "noslotclock.h"
 
 // when we read a nondeterministic result, we return FLOATING. Maybe
 // some day we can come back here and figure out how to return what
@@ -56,6 +57,8 @@ class AppleMMU : public MMU {
   void setAppleKey(int8_t which, bool isDown);
 
  protected:
+  bool handleNoSlotClock(uint16_t address, uint8_t *rv);
+
   void resetDisplay();
   uint8_t readSwitches(uint16_t address);
   void writeSwitches(uint16_t address, uint8_t v);
@@ -85,6 +88,8 @@ class AppleMMU : public MMU {
   uint16_t writePages[0x100];
 
   bool anyKeyDown;
+  
+  NoSlotClock *clock;
 };
 
 #endif

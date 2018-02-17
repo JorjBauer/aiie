@@ -1,136 +1,62 @@
 #include <string.h> // memset
 #include <TimeLib.h>
 
+#include "noslotclock.h"
+
 #include "teensy-clock.h"
-#include "applemmu.h" // for FLOATING
 
-/*
- *  http://apple2online.com/web_documents/prodos_technical_notes.pdf
- *
- * When ProDOS calls a clock card, the card deposits an ASCII string
- * in the GETLN input buffer in the form: 07,04,14,22,46,57. The
- * string translates as the following:
- * 
- * 07 = the month, July
- * 04 = the day of the week (00 = Sun)
- * 14 = the date (00 to 31)
- * 22 = the hour (00 to 23)
- * 46 = the minute (00 to 59)
- * 57 = the second (00 to 59)
-*/
-
-static void timeToProDOS(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-			 uint8_t proDOStimeOut[4])
+TeensyClock::TeensyClock(AppleMMU *mmu) : NoSlotClock(mmu)
 {
-  proDOStimeOut[0] = ((year % 100) << 1) | (month >> 3);
-  proDOStimeOut[1] = ((month & 0x0F) << 5) | (day & 0x1F);
-  proDOStimeOut[2] = hour & 0x1F;
-  proDOStimeOut[3] = minute & 0x3F;
-}
-
-TeensyClock::TeensyClock(AppleMMU *mmu)
-{
-  this->mmu = mmu;
 }
 
 TeensyClock::~TeensyClock()
 {
 }
 
-bool TeensyClock::Serialize(int8_t fd)
+void TeensyClock::populateClockRegister()
 {
-  return true;
-}
-
-bool TeensyClock::Deserialize(int8_t fd)
-{
-  return true;
-}
-
-void TeensyClock::Reset()
-{
-}
-
-uint8_t TeensyClock::readSwitches(uint8_t s)
-{
-  // When any switch is read, we'll put the current time in the prodos time buffer
-
   tmElements_t tm;
   breakTime(now(), tm);
 
-  // Put the date/time in the official ProDOS buffer
-  uint8_t prodosOut[4];
-  timeToProDOS(tm.Year, tm.Month, tm.Day, tm.Hour, tm.Minute, prodosOut);
-  mmu->write(0xBF90, prodosOut[0]);
-  mmu->write(0xBF91, prodosOut[1]);
-  mmu->write(0xBF92, prodosOut[2]);
-  mmu->write(0xBF93, prodosOut[3]);
+  tm.Year %= 100; // 00-99
+  tm.Month++; // 1-12
+  tm.Wday++; // 1-7, where 1 = Sunday
 
-  // and also generate a date/time that contains seconds, but not a
-  // year, which it also consumes
-  char ts[18];
-  sprintf(ts, "%.2d,%.2d,%.2d,%.2d,%.2d,%.2d", 
-	  tm.Month,
-	  tm.Wday - 1, // Sunday should be 0, not 1
-	  tm.Day,
-	  tm.Hour,
-	  tm.Minute,
-	  tm.Second);
-
-  uint8_t i = 0;
-  while (ts[i]) {
-    mmu->write(0x200 + i, ts[i] | 0x80);
-    i++;
-  }
-
-  return FLOATING;
+  writeNibble(tm.Year / 10); // 00-99
+  writeNibble(tm.Year % 10);
+  writeNibble(tm.Month / 10); // 1-12
+  writeNibble(tm.Month % 10);
+  writeNibble(tm.Day / 10); // 1-31
+  writeNibble(tm.Day % 10); 
+  writeNibble(0);
+  writeNibble(tm.Wday); // 1-7, where 1 = Sunday
+  writeNibble(tm.Hour / 10);
+  writeNibble(tm.Hour % 10);
+  writeNibble(tm.Minute / 10);
+  writeNibble(tm.Minute % 10);
+  writeNibble(tm.Second / 10);
+  writeNibble(tm.Second % 10);
+  writeNibble(0); // 00-99 milliseconds
+  writeNibble(0);
 }
 
-void TeensyClock::writeSwitches(uint8_t s, uint8_t v)
+static uint8_t bcdToDecimal(uint8_t v)
 {
-  //  printf("unimplemented write to the clock - 0x%X\n", v);
+  return ((v & 0x0F) + (((v & 0xF0) >> 4) * 10));
 }
 
-// FIXME: this assumes slot #5
-void TeensyClock::loadROM(uint8_t *toWhere)
+
+void TeensyClock::updateClockFromRegister()
 {
-  memset(toWhere, 0xEA, 256); // fill the page with NOPs
+  uint8_t hours, minutes, seconds, days, months;
+  uint16_t years;
 
-  // ProDOS only needs these 4 bytes to recognize that a clock is present
-  toWhere[0x00] = 0x08; // PHP
-  toWhere[0x02] = 0x28; // PLP
-  toWhere[0x04] = 0x58; // CLI
-  toWhere[0x06] = 0x70; // BVS
+  years   = bcdToDecimal(clockReg & 0xFF00000000000000LL >> 56) + 2000;
+  months  = bcdToDecimal(clockReg & 0x00FF000000000000LL >> 48) - 1;
+  days    = bcdToDecimal(clockReg & 0x0000FF0000000000LL >> 40);
+  hours   = bcdToDecimal(clockReg & 0x00000000FF000000LL >> 24);
+  minutes = bcdToDecimal(clockReg & 0x0000000000FF0000LL >> 16);
+  seconds = bcdToDecimal(clockReg & 0x000000000000FF00LL >> 8);
 
-  // Pad out those bytes so they will return control well. The program
-  // at c500 becomes
-  //
-  //   C500: PHP  ; push to stack
-  //         NOP  ; filler (filled in by memory clear)
-  //         PLP  ; pop from stack
-  //         RTS  ; return
-  //         CLI  ; required to detect driver, but not used
-  //         NOP  ; filled in by memory clear
-  //         BVS  ; required to detect driver, but not used
-
-  toWhere[0x03] = 0x60; // RTS
-
-  // And it needs a small routing here to read/write it:
-  // 0x08: read
-  toWhere[0x08] = 0x4C; // JMP $C510
-  toWhere[0x09] = 0x10;
-  toWhere[0x0A] = 0xC5;
-
-  // 0x0b: write
-  toWhere[0x0B] = 0x8D; // STA $C0D0 (slot 5's first switch)
-  toWhere[0x0C] = 0xD0;
-  toWhere[0x0D] = 0xC0;
-  toWhere[0x0E] = 0x60; // RTS
-
-  // simple read
-  toWhere[0x10] = 0xAD; // LDA $C0D0 (slot 5's first switch)
-  toWhere[0x11] = 0xD0;
-  toWhere[0x12] = 0xC0;
-  toWhere[0x13] = 0x60; // RTS
+  setTime(hours, minutes, seconds, days, months, years);
 }
-

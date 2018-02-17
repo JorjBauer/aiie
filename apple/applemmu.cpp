@@ -14,6 +14,12 @@
 
 #include "globals.h"
 
+#ifdef TEENSYDUINO
+#include "teensy-clock.h"
+#else
+#include "nix-clock.h"
+#endif
+
 // Serializing token for MMU data
 #define MMUMAGIC 'M'
 
@@ -141,6 +147,12 @@ AppleMMU::AppleMMU(AppleDisplay *display)
   this->display = display;
   this->display->setSwitches(&switches);
   resetRAM(); // initialize RAM, load ROM
+
+#ifdef TEENSYDUINO
+  clock = new TeensyClock((AppleMMU *)this);
+#else
+  clock = new NixClock((AppleMMU *)this);
+#endif
 }
 
 AppleMMU::~AppleMMU()
@@ -221,6 +233,11 @@ void AppleMMU::Reset()
 
 uint8_t AppleMMU::read(uint16_t address)
 {
+  uint8_t rv = 0;
+  if (handleNoSlotClock(address, &rv)) {
+    return rv;
+  }
+
   if (address >= 0xC000 &&
       address <= 0xC0FF) {
     return readSwitches(address);
@@ -261,6 +278,10 @@ uint8_t AppleMMU::readDirect(uint16_t address, uint8_t fromPage)
 
 void AppleMMU::write(uint16_t address, uint8_t v)
 {
+  if (handleNoSlotClock(address, NULL)) {
+    return;
+  }
+
   if (address >= 0xC000 &&
       address <= 0xC0FF) {
     return writeSwitches(address, v);
@@ -295,6 +316,26 @@ void AppleMMU::write(uint16_t address, uint8_t v)
       display->modeChange();
     }
   }
+}
+
+bool AppleMMU::handleNoSlotClock(uint16_t address, uint8_t *rv)
+{
+  uint8_t ah = address >> 8;
+  if ( ((!intcxrom || !slot3rom) && (ah == 0xc3)) ||
+       (ah == 0xc8) ) {
+    if (rv) {
+      // It's a read attempt - we want a return value.
+      *rv = 0;
+      if (clock->read(address, rv)) {
+        return true;
+      }
+    } else {
+      clock->write(address);
+      return true;
+    }
+    
+  }
+  return false;
 }
 
 // FIXME: this is no longer "MMU", is it?

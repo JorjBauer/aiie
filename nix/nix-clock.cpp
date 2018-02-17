@@ -1,141 +1,62 @@
 #include <string.h> // memset
 #include <time.h>
 
+#include "noslotclock.h"
+
 #include "nix-clock.h"
-#include "applemmu.h" // for FLOATING
 
-/*
- *  http://apple2online.com/web_documents/prodos_technical_notes.pdf
- *
- * When ProDOS calls a clock card, the card deposits an ASCII string
- * in the GETLN input buffer in the form: 07,04,14,22,46,57. The
- * string translates as the following:
- * 
- * 07 = the month, July
- * 04 = the day of the week (00 = Sun)
- * 14 = the date (00 to 31)
- * 22 = the hour (00 to 23)
- * 46 = the minute (00 to 59)
- * 57 = the second (00 to 59)
-*/
-
-static void timeToProDOS(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-			 uint8_t proDOStimeOut[4])
+NixClock::NixClock(AppleMMU *mmu) : NoSlotClock(mmu)
 {
-  proDOStimeOut[0] = ((year % 100) << 1) | (month >> 3);
-  proDOStimeOut[1] = ((month & 0x0F) << 5) | (day & 0x1F);
-  proDOStimeOut[2] = hour & 0x1F;
-  proDOStimeOut[3] = minute & 0x3F;
-}
-
-NixClock::NixClock(AppleMMU *mmu)
-{
-  this->mmu = mmu;
 }
 
 NixClock::~NixClock()
 {
 }
 
-bool NixClock::Serialize(int8_t fd)
+void NixClock::populateClockRegister()
 {
-  return true;
-}
-
-bool NixClock::Deserialize(int8_t fd)
-{
-  return true;
-}
-
-void NixClock::Reset()
-{
-}
-
-uint8_t NixClock::readSwitches(uint8_t s)
-{
-  // When any switch is read, we'll put the current time in the prodos time buffer
   time_t lt;
   time(&lt);
   struct tm *ct = localtime(&lt);
 
-  // Put the date/time in the official ProDOS buffer
-  uint8_t prodosOut[4];
-  timeToProDOS(ct->tm_year+1900, 
-	       ct->tm_mon,
-	       ct->tm_mday,
-	       ct->tm_hour,
-	       ct->tm_min,
-	       prodosOut);
-  mmu->write(0xBF90, prodosOut[0]);
-  mmu->write(0xBF91, prodosOut[1]);
-  mmu->write(0xBF92, prodosOut[2]);
-  mmu->write(0xBF93, prodosOut[3]);
+  clockReg = 0x0;
 
-  // and also generate a date/time that contains seconds, but not a
-  // year, which it also consumes
-  char ts[18];
-  sprintf(ts, "%.2d,%.2d,%.2d,%.2d,%.2d,%.2d", 
-	  ct->tm_mon,
-	  ct->tm_wday,
-	  ct->tm_mday,
-	  ct->tm_hour,
-	  ct->tm_min,
-	  ct->tm_sec);
+  // BCD, 4 bits per digit.
 
-  uint8_t i = 0;
-  while (ts[i]) {
-    mmu->write(0x200 + i, ts[i] | 0x80);
-    i++;
-  }
+  ct->tm_year %= 100; // must be 00-99
+  writeNibble(ct->tm_year / 10);
+  writeNibble(ct->tm_year % 10);
 
-  return FLOATING;
+  ct->tm_mon++; // 1 = January
+  writeNibble(ct->tm_mon / 10);
+  writeNibble(ct->tm_mon % 10);
+
+  writeNibble(ct->tm_mday / 10);
+  writeNibble(ct->tm_mday % 10);// day of month, 1-31
+
+  writeNibble(0);
+  writeNibble(ct->tm_wday + 1); // day of week, 1-7
+
+  writeNibble(ct->tm_hour / 10);
+  writeNibble(ct->tm_hour % 10);
+
+  writeNibble(ct->tm_min / 10);
+  writeNibble(ct->tm_min % 10);
+
+  writeNibble(ct->tm_sec / 10); // tens of seconds
+  writeNibble(ct->tm_sec % 10); // ones of seconds, 00-99
+
+  writeNibble(0); // ones of milliseconds, 00-99
+  writeNibble(0); // tens of milliseconds
 }
 
-void NixClock::writeSwitches(uint8_t s, uint8_t v)
+void NixClock::updateClockFromRegister()
 {
-  //  printf("unimplemented write to the clock - 0x%X\n", v);
+  // The clockReg should now contain a BCD4 packed date like                
+  // 0x1708071521140200                                                     
+  //   ... 2017, August 07, <day of week?>; 21:14:02.00                     
+  // where that <day of week> is clearly suspect. Probably because 2017     
+  // was too far in the future when this driver was written...              
+
+  printf(">> Got a request to set clock: 0x%llX\n", clockReg);
 }
-
-// FIXME: this assumes slot #5
-void NixClock::loadROM(uint8_t *toWhere)
-{
-  memset(toWhere, 0xEA, 256); // fill the page with NOPs
-
-  // ProDOS only needs these 4 bytes to recognize that a clock is present
-  toWhere[0x00] = 0x08; // PHP
-  toWhere[0x02] = 0x28; // PLP
-  toWhere[0x04] = 0x58; // CLI
-  toWhere[0x06] = 0x70; // BVS
-
-  // Pad out those bytes so they will return control well. The program
-  // at c500 becomes
-  //
-  //   C500: PHP  ; push to stack
-  //         NOP  ; filler (filled in by memory clear)
-  //         PLP  ; pop from stack
-  //         RTS  ; return
-  //         CLI  ; required to detect driver, but not used
-  //         NOP  ; filled in by memory clear
-  //         BVS  ; required to detect driver, but not used
-
-  toWhere[0x03] = 0x60; // RTS
-
-  // And it needs a small routing here to read/write it:
-  // 0x08: read
-  toWhere[0x08] = 0x4C; // JMP $C510
-  toWhere[0x09] = 0x10;
-  toWhere[0x0A] = 0xC5;
-
-  // 0x0b: write
-  toWhere[0x0B] = 0x8D; // STA $C0D0 (slot 5's first switch)
-  toWhere[0x0C] = 0xD0;
-  toWhere[0x0D] = 0xC0;
-  toWhere[0x0E] = 0x60; // RTS
-
-  // simple read
-  toWhere[0x10] = 0xAD; // LDA $C0D0 (slot 5's first switch)
-  toWhere[0x11] = 0xD0;
-  toWhere[0x12] = 0xC0;
-  toWhere[0x13] = 0x60; // RTS
-}
-
