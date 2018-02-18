@@ -23,6 +23,15 @@ class AppleUI : public VMui {
   virtual void drawPercentageUIElement(uint8_t element, uint8_t percent);
 
   void drawBatteryStatus(uint8_t percent);
+
+  virtual void blit();
+
+ private:
+  bool redrawFrame;
+  bool redrawDriveLatches;
+  bool redrawDriveActivity;
+  bool driveInserted[2];
+  bool driveActivity[2];
 };
 
 

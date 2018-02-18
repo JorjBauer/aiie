@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <SPI.h>
-#include <EEPROM.h>
 #include <TimeLib.h>
 #include <TimerOne.h>
 #include "bios.h"
@@ -12,6 +11,8 @@
 #include "teensy-paddles.h"
 #include "teensy-filemanager.h"
 #include "appleui.h"
+#include "teensy-prefs.h"
+
 #define RESETPIN 39
 #define BATTERYPIN 32
 #define SPEAKERPIN A21
@@ -192,6 +193,7 @@ void biosInterrupt()
   g_speaker->maintainSpeaker(-1, -1);
 
   // Force the display to redraw
+  g_display->redraw();
   ((AppleDisplay*)(g_vm->vmdisplay))->modeChange();
 
   // Poll the keyboard before we start, so we can do selftest on startup
@@ -267,9 +269,9 @@ void loop()
   // but the display tears. So there's a global - g_prioritizeDisplay - 
   // which lets the user pick which they want.
 
-  g_prioritizeDisplay = false;
   if (g_prioritizeDisplay)
     Timer1.stop();
+  g_ui->blit();
   g_vm->vmdisplay->lockDisplay();
   if (g_vm->vmdisplay->needsRedraw()) {
     AiieRect what = g_vm->vmdisplay->getDirtyRect();
@@ -368,58 +370,59 @@ void doDebugging()
   }
 }
 
-typedef struct _prefs {
-  uint32_t magic;
-  int16_t volume;
-} prefs;
-
-// Fun trivia: the Apple //e was in production from January 1983 to
-// November 1993. And the 65C02 in them supported weird BCD math modes.
-#define MAGIC 0x01831093
-
 void readPrefs()
 {
-  prefs p;
-  uint8_t *pp = (uint8_t *)&p;
-
-  Serial.println("reading prefs");
-
-  for (uint8_t i=0; i<sizeof(prefs); i++) {
-    *pp++ = EEPROM.read(i);
-  }
-
-  if (p.magic == MAGIC) {
-    // looks valid! Use it.
-    Serial.println("prefs valid! Restoring volume");
-    if (p.volume > 15) {
-      p.volume = 15;
-    }
-    if (p.volume < 0) {
-      p.volume = 0;
-    }
-
+  TeensyPrefs np;
+  prefs_t p;
+  if (np.readPrefs(&p)) {
     g_volume = p.volume;
-    return;
-  }
+    g_displayType = p.displayType;
+    g_debugMode = p.debug;
+    g_prioritizeDisplay = p.priorityMode;
+    g_speed = (p.speed * (1023000/2)); // steps of half normal speed
+    if (g_speed < (1023000/2))
+      g_speed = (1023000/2);
+    if (p.disk1[0]) {
+      ((AppleVM *)g_vm)->insertDisk(0, p.disk1);
+    }
+    if (p.disk2[0]) {
+      ((AppleVM *)g_vm)->insertDisk(1, p.disk2);
+    }
 
-  // use defaults
-  g_volume = 0;
+    if (p.hd1[0]) {
+      ((AppleVM *)g_vm)->insertHD(0, p.hd1);
+    }
+
+    if (p.hd2[0]) {
+      ((AppleVM *)g_vm)->insertHD(1, p.hd2);
+    }
+  }
 }
 
 void writePrefs()
 {
-  Serial.println("writing prefs");
-  Timer1.stop();
+  TeensyPrefs np;
+  prefs_t p;
 
-  prefs p;
-  uint8_t *pp = (uint8_t *)&p;
+  g_display->clrScr();
+  g_display->drawString(M_SELECTED, 80, 100,"Writing prefs...");
+  g_display->flush();
 
-  p.magic = MAGIC;
+  p.magic = PREFSMAGIC;
+  p.prefsSize = sizeof(prefs_t);
+  p.version = PREFSVERSION;
+
   p.volume = g_volume;
+  p.displayType = g_displayType;
+  p.debug = g_debugMode;
+  p.priorityMode = g_prioritizeDisplay;
+  p.speed = g_speed / (1023000/2);
+  strcpy(p.disk1, ((AppleVM *)g_vm)->DiskName(0));
+  strcpy(p.disk2, ((AppleVM *)g_vm)->DiskName(1));
+  strcpy(p.hd1, ((AppleVM *)g_vm)->HDName(0));
+  strcpy(p.hd2, ((AppleVM *)g_vm)->HDName(1));
 
-  for (uint8_t i=0; i<sizeof(prefs); i++) {
-    EEPROM.write(i, *pp++);
-  }
-
+  Timer1.stop();
+  bool ret = np.writePrefs(&p);
   Timer1.start();
 }

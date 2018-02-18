@@ -9,6 +9,9 @@
 
 #include "apple/appleui.h"
 
+#define SCREENINSET_X (18*2)
+#define SCREENINSET_Y (13*2)
+
 // RGB map of each of the lowres colors
 const uint8_t loresPixelColors[16][3] = { { 0, 0, 0 }, // black
 					  { 195, 0, 48 }, // magenta
@@ -30,6 +33,8 @@ const uint8_t loresPixelColors[16][3] = { { 0, 0, 0 }, // black
 
 SDLDisplay::SDLDisplay()
 {
+  memset(videoBuffer, 0, sizeof(videoBuffer));
+
   // FIXME: abstract constants
   screen = SDL_CreateWindow("Aiie!",
 			    SDL_WINDOWPOS_UNDEFINED,
@@ -69,6 +74,9 @@ void SDLDisplay::redraw()
   }
 }
 
+// drawImageOfSizeAt will horizontally scale out the image b/c the
+// images themselves aren't aware of the double resolution. This is an
+// inconsistency that probably should be addressed. FIXME?
 void SDLDisplay::drawImageOfSizeAt(const uint8_t *img,
 				   uint16_t sizex, uint8_t sizey,
 				   uint16_t wherex, uint8_t wherey)
@@ -77,34 +85,40 @@ void SDLDisplay::drawImageOfSizeAt(const uint8_t *img,
     for (uint16_t x=0; x<sizex; x++) {
       const uint8_t *p = &img[(y * sizex + x)*3];
       p = &img[(y * sizex + x)*3];
-      drawPixel(x+wherex, y+wherey, p[0], p[1], p[2]);
+      drawPixel((x+wherex)*2, y+wherey, p[0], p[1], p[2]);
+      drawPixel((x+wherex)*2+1, y+wherey, p[0], p[1], p[2]);
     }
   }
 }
 
-#define BASEX 36
-#define BASEY 26
-
+// Blit the videoBuffer to the display device, in the rect given
 void SDLDisplay::blit(AiieRect r)
 {
-  uint8_t *videoBuffer = g_vm->videoBuffer; // FIXME: poking deep
+  // The dimensions here are the dimensions of the variable screen --
+  // not the border. We don't support updating the border *except* by
+  // drawing directly to the screen device...
 
-  for (uint8_t y=0; y<192; y++) {
-    for (uint16_t x=0; x<280; x++) {
-      uint16_t pixel = (y*DISPLAYRUN+x)/2;
-      uint8_t colorIdx;
-      if (x & 1) {
-	colorIdx = videoBuffer[pixel] & 0x0F;
-      } else {
-	colorIdx = videoBuffer[pixel] >> 4;
+  for (uint16_t y=r.top*2; y<r.bottom*2; y++) {
+    for (uint16_t x=r.left*2; x<r.right*2; x++) {
+      uint8_t colorIdx = videoBuffer[y*SDLDISPLAY_WIDTH+x];
+
+      uint8_t r, g, b;
+      r = loresPixelColors[colorIdx][0];
+      g = loresPixelColors[colorIdx][1];
+      b = loresPixelColors[colorIdx][2];
+
+      if (g_displayType == m_monochrome) {
+	float fv = 0.2125 * r + 0.7154 * g + 0.0721 * b;
+	r = b = 0;
+	g = fv;
       }
-      for (uint8_t xoff=0; xoff<2; xoff++) {
-	for (uint8_t yoff=0; yoff<2; yoff++) {
-	  // FIXME: validate BPP >= 3?
-	  SDL_SetRenderDrawColor(renderer, loresPixelColors[colorIdx][0], loresPixelColors[colorIdx][1], loresPixelColors[colorIdx][2], 255);
-	  SDL_RenderDrawPoint(renderer, x*2+xoff+BASEX, y*2+yoff+BASEY);
-	}
+      else if (g_displayType == m_blackAndWhite) {
+	float fv = 0.2125 * r + 0.7154 * g + 0.0721 * b;
+	r = g = b = fv;
       }
+
+      SDL_SetRenderDrawColor(renderer, r, g, b, 255);
+      SDL_RenderDrawPoint(renderer, x+SCREENINSET_X, y+SCREENINSET_Y);
     }
   }
 
@@ -121,6 +135,12 @@ inline void putpixel(SDL_Renderer *renderer, int x, int y, uint8_t r, uint8_t g,
   SDL_RenderDrawPoint(renderer, x, y);
 }
 
+void SDLDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
+{
+  drawPixel(x*2, y, color);
+  drawPixel(x*2+1, y, color);
+}
+
 void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
 {
   uint8_t
@@ -129,21 +149,17 @@ void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
     b = (color & 0x1F) << 3;
 
 
-  // Pixel-doubling
+  // Pixel-doubling vertically
   for (int yoff=0; yoff<2; yoff++) {
-    for (int xoff=0; xoff<2; xoff++) {
-      putpixel(renderer, xoff+x*2, yoff+y*2, r, g, b);
-    }
+    putpixel(renderer, x, yoff+y*2, r, g, b);
   }
 }
 
 void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b)
 {
-  // Pixel-doubling
+  // Pixel-doubling vertically
   for (int yoff=0; yoff<2; yoff++) {
-    for (int xoff=0; xoff<2; xoff++) {
-      putpixel(renderer, xoff+x*2, yoff+y*2, r, g, b);
-    }
+    putpixel(renderer, x, yoff+y*2, r, g, b);
   }
 }
 
@@ -208,4 +224,36 @@ void SDLDisplay::clrScr()
   SDL_RenderClear(renderer); // clear it to the selected color
   SDL_RenderPresent(renderer); // perform the render
 }
+
+void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
+{
+  videoBuffer[y*2*SDLDISPLAY_WIDTH+x] = color;
+  videoBuffer[((y*2)+1)*SDLDISPLAY_WIDTH+x] = color;
+}
+
+// "DoubleWide" means "please double the X because I'm in low-res width mode"
+void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
+{
+  videoBuffer[y*2*SDLDISPLAY_WIDTH+x*2] = color;
+  videoBuffer[y*2*SDLDISPLAY_WIDTH+x*2+1] = color;
+
+  videoBuffer[(y*2+1)*SDLDISPLAY_WIDTH+x*2] = color;
+  videoBuffer[(y*2+1)*SDLDISPLAY_WIDTH+x*2+1] = color;
+}
+
+void SDLDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorB, uint8_t colorA)
+{
+  videoBuffer[y*2*SDLDISPLAY_WIDTH+x*2] = colorA;
+  videoBuffer[y*2*SDLDISPLAY_WIDTH+x*2+1] = colorA;
+
+  videoBuffer[y*2*SDLDISPLAY_WIDTH+x*2+2] = colorB;
+  videoBuffer[y*2*SDLDISPLAY_WIDTH+x*2+3] = colorB;
+
+  videoBuffer[(y*2+1)*SDLDISPLAY_WIDTH+x*2] = colorA;
+  videoBuffer[(y*2+1)*SDLDISPLAY_WIDTH+x*2+1] = colorA;
+
+  videoBuffer[(y*2+1)*SDLDISPLAY_WIDTH+x*2+2] = colorB;
+  videoBuffer[(y*2+1)*SDLDISPLAY_WIDTH+x*2+3] = colorB;
+}
+
 

@@ -29,7 +29,7 @@ enum {
 
 #define NUM_TITLES 4
 const char *menuTitles[NUM_TITLES] = { "Aiie", "VM", "Hardware", "Disks" };
-const uint8_t titleWidths[NUM_TITLES] = {45 , 28, 80, 45 };
+const uint8_t titleWidths[NUM_TITLES] = {45, 28, 80, 45 };
 
 const uint8_t aiieActions[] = { ACT_ABOUT };
 
@@ -117,7 +117,6 @@ bool BIOS::runUntilDone()
     currentCPUSpeedIndex = CPUSPEED_QUAD;
 
   int8_t prevAction = ACT_EXIT;
-  bool volumeDidChange = 0;
   while (1) {
     switch (prevAction = GetAction(prevAction)) {
     case ACT_EXIT:
@@ -141,7 +140,14 @@ bool BIOS::runUntilDone()
       break;
     case ACT_SPEED:
       currentCPUSpeedIndex++;
+#ifdef TEENSYDUINO
+      // The Teensy doesn't have any overhead to spare. Allow slowing
+      // down the virtual CPU, but not speeding it up...
+      currentCPUSpeedIndex %= 2;
+#else
+      // Other variants can support double and quad speeds.
       currentCPUSpeedIndex %= 4;
+#endif
       switch (currentCPUSpeedIndex) {
       case CPUSPEED_HALF:
 	g_speed = 1023000/2;
@@ -209,14 +215,12 @@ bool BIOS::runUntilDone()
       if (g_volume > 15) {
 	g_volume = 15;
       }
-      volumeDidChange = true;
       break;
     case ACT_VOLMINUS:
       g_volume--;
       if (g_volume < 0) {
 	g_volume = 0;
       }
-      volumeDidChange = true;
       break;
 
     case ACT_SUSPEND:
@@ -243,7 +247,7 @@ bool BIOS::runUntilDone()
   g_display->blit(r);
 
   // return true if any persistent setting changed that we want to store in eeprom
-  return volumeDidChange;
+  return true;
 }
 
 void BIOS::WarmReset()

@@ -6,6 +6,7 @@
 #include <string.h>
 #include <fcntl.h>
 #include <linux/input.h>
+#include <dirent.h>
 
 #include "sdl-paddles.h"
 #include "globals.h"
@@ -14,9 +15,25 @@
 
 LinuxKeyboard::LinuxKeyboard(VMKeyboard *k) : PhysicalKeyboard(k)
 {
-  fd = open("/dev/input/by-path/platform-20980000.usb-usb-0:1:1.0-event-kbd",
-	    O_RDONLY | O_NONBLOCK);
-  
+  // We want the first USB keyboard that we find. This object reads
+  // events directly from it, rather than using standard I/O.
+  // So we're looking for something matching this pattern:
+  // /dev/input/by-path/platform-20980000.usb-usb-*-event-kbd
+
+  DIR *dirp = opendir("/dev/input/by-path");
+  if (!dirp)
+    return; // No USB devices? :/
+
+  struct dirent *dp;
+  while ((dp = readdir(dirp)) != NULL) {
+    if (!strcmp(&dp->d_name[strlen(dp->d_name)-4], "-kbd")) {
+      char buf[MAXPATH];
+      sprintf(buf, "/dev/input/by-path/%s", dp->d_name);
+      fd = open(buf, O_RDONLY | O_NONBLOCK);
+      printf("Opened keyboard %s\n", buf);
+      break;
+    }
+  }
 }
 
 LinuxKeyboard::~LinuxKeyboard()

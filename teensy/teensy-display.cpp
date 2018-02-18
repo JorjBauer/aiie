@@ -36,26 +36,64 @@
 #include "applevm.h"
 
 // RGB map of each of the lowres colors
-const uint16_t loresPixelColors[16] = { 0x0000, // 0 black
-					0xC006, // 1 magenta
-					0x0010, // 2 dark blue
-					0xA1B5, // 3 purple
-					0x0480, // 4 dark green
-					0x6B4D, // 5 dark grey
-					0x1B9F, // 6 med blue
-					0x0DFD, // 7 light blue
-					0x92A5, // 8 brown
-					0xF8C5, // 9 orange
-					0x9555, // 10 light gray
-					0xFCF2, // 11 pink
-					0x07E0, // 12 green
-					0xFFE0, // 13 yellow
-					0x87F0, // 14 aqua
-					0xFFFF  // 15 white
+const uint8_t loresPixelColors[16*2] = { 0x00,0x00, // 0 black
+					 0xC0,0x06, // 1 magenta
+					 0x00,0x10, // 2 dark blue
+					 0xA1,0xB5, // 3 purple
+					 0x04,0x80, // 4 dark green
+					 0x6B,0x4D, // 5 dark grey
+					 0x1B,0x9F, // 6 med blue
+					 0x0D,0xFD, // 7 light blue
+					 0x92,0xA5, // 8 brown
+					 0xF8,0xC5, // 9 orange
+					 0x95,0x55, // 10 light gray
+					 0xFC,0xF2, // 11 pink
+					 0x07,0xE0, // 12 green
+					 0xFF,0xE0, // 13 yellow
+					 0x87,0xF0, // 14 aqua
+					 0xFF,0xFF  // 15 white
+};
+
+const uint8_t loresPixelColorsGreen[16*2] = { 0x00, 0x00, 
+					      0x01, 0x40, 
+					      0x00, 0x40, 
+					      0x02, 0x80, 
+					      0x03, 0x00, 
+					      0x03, 0x40, 
+					      0x03, 0x00, 
+					      0x04, 0x80, 
+					      0x02, 0xC0, 
+					      0x02, 0x40, 
+					      0x05, 0x00, 
+					      0x05, 0x40, 
+					      0x05, 0x80, 
+					      0x07, 0x00, 
+					      0x06, 0x80, 
+					      0x07, 0xC0 
+};
+
+const uint8_t loresPixelColorsWhite[16*2] = { 0x00, 0x00, 
+					     0x29, 0x45, 
+					     0x08, 0x41, 
+					     0x52, 0x8A, 
+					     0x63, 0x0C, 
+					     0x6B, 0x4D, 
+					     0x63, 0x0C, 
+					     0x94, 0x92, 
+					     0x5A, 0xCB, 
+					     0x4A, 0x49, 
+					     0xA5, 0x14, 
+					     0xAD, 0x55, 
+					     0xB5, 0x96, 
+					     0xE7, 0x1C, 
+					     0xD6, 0x9A, 
+					     0xFF, 0xDF
 };
 
 TeensyDisplay::TeensyDisplay()
 {
+  memset(videoBuffer, 0, sizeof(videoBuffer));
+
   pinMode(DB_8, OUTPUT);
   pinMode(DB_9, OUTPUT);
   pinMode(DB_10, OUTPUT);
@@ -98,14 +136,19 @@ TeensyDisplay::TeensyDisplay()
 
   cbi(P_CS, B_CS);
 
-  LCD_Write_COM_DATA(0x00,0x0001); // oscillator start [enable]
+  // Setup here is from the document "Driver IC SSD1289.pdf"
+  // https://forum.allaboutcircuits.com/attachments/driver-ic-ssd1289-pdf.71570/
+  LCD_Write_COM_DATA(0x00,0x0001); // R00h: enable the oscillator
   LCD_Write_COM_DATA(0x03,0xA8A4); // power control [%1010 1000 1010 1000] == DCT3, DCT1, BT2, DC3, DC1, AP2
+
   LCD_Write_COM_DATA(0x0C,0x0000); // power control2 [0]
   LCD_Write_COM_DATA(0x0D,0x080C); // power control3 [VRH3, VRH2, invalid bits]
   LCD_Write_COM_DATA(0x0E,0x2B00); // power control4 VCOMG, VDV3, VDV1, VDV0
   LCD_Write_COM_DATA(0x1E,0x00B7); // power control5 nOTP, VCM5, VCM4, VCM2, VCM1, VCM0
   //  LCD_Write_COM_DATA(0x01,0x2B3F); // driver control output REV, BGR, TB, MUX8, MUX5, MUX4, MUX3, MUX2, MUX1, MUX0
-  // Change that: TB = 0 please
+
+  // This sets the direction of the scan. These two are mirror
+  // opposites. The first is right in my setup.
   LCD_Write_COM_DATA(0x01,0x293F); // driver control output REV, BGR, TB, MUX8, MUX5, MUX4, MUX3, MUX2, MUX1, MUX0
   //  LCD_Write_COM_DATA(0x01,0x693F); // driver control output RL, REV, BGR, TB, MUX8, MUX5, MUX4, MUX3, MUX2, MUX1, MUX0
 
@@ -122,7 +165,8 @@ TeensyDisplay::TeensyDisplay()
   LCD_Write_COM_DATA(0x16,0xEF1C); // horiz porch (default)                                                                
   LCD_Write_COM_DATA(0x17,0x0003); // vertical porch                                                                       
   LCD_Write_COM_DATA(0x07,0x0233); // display control VLE1, GON, DTE, D1, D0                                               
-  LCD_Write_COM_DATA(0x0B,0x0000); // frame cycle control                                                                  
+  LCD_Write_COM_DATA(0x0B,0x5308); // frame cycle control: %0101 0011 0000 1000
+
   LCD_Write_COM_DATA(0x0F,0x0000); // gate scan start posn                                                                 
   LCD_Write_COM_DATA(0x41,0x0000); // vertical scroll control1                                                             
   LCD_Write_COM_DATA(0x42,0x0000); // vertical scroll control2                                                             
@@ -148,8 +192,8 @@ TeensyDisplay::TeensyDisplay()
   LCD_Write_COM_DATA(0x25,0x8000); // frame frequency (OSC3)                                                               
   LCD_Write_COM_DATA(0x4f,0x0000); // Set GDDRAM Y address counter                                                         
   LCD_Write_COM_DATA(0x4e,0x0000); // Set GDDRAM X address counter                                                         
-#if 0
-  // Set data access speed optimization (?)
+#if 1
+  // Set data access speed optimization (?) per pg. 50; doesn't actually seem to change anything though?
   LCD_Write_COM_DATA(0x28, 0x0006);
   LCD_Write_COM_DATA(0x2F, 0x12BE);
   LCD_Write_COM_DATA(0x12, 0x6CEB);
@@ -287,6 +331,11 @@ void TeensyDisplay::drawPixel(uint16_t x, uint16_t y)
   clrXY();
 }
 
+void TeensyDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
+{
+  drawPixel(x,y,color);
+}
+
 void TeensyDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
 {
   cbi(P_CS, B_CS);
@@ -361,8 +410,6 @@ void TeensyDisplay::drawNextPixel(uint16_t color)
 
 void TeensyDisplay::blit(AiieRect r)
 {
-  uint8_t *videoBuffer = g_vm->videoBuffer; // FIXME: poking deep
-
   // remember these are "starts at pixel number" values, where 0 is the first.
   #define HOFFSET 18
   #define VOFFSET 13
@@ -380,17 +427,37 @@ void TeensyDisplay::blit(AiieRect r)
 
   // send the pixel data
   sbi(P_RS, B_RS);
-  uint16_t pixel;
+  uint8_t *vbufPtr;
   for (uint8_t y=r.top; y<=r.bottom; y++) {
+    vbufPtr = &videoBuffer[y * TEENSY_DRUN + r.left];
     for (uint16_t x=r.left; x<=r.right; x++) {
-      pixel = y * (DISPLAYRUN >> 1) + (x >> 1);
       uint8_t colorIdx;
       if (!(x & 0x01)) {
-	colorIdx = videoBuffer[pixel] >> 4;
+	colorIdx = *vbufPtr >> 4;
       } else {
-	colorIdx = videoBuffer[pixel] & 0x0F;
+	// alpha the right-ish pixel over the left-ish pixel.
+	colorIdx = *vbufPtr & 0x0F;
       }
-      LCD_Writ_Bus(loresPixelColors[colorIdx]>>8,loresPixelColors[colorIdx]);
+      colorIdx <<= 1;
+
+      // The colors are broken up in to two 8-bit values to speed things up.
+      const uint8_t *p;
+
+      if (g_displayType == m_monochrome) {
+	p = &loresPixelColorsGreen[colorIdx];
+      }
+      else if (g_displayType == m_blackAndWhite) {
+	p = &loresPixelColorsWhite[colorIdx];
+      } else {
+	p = &loresPixelColors[colorIdx];
+      }
+
+      LCD_Writ_Bus(*p, *(p+1));
+
+      if (x & 0x01) {
+	// When we do the odd pixels, then move the pixel pointer to the next pixel
+	vbufPtr++;
+      }
     }
   }
   cbi(P_CS, B_CS);
@@ -495,3 +562,58 @@ void TeensyDisplay::drawImageOfSizeAt(const uint8_t *img,
     }
   }
 }
+
+// "DoubleWide" means "please double the X because I'm in low-res
+// width mode". But we only have half the horizontal width required on
+// the Teensy, so it's divided in half. And then we drop to 4-bit
+// colors, so it's divided in half again.
+void TeensyDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
+{
+  uint8_t b = videoBuffer[y*TEENSY_DRUN+(x>>1)];
+
+  if (x & 1) {
+    // Low nybble
+    b = (b & 0xF0) | (color & 0x0F);
+  } else {
+    // High nybble
+    b = (color << 4) | (b & 0x0F);
+  }
+  videoBuffer[y*TEENSY_DRUN+(x>>1)] = b;
+}
+
+// This exists for 4bpp optimization. We could totally call
+// cacheDoubleWidePixel twice, but the (x&1) pfutzing is messy if
+// we're just storing both halves anyway...
+void TeensyDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y, 
+					   uint8_t colorA, uint8_t colorB)
+{
+  videoBuffer[y*TEENSY_DRUN+(x>>1)] = (colorB << 4) | colorA;
+}
+
+// This is the full 560-pixel-wide version -- and we only have 280
+// pixels wide. So we'll divide x by 2. And then at 4bpp, we divide by
+// 2 again.
+// On odd-numbered X pixels, we also alpha-blend -- "black" means "clear"
+void TeensyDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
+{
+  if (x&1) {
+    x >>= 1; // divide by 2, then this is mostly cacheDoubleWidePixel. Except...
+    uint8_t b = videoBuffer[y*TEENSY_DRUN+(x>>1)];
+
+    if (x & 1) {
+      // Low nybble
+      if (color == c_black)
+	color = b & 0x0F;
+      b = (b & 0xF0) | (color & 0x0F);
+    } else {
+      // High nybble
+      if (color == c_black)
+	color = (b & 0xF0) >> 4;
+      b = (color << 4) | (b & 0x0F);
+    }
+    videoBuffer[y*TEENSY_DRUN+(x>>1)] = b;
+  } else {
+    cacheDoubleWidePixel(x/2, y, color);
+  }
+}
+

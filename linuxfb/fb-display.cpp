@@ -13,6 +13,9 @@
 
 #include "apple/appleui.h"
 
+#define SCREENINSET_X (18*2)
+#define SCREENINSET_Y (13*2)
+
 // RGB map of each of the lowres colors
 const uint16_t loresPixelColors[16] = { 0x0000, // 0 black
 					0xC006, // 1 magenta
@@ -34,6 +37,8 @@ const uint16_t loresPixelColors[16] = { 0x0000, // 0 black
 
 FBDisplay::FBDisplay()
 {
+  memset((void *)videoBuffer, 0, sizeof(videoBuffer));
+
   fb_fd = open("/dev/fb0",O_RDWR);
   //Get variable screen information
   ioctl(fb_fd, FBIOGET_VSCREENINFO, &vinfo);
@@ -44,12 +49,11 @@ FBDisplay::FBDisplay()
   ioctl(fb_fd, FBIOGET_FSCREENINFO, &finfo);
 
   // This shouldn't be necessary, but I'm not seeing FBIOPUT working yet
-  system("fbset -xres 320 -yres 240 -depth 16");
+  system("fbset -xres 640 -yres 480 -depth 16");
   
   // request what we want, rather than hoping we got it
-  // 16bpp 320x240 (for now)
-  vinfo.width = 320;
-  vinfo.height = 240;
+  vinfo.width = 640;
+  vinfo.height = 480;
   vinfo.bits_per_pixel = 16;
   int ret = ioctl(fb_fd, FBIOPUT_VSCREENINFO, &vinfo);
   printf("Return from FBIOPUT_VSCREENINFO: %d\n", ret);
@@ -71,17 +75,18 @@ void FBDisplay::redraw()
 {
   // primarily for the device, where it's in and out of the
   // bios. Draws the background image.
-  printf("redraw background\n");
   g_ui->drawStaticUIElement(UIeOverlay);
-  printf("static done\n");
+
   if (g_vm && g_ui) {
     // determine whether or not a disk is inserted & redraw each drive
     g_ui->drawOnOffUIElement(UIeDisk1_state, ((AppleVM *)g_vm)->DiskName(0)[0] == '\0');
     g_ui->drawOnOffUIElement(UIeDisk2_state, ((AppleVM *)g_vm)->DiskName(1)[0] == '\0');
   }
-  printf("return\n");
 }
 
+// drawImageOfSizeAt will horizontally scale out the image b/c the
+// images themselves aren't aware of the double resolution. This is an
+// inconsistency that probably should be addressed. FIXME?
 void FBDisplay::drawImageOfSizeAt(const uint8_t *img,
 				   uint16_t sizex, uint8_t sizey,
 				   uint16_t wherex, uint8_t wherey)
@@ -89,29 +94,49 @@ void FBDisplay::drawImageOfSizeAt(const uint8_t *img,
   for (uint8_t y=0; y<sizey; y++) {
     for (uint16_t x=0; x<sizex; x++) {
       const uint8_t *p = &img[(y * sizex + x)*3];
-      drawPixel(x+wherex, y+wherey, p[0], p[1], p[2]);
+      drawPixel((x+wherex)*2, y+wherey, p[0], p[1], p[2]);
+      drawPixel((x+wherex)*2+1, y+wherey, p[0], p[1], p[2]);
     }
   }
 }
 
-#define BASEX 18
-#define BASEY 13
-
 void FBDisplay::blit(AiieRect r)
 {
-  uint8_t *videoBuffer = g_vm->videoBuffer; // FIXME: poking deep
+  for (uint16_t y=r.top*2; y<r.bottom*2; y++) {
+    for (uint16_t x=r.left*2; x<r.right*2; x++) {
+      uint8_t colorIdx = videoBuffer[y*FBDISPLAY_WIDTH+x];
 
-  for (uint8_t y=0; y<192; y++) {
-    for (uint16_t x=0; x<280; x++) {
-      uint16_t pixel = (y*DISPLAYRUN+x)/2;
-      uint8_t colorIdx;
-      if (x & 1) {
-	colorIdx = videoBuffer[pixel] & 0x0F;
-      } else {
-	colorIdx = videoBuffer[pixel] >> 4;
+      uint16_t color;
+      color = loresPixelColors[colorIdx];
+
+      if (g_displayType == m_monochrome) {
+	// Tricky. Grayscale from luminance. Turn each value into a
+        // 5-bit value, so they have equal weights; then calculate
+        // luminance; then turn that back in to 5/6/5.
+	float fv = (0.2125 * ((color & 0xF800) >> 11));
+        fv += (0.7154 * ((color & 0x07E0) >> 6)); // 6 bits of green
+						  // turned in to 5
+						  // bits
+	fv += (0.0721 * ((color & 0x001F)));
+
+        color = ((uint16_t)fv << 6);
       }
-      long location = (x+vinfo.xoffset+BASEX) * (vinfo.bits_per_pixel/8) + (y+vinfo.yoffset+BASEY) * finfo.line_length;
-      *((uint16_t*)(fbp + location)) = loresPixelColors[colorIdx];
+      else if (g_displayType == m_blackAndWhite) {
+        // Tricky. Grayscale from luminance. Turn each value into a
+        // 5-bit value, so they have equal weights; then calculate
+        // luminance; then turn that back in to 5/6/5.
+        float fv = (0.2125 * ((color & 0xF800) >> 11));
+        fv += (0.7154 * ((color & 0x07E0) >> 6)); // 6 bits of green
+						  // turned in to 5
+						  // bits
+        fv += (0.0721 * ((color & 0x001F)));
+
+        color = ((uint16_t)fv << 11) | ((uint16_t)fv << 6) | ((uint16_t)fv);
+      }
+
+
+      long location = (x+vinfo.xoffset+SCREENINSET_X) * (vinfo.bits_per_pixel/8) + (y+vinfo.yoffset+SCREENINSET_Y) * finfo.line_length;
+      *((uint16_t*)(fbp + location)) = color;
     }
   }
 
@@ -128,17 +153,27 @@ inline uint16_t _888to565(uint8_t r, uint8_t g, uint8_t b)
 	   ( (b & 0xF8) >> 3 ) );
 }
 
-// external method
+void FBDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
+{
+  drawPixel(x*2, y, color);
+  drawPixel(x*2+1, y, color);
+}
+
+// external method. Doubles vertically.
 void FBDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
 {
-  long location = (x+vinfo.xoffset) * (vinfo.bits_per_pixel/8) + (y+vinfo.yoffset) * finfo.line_length;
+  long location = (x+vinfo.xoffset) * (vinfo.bits_per_pixel/8) + (y*2+vinfo.yoffset) * finfo.line_length;
+  *((uint16_t*)(fbp + location)) = color;
+  location = (x+vinfo.xoffset) * (vinfo.bits_per_pixel/8) + (y*2+1+vinfo.yoffset) * finfo.line_length;
   *((uint16_t*)(fbp + location)) = color;
 }
 
-// external method
+// external method. Doubles vertically.
 void FBDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b)
 {
-  long location = (x+vinfo.xoffset) * (vinfo.bits_per_pixel/8) + (y+vinfo.yoffset) * finfo.line_length;
+  long location = (x+vinfo.xoffset) * (vinfo.bits_per_pixel/8) + (y*2+vinfo.yoffset) * finfo.line_length;
+  *((uint16_t*)(fbp + location)) = _888to565(r,g,b);
+  location = (x+vinfo.xoffset) * (vinfo.bits_per_pixel/8) + (y*2+1+vinfo.yoffset) * finfo.line_length;
   *((uint16_t*)(fbp + location)) = _888to565(r,g,b);
 }
 
@@ -203,10 +238,41 @@ void FBDisplay::flush()
 
 void FBDisplay::clrScr()
 {
-  for (uint8_t y=0; y<vinfo.height; y++) {
+  for (uint8_t y=0; y<vinfo.height/2; y++) { // /2 because drawPixel doubles vertically
     for (uint16_t x=0; x<vinfo.width; x++) {
       drawPixel(x, y, 0x0000);
     }
   }
 }
 
+// All of these double vertically b/c we're 480, but the original is 240
+void FBDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
+{
+  videoBuffer[y*2*FBDISPLAY_WIDTH+x] = color;
+  videoBuffer[((y*2)+1)*FBDISPLAY_WIDTH+x] = color;
+}
+
+// "DoubleWide" means "please double the X because I'm in low-res width mode"
+void FBDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
+{
+  videoBuffer[y*2*FBDISPLAY_WIDTH+x*2] = color;
+  videoBuffer[y*2*FBDISPLAY_WIDTH+x*2+1] = color;
+
+  videoBuffer[(y*2+1)*FBDISPLAY_WIDTH+x*2] = color;
+  videoBuffer[(y*2+1)*FBDISPLAY_WIDTH+x*2+1] = color;
+}
+
+void FBDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorB, uint8_t colorA)
+{
+  videoBuffer[y*2*FBDISPLAY_WIDTH+x*2] = colorA;
+  videoBuffer[y*2*FBDISPLAY_WIDTH+x*2+1] = colorA;
+
+  videoBuffer[y*2*FBDISPLAY_WIDTH+x*2+2] = colorB;
+  videoBuffer[y*2*FBDISPLAY_WIDTH+x*2+3] = colorB;
+
+  videoBuffer[(y*2+1)*FBDISPLAY_WIDTH+x*2] = colorA;
+  videoBuffer[(y*2+1)*FBDISPLAY_WIDTH+x*2+1] = colorA;
+
+  videoBuffer[(y*2+1)*FBDISPLAY_WIDTH+x*2+2] = colorB;
+  videoBuffer[(y*2+1)*FBDISPLAY_WIDTH+x*2+3] = colorB;
+}

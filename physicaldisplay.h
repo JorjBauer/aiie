@@ -23,8 +23,19 @@ class PhysicalDisplay {
   virtual void drawPixel(uint16_t x, uint16_t y, uint16_t color) = 0;
   virtual void drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b) = 0;
 
+  virtual void drawUIPixel(uint16_t x, uint16_t y, uint16_t color) = 0;
+
   virtual void clrScr() = 0;
 
+  // methods to draw in to the buffer - not directly to the screen.
+
+  // First, methods that expect *us* to pixel-double the width...
+  virtual void cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color) = 0;
+  virtual void cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorA, uint8_t colorB) = 0;
+
+  // Then the direct-pixel methods
+  virtual void cachePixel(uint16_t x, uint16_t y, uint8_t color) = 0;
+  
  protected:
   char overlayMessage[40];
 };

@@ -14,8 +14,8 @@ typedef struct {
 
 class VMDisplay {
  public:
-  VMDisplay(uint8_t *vb) { videoBuffer = vb; }
-  virtual ~VMDisplay() { videoBuffer = NULL; };
+  VMDisplay() { }
+  virtual ~VMDisplay() { };
 
   virtual void SetMMU(MMU *m) { mmu = m; }
 
@@ -27,7 +27,6 @@ class VMDisplay {
   virtual void unlockDisplay() = 0;
 
   MMU *mmu;
-  uint8_t *videoBuffer;
 };
 
 #endif

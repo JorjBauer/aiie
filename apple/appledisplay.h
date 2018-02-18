@@ -39,7 +39,7 @@ class AppleMMU;
 
 class AppleDisplay : public VMDisplay{
  public:
-  AppleDisplay(uint8_t *vb);
+  AppleDisplay();
   virtual ~AppleDisplay();
   virtual bool needsRedraw();
   virtual void didRedraw();
@@ -76,8 +76,6 @@ class AppleDisplay : public VMDisplay{
   AiieRect dirtyRect;
 
   uint16_t *switches; // pointer to the MMU's switches
-
-  uint16_t textColor;
 };
 
 #endif

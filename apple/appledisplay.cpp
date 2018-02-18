@@ -10,9 +10,12 @@
    BLACKANDWHITE: monochrome, but use B&W instead of B&G;
    NTSCLIKE: reduce the resolution to 140 pixels wide, similar to how an NTSC monitor would blend it
    PERFECTCOLOR: as the Apple RGB monitor shows it, which means you can't have a solid color field
+
+   The only two we have to worry about here are NTSCLIKE and PERFECTCOLOR. The mono and B&W modes 
+   are handled in the individual display drivers, where colors are changed to one or the other.
+   The NTSCLIKE and PERFECTCOLOR modes change which actual pixels are set on or off, though, 
+   and that's a quirk specific to the Apple 2...
 */
-
-
 
 #define extendDirtyRect(x,y) {      \
     if (!dirty) {                   \
@@ -37,39 +40,9 @@
     }                               \
 }
 
-#if DISPLAYRUN == 512
+#define drawApplePixel(c,x,y) { g_display->cacheDoubleWidePixel(x,y,c); }
 
-#define drawApplePixel(c, x, y) {                                     \
-    uint16_t idx = (((y) << 9) + (x)) >> 1;			 \
-    if ((x) & 1) {                                               \
-      videoBuffer[idx] = (videoBuffer[idx] & 0xF0) | (c);	 \
-    } else {                                                     \
-      videoBuffer[idx] = (videoBuffer[idx] & 0x0F) | ((c) << 4); \
-    }                                                            \
-  }
-
-#define draw2Pixels(cAB, x, y) { \
-    videoBuffer[(((y) <<9) + (x)) >> 1] = cAB;	\
-  }
-
-
-#else
-
-#define drawApplePixel(c, x, y) {                                     \
-    uint16_t idx = ((y) * DISPLAYRUN + (x)) / 2;	         \
-    if ((x) & 1) {                                               \
-      videoBuffer[idx] = (videoBuffer[idx] & 0xF0) | (c);	 \
-    } else {                                                     \
-      videoBuffer[idx] = (videoBuffer[idx] & 0x0F) | ((c) << 4); \
-    }                                                            \
-  }
-
-#define draw2Pixels(cAB, x, y) { \
-    videoBuffer[((y) * DISPLAYRUN + (x)) /2] = cAB; \
-  }
-
-#endif
-
+#define draw2Pixels(cA, cB, x, y) { g_display->cache2DoubleWidePixels(x,y,cA, cB); }
 
 #define DrawLoresPixelAt(c, x, y) {     \
   uint8_t pixel = c & 0x0F;             \
@@ -88,11 +61,10 @@
 
 #include "globals.h"
 
-AppleDisplay::AppleDisplay(uint8_t *vb) : VMDisplay(vb)
+AppleDisplay::AppleDisplay() : VMDisplay()
 {
   this->switches = NULL;
 
-  textColor = g_displayType == m_monochrome?c_green:c_white;
   modeChange();
 }
 
@@ -234,19 +206,36 @@ inline void AppleDisplay::Draw14DoubleHiresPixelsAt(uint16_t addr)
     bitTrain <<= 7;
     bitTrain |= (b1B & 0x7F);
     
-    // Now we pop groups of 4 bits off the bottom and draw our
-    // NTSC-style-only color.  The display for this project only has
-    // 320 columns, so it's silly to try to do 560 columns of
-    // monochrome; and likewise, we can't do "perfect" representation
-    // of shifted color pixels. So NTSC it is, and we'll draw two screen 
-    // pixels for every color.
+    // Now we pop groups of 4 bits off the bottom and draw.
 
     for (int8_t xoff = 0; xoff < 14; xoff += 2) {
-      drawApplePixel(bitTrain & 0x0F, col+xoff, row);
-      drawApplePixel(bitTrain & 0x0F, col+xoff+1, row);
+      if (g_displayType == m_ntsclike) {
+	// NTSC-like color - use drawApplePixel to show the messy NTSC color bleeds.
+	// This draws two doubled pixels with greater color, but lower pixel, resolution.
+	drawApplePixel(bitTrain & 0x0F, col+xoff, row);
+	drawApplePixel(bitTrain & 0x0F, col+xoff+1,row);
+      } else {
+	// Perfect color, B&W, monochrome. Draw an exact version of the pixels, and let 
+	// the physical display figure out if they need to be reduced to B&W or not.
+
+	uint8_t color = bitTrain & 0x0F;
+	
+	g_display->cachePixel((col*2)+(xoff*2), row, 
+			      ((bitTrain & 0x01) ? color : c_black));
+	
+	g_display->cachePixel((col*2)+(xoff*2)+1, row, 
+			      ((bitTrain & 0x02) ? color : c_black));
+	
+	g_display->cachePixel((col*2)+(xoff*2)+2, row, 
+			      ((bitTrain & 0x04 )? color : c_black));
+
+	g_display->cachePixel((col*2)+(xoff*2)+3, row, 
+			      ((bitTrain & 0x08 ) ? color : c_black));
+      }
 
       bitTrain >>= 4;
-    }
+    } // for
+
   }
 }
 
@@ -310,15 +299,7 @@ inline void AppleDisplay::Draw14HiresPixelsAt(uint16_t addr)
 
     for (int8_t xoff = 0; xoff < 14; xoff += 2) {
 
-      if (g_displayType == m_monochrome) {
-	draw2Pixels(((bitTrain & 0x01 ? c_green : c_black) << 4) |
-		    (bitTrain & 0x02 ? c_green : c_black),
-		    col+xoff, row);
-      } else if (g_displayType == m_blackAndWhite) {
-	draw2Pixels(((bitTrain & 0x01 ? c_white : c_black) << 4) |
-		    (bitTrain & 0x02 ? c_white : c_black),
-		    col+xoff, row);
-      } else if (g_displayType == m_ntsclike) {
+      if (g_displayType == m_ntsclike) {
 	// Use the NTSC-like color mode, where we're only 140 pixels wide.
 	
 	bool highBitSet = (xoff >= 7 ? highBitTwo : highBitOne);
@@ -338,7 +319,7 @@ inline void AppleDisplay::Draw14HiresPixelsAt(uint16_t addr)
 	  break;
 	}
 	
-	draw2Pixels( (color << 4) | color, col+xoff, row );
+	draw2Pixels( color, color, col+xoff, row );
       } else {
 	// Use the "perfect" color mode, like the Apple RGB monitor showed.
 	bool highBitSet = (xoff >= 7 ? highBitTwo : highBitOne);
@@ -357,22 +338,10 @@ inline void AppleDisplay::Draw14HiresPixelsAt(uint16_t addr)
 	  color = c_white;
 	  break;
 	}
-	
-	uint16_t twoColors;
-	
-	if (color == c_black || color == c_white || bitTrain & 0x01) {
-	  twoColors = color;
-	} else {
-	  twoColors = c_black;
-	}
-	twoColors <<= 4;
-	
-	if (color == c_black || color == c_white || bitTrain & 0x02) {
-	  twoColors |= color;
-	} else {
-	  twoColors |= c_black;
-	}
-	draw2Pixels(twoColors, col+xoff, row);
+
+	draw2Pixels( (color==c_white || (bitTrain & 0x02)) ? color : c_black,
+		     (color==c_white || (bitTrain & 0x01)) ? color : c_black,
+		     col+xoff, row );
       }
       bitTrain >>= 2;
     }
@@ -402,32 +371,23 @@ void AppleDisplay::redraw80ColumnText(uint8_t startingY)
     // Only draw onscreen locations
     if (row >= startingY && col <= 39 && row <= 23) {
       // Even characters are in bank 0 ram. Odd characters are in bank
-      // 1 ram.  Technically, this would need 560 columns to work
-      // correctly - and I don't have that, so it's going to be a bit
-      // wonky.
-      // 
-      // First pass: draw two pixels on top of each other, clearing
-      // only if both are black. This would be blocky but probably
-      // passable if it weren't for the fact that characters are 7
-      // pixels wide, so we wind up sharing a half-pixel between two
-      // characters. So we'll render these as 3-pixel-wide characters
-      // and make sure they always even-align the drawing on the left
-      // side so we don't overwrite every other one on the left or
-      // right side.
+      // 1 ram. Draw to the physical display and let it figure out 
+      // whether or not there are enough physical pixels to display 
+      // the 560 columns we'd need for this.
 
       // Draw the first of two characters
       cptr = xlateChar(mmu->readDirect(addr, 1), &invert);
       for (uint8_t y2 = 0; y2<8; y2++) {
 	uint8_t d = *(cptr + y2);
-	for (uint8_t x2 = 0; x2 <= 7; x2+=2) {
-	  uint16_t basex = ((col * 2) * 7) & 0xFFFE; // even aligned
-	  bool pixelOn = ( (d & (1<<x2)) | (d & (1<<(x2+1))) );
+	for (uint8_t x2 = 0; x2 <= 7; x2++) {
+	  uint16_t basex = (col*2)*7;
+	  bool pixelOn = (d & (1<<x2));
 	  if (pixelOn) {
-	    uint8_t val = (invert ? c_black : textColor);
-	    drawApplePixel(val, (basex+x2)/2, row*8+y2);
+	    uint8_t val = (invert ? c_black : c_white);
+	    g_display->cachePixel(basex + x2, row*8+y2, val);
 	  } else {
-	    uint8_t val = (invert ? textColor : c_black);
-	    drawApplePixel(val, (basex+x2)/2, row*8+y2);
+	    uint8_t val = (invert ? c_white : c_black);
+	    g_display->cachePixel(basex + x2, row*8+y2, val);
 	  }
 	}
       }
@@ -436,15 +396,15 @@ void AppleDisplay::redraw80ColumnText(uint8_t startingY)
       cptr = xlateChar(mmu->readDirect(addr, 0), &invert);
       for (uint8_t y2 = 0; y2<8; y2++) {
 	uint8_t d = *(cptr + y2);
-	for (uint8_t x2 = 0; x2 <= 7; x2+=2) {
-	  uint16_t basex = ((col * 2 + 1) * 7) & 0xFFFE; // even aligned -- +1 for the second character
-	  bool pixelOn = ( (d & (1<<x2)) | (d & (1<<(x2+1))) );
+	for (uint8_t x2 = 0; x2 <= 7; x2++) {
+	  uint16_t basex = (col*2+1)*7;
+	  bool pixelOn = (d & (1<<x2));
 	  if (pixelOn) {
-	    uint8_t val = (invert ? c_black : textColor);
-	    drawApplePixel(val, (basex+x2)/2, row*8+y2);
+	    uint8_t val = (invert ? c_black : c_white);
+	    g_display->cachePixel(basex + x2, row*8+y2, val);
 	  } else {
-	    uint8_t val = (invert ? textColor : c_black);
-	    drawApplePixel(val, (basex+x2)/2, row*8+y2);
+	    uint8_t val = (invert ? c_white : c_black);
+	    g_display->cachePixel(basex + x2, row*8+y2, val);
 	  }
 	}
       }
@@ -478,10 +438,10 @@ void AppleDisplay::redraw40ColumnText(uint8_t startingY)
 	uint8_t d = *(cptr + y2);
 	for (uint8_t x2 = 0; x2 < 7; x2++) {
 	  if (d & 1) {
-	    uint8_t val = (invert ? c_black : textColor);
+	    uint8_t val = (invert ? c_black : c_white);
 	    drawApplePixel(val, col*7+x2, row*8+y2);
 	  } else {
-	    uint8_t val = (invert ? textColor : c_black);
+	    uint8_t val = (invert ? c_white : c_black);
 	    drawApplePixel(val, col*7+x2, row*8+y2);
 	  }
 	  d >>= 1;
@@ -646,7 +606,6 @@ void AppleDisplay::didRedraw()
 
 void AppleDisplay::displayTypeChanged()
 {
-  textColor = g_displayType == m_monochrome?c_green:c_white;
   modeChange();
 }
 

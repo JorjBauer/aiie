@@ -4,8 +4,10 @@
 #include <Arduino.h>
 #include "physicaldisplay.h"
 
-#define TEENSY_DHEIGHT 240
-#define TEENSY_DWIDTH 320
+#define TEENSY_DHEIGHT 192
+#define TEENSY_DWIDTH 280
+// run length of one row of pixels
+#define TEENSY_DRUN (TEENSY_DWIDTH/2)
 
 #define regtype volatile uint8_t
 #define regsize uint8_t
@@ -41,6 +43,10 @@ class TeensyDisplay : public PhysicalDisplay {
 
   virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint8_t sizey, uint16_t wherex, uint8_t wherey);
 
+  virtual void cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color);
+  virtual void cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorA, uint8_t colorB);
+  virtual void cachePixel(uint16_t x, uint16_t y, uint8_t color);
+
  protected:
   void moveTo(uint16_t col, uint16_t row);
   void drawNextPixel(uint16_t color);
@@ -62,6 +68,7 @@ class TeensyDisplay : public PhysicalDisplay {
   virtual void drawPixel(uint16_t x, uint16_t y);
   virtual void drawPixel(uint16_t x, uint16_t y, uint16_t color);
   virtual void drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b);
+  virtual void drawUIPixel(uint16_t x, uint16_t y, uint16_t color);
 
   inline void LCD_Writ_Bus(uint8_t VH,uint8_t VL) __attribute__((always_inline));
   inline void LCD_Write_COM(uint8_t VL) __attribute__((always_inline));
@@ -72,6 +79,9 @@ class TeensyDisplay : public PhysicalDisplay {
   bool needsRedraw;
   bool driveIndicator[2];
   bool driveIndicatorDirty;
+
+  // video buffer is 4bpp
+  uint8_t videoBuffer[TEENSY_DHEIGHT * TEENSY_DWIDTH / 2];
 };
 
 #endif

@@ -28,11 +28,20 @@ class SDLDisplay : public PhysicalDisplay {
   virtual void drawPixel(uint16_t x, uint16_t y, uint16_t color);
   virtual void drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b);
 
+  virtual void drawUIPixel(uint16_t x, uint16_t y, uint16_t color);
+
   virtual void drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c);
   virtual void drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str);
   virtual void clrScr();
 
+  virtual void cachePixel(uint16_t x, uint16_t y, uint8_t color);
+  virtual void cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color);
+  virtual void cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorA, uint8_t colorB);
+
+
  private:
+  uint8_t videoBuffer[SDLDISPLAY_HEIGHT * SDLDISPLAY_WIDTH];
+
   SDL_Window *screen;
   SDL_Renderer *renderer;
 };

@@ -6,6 +6,119 @@
 
 class MMU;
 
+enum addrmode {
+  A_ILLEGAL,
+  A_IMM,
+  A_ABS,
+  A_ZER,
+  A_IMP,
+  A_ACC,
+  A_REL,
+  A_ABI,
+  A_ZEX,
+  A_ZEY,
+  A_ZIND,
+  A_ABX,
+  A_ABXI,
+  A_ABY,
+  A_INX,
+  A_INY,
+  A_ZPREL
+};
+
+enum optype { 
+  O_ILLEGAL,
+  O_ADC,
+  O_AND,
+  O_ASL,
+  O_ASL_ACC,
+  O_BCC,
+  O_BCS,
+  O_BEQ,
+  O_BIT,
+  O_BMI,
+  O_BNE,
+  O_BPL,
+  O_BRA,
+  O_BRK,
+  O_BVC,
+  O_BVS,
+  O_CLC,
+  O_CLD,
+  O_CLI,
+  O_CLV,
+  O_CMP,
+  O_CPX,
+  O_CPY,
+  O_DEC,
+  O_DEC_ACC,
+  O_DEX,
+  O_DEY,
+  O_EOR,
+  O_INC,
+  O_INC_ACC,
+  O_INX,
+  O_INY,
+  O_JMP,
+  O_JSR,
+  O_LDA,
+  O_LDX,
+  O_LDY,
+  O_LSR,
+  O_LSR_ACC,
+  O_NOP,
+  O_ORA,
+  O_PHA,
+  O_PHP,
+  O_PHX,
+  O_PHY,
+  O_PLA,
+  O_PLP,
+  O_PLX,
+  O_PLY,
+  O_ROL,
+  O_ROL_ACC,
+  O_ROR,
+  O_ROR_ACC,
+  O_RTI,
+  O_RTS,
+  O_SBC,
+  O_SEC,
+  O_SED,
+  O_SEI,
+  O_STA,
+  O_STX,
+  O_STY,
+  O_STZ,
+  O_TAX,
+  O_TAY,
+  O_TRB,
+  O_TSB,
+  O_TSX,
+  O_TXA,
+  O_TXS,
+  O_TYA,
+
+  O_BBR,
+  O_BBS,
+  O_RMB,
+  O_SMB,
+  
+  O_WAI,
+
+  // and the "illegal" opcodes (those that don't officially exist for
+  // the 65c02, but have repeatable results)
+  O_DCP
+};
+
+typedef struct {
+  optype op;
+  addrmode mode;
+  uint8_t cycles;
+} optype_t;
+
+extern optype_t opcodes[256];
+
 // Flags (P) register bit definitions.
 // Negative
 #define F_N (1<<7)

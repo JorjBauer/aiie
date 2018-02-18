@@ -9,6 +9,11 @@
 
 AppleUI::AppleUI()
 {
+  redrawFrame = false;
+  redrawDriveLatches = false;
+  redrawDriveActivity = false;
+  driveInserted[0] = driveInserted[1] = 0;
+  driveActivity[0] = driveActivity[1] = 0;
 }
 
 AppleUI::~AppleUI()
@@ -20,58 +25,21 @@ void AppleUI::drawStaticUIElement(uint8_t element)
   // Only one static UI element right now...
   if (element != UIeOverlay)
     return;
-
-  g_display->drawImageOfSizeAt(displayBitmap, DBITMAP_WIDTH, DBITMAP_HEIGHT, 0, 0);
+  redrawFrame = true;
 }
 
 void AppleUI::drawOnOffUIElement(uint8_t element, bool state)
 {
-  uint16_t xoff = 55;
-  uint8_t yoff = 216;
-  uint16_t xsize;
-  uint8_t ysize;
-  const uint8_t *img;
-
-  switch (element) {
-  case UIeDisk1_state:
-    xoff = 55;
-    yoff = 216;
-    xsize = 43;
-    ysize = 20;
-    img = state ? driveLatchOpen : driveLatch;
-    break;
-  case UIeDisk2_state:
-    xoff = 55+134;
-    yoff = 216;
-    xsize = 43;
-    ysize = 20;
-    img = state ? driveLatchOpen : driveLatch;
-  break;
-  case UIeDisk1_activity:
-  case UIeDisk2_activity:
-    {
-      uint16_t xoff = 125;
-      uint16_t yoff = 213;
-      if (element == UIeDisk2_activity)
-	xoff += 135;
-      for (int x=0; x<6; x++) {
-	// Can't draw this from inside the interrupt; might already be
-	// drawing the screen from outside the interrupt. Temporary
-	// hack - remove this completely; FIXME: update diskii.cpp to
-	// queue it somehow, for drawing in a maintenance function, to
-	// be called from the main thread and not the interrupt
-
-	//	g_display->drawPixel(x + xoff, yoff, state ? 0xF800 : 0x8AA9);
-	//	g_display->drawPixel(x + xoff, yoff + 1, state ? 0xF800 : 0x8AA9);
-      }
-    }
-
-    return;
-  default:
-    return;
+  if (element == UIeDisk1_state ||
+      element == UIeDisk2_state) {
+    driveInserted[element-UIeDisk1_state] = state;
+    redrawDriveLatches = true;
   }
-
-  g_display->drawImageOfSizeAt(img, xsize, ysize, xoff, yoff);
+  else if (element == UIeDisk1_activity ||
+	   element == UIeDisk2_activity) {
+    driveActivity[element-UIeDisk1_activity] = state;
+    redrawDriveActivity = true;
+  }
 }
 
 void AppleUI::drawPercentageUIElement(uint8_t element, uint8_t percent)
@@ -80,12 +48,13 @@ void AppleUI::drawPercentageUIElement(uint8_t element, uint8_t percent)
   if (element != UIePowerPercentage) {
     return;
   }
-  drawBatteryStatus(percent);
+  // Temporarily disabled; the API for this needs updating for resolution-independent display coordinates
+  //  drawBatteryStatus(percent);
 }
 
 void AppleUI::drawBatteryStatus(uint8_t percent)
 {
-  uint16_t xoff = 301;
+  uint16_t xoff = 301*2;
   uint16_t yoff = 222;
   
   // the area around the apple is 12 wide; it's exactly 11 high the
@@ -127,6 +96,48 @@ void AppleUI::drawBatteryStatus(uint8_t percent)
       g_display->drawPixel(x+xoff, y+yoff, r, g, b);
     }
   }
+}
+
+void AppleUI::blit()
+{
+  if (redrawFrame) {
+    redrawFrame = false;
+    g_display->drawImageOfSizeAt(displayBitmap, DBITMAP_WIDTH, DBITMAP_HEIGHT, 0, 0);
+  }
+
+  if (redrawDriveLatches) {
+    redrawDriveLatches = false;
+    uint16_t xoff = 55;
+    uint8_t yoff = 216;
+    uint16_t xsize;
+    uint8_t ysize;
+    const uint8_t *img;
+
+    xsize = 43;
+    ysize = 20;
+    img = driveInserted[0] ? driveLatchOpen : driveLatch;
+    g_display->drawImageOfSizeAt(img, xsize, ysize, xoff, yoff);
+
+    xoff += 134;
+    img = driveInserted[1] ? driveLatchOpen : driveLatch;
+    g_display->drawImageOfSizeAt(img, xsize, ysize, xoff, yoff);
+  }
+
+  if (redrawDriveActivity) {
+    redrawDriveActivity = false;
+
+    uint16_t xoff = 125;
+    uint8_t yoff = 213;
+
+    for (int x=0; x<6; x++) {
+      g_display->drawUIPixel(x + xoff, yoff, driveActivity[0] ? 0xF800 : 0x8AA9);
+      g_display->drawUIPixel(x + xoff, yoff + 1, driveActivity[0] ? 0xF800 : 0x8AA9);
+
+      g_display->drawUIPixel(x + xoff + 135, yoff, driveActivity[1] ? 0xF800 : 0x8AA9);
+      g_display->drawUIPixel(x + xoff + 135, yoff + 1, driveActivity[1] ? 0xF800 : 0x8AA9);
+    }
+  }
+
 }
 
 

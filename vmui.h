@@ -32,6 +32,8 @@ class VMui
   virtual void drawStaticUIElement(uint8_t element) = 0;
   virtual void drawOnOffUIElement(uint8_t element, bool state) = 0; // on or off
   virtual void drawPercentageUIElement(uint8_t element, uint8_t percent) = 0; // 0-100
+
+  virtual void blit() = 0; // perform any drawing
 };
 
 #endif

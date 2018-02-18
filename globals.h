@@ -1,3 +1,6 @@
+#ifndef __GLOBALS_H
+#define __GLOBALS_H
+
 #include <stdint.h>
 
 #include "filemanager.h"
@@ -40,7 +43,7 @@ extern PhysicalSpeaker *g_speaker;
 extern PhysicalPaddles *g_paddles;
 extern PhysicalPrinter *g_printer;
 extern VMui *g_ui;
-extern int16_t g_volume;
+extern int8_t g_volume;
 extern uint8_t g_displayType;
 extern VMRam g_ram;
 extern volatile bool g_inInterrupt;
@@ -48,3 +51,5 @@ extern volatile uint8_t g_debugMode;
 extern bool g_prioritizeDisplay;
 extern volatile bool g_biosInterrupt;
 extern uint32_t g_speed;
+
+#endif

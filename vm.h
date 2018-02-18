@@ -10,7 +10,6 @@
 
 #define DISPLAYWIDTH 320
 #define DISPLAYHEIGHT 240
-#define DISPLAYRUN 320 // how wide each row is in pixels in the buffer (for faster math)
 
 class VM {
  public:
@@ -27,8 +26,6 @@ class VM {
   virtual void Reset() = 0;
 
   virtual void triggerPaddleInCycles(uint8_t paddleNum, uint16_t cycleCount) = 0;
-
-  uint8_t videoBuffer[DISPLAYRUN * DISPLAYHEIGHT / 2];
 
   VMDisplay *vmdisplay;
   MMU *mmu;

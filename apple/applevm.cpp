@@ -14,7 +14,7 @@ const char *suspendHdr = "Sus1";
 AppleVM::AppleVM()
 {
   // FIXME: all this typecasting makes me knife-stabby
-  vmdisplay = new AppleDisplay(videoBuffer);
+  vmdisplay = new AppleDisplay();
   mmu = new AppleMMU((AppleDisplay *)vmdisplay);
   vmdisplay->SetMMU((AppleMMU *)mmu);
 

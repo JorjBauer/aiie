@@ -13,6 +13,8 @@
 #include "sdl-printer.h"
 #include "appleui.h"
 #include "bios.h"
+#include "nix-prefs.h"
+#include "debugger.h"
 
 #include "globals.h"
 
@@ -20,10 +22,11 @@
 
 //#define SHOWFPS
 //#define SHOWPC
-//#define DEBUGCPU
+#define DEBUGCPU
 //#define SHOWMEMPAGE
 
 BIOS bios;
+Debugger debugger;
 
 static struct timespec nextInstructionTime, startTime;
 
@@ -40,7 +43,11 @@ char disk2name[256] = "\0";
 volatile bool wantSuspend = false;
 volatile bool wantResume = false;
 
+volatile bool cpuDebuggerRunning = false;
+
 void doDebugging();
+void readPrefs();
+void writePrefs();
 
 void sigint_handler(int n)
 {
@@ -172,23 +179,12 @@ static void *cpu_thread(void *dummyptr) {
       ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
 
 #ifdef DEBUGCPU
-      {
-	uint8_t p = g_cpu->flags;
-	printf("OP: $%02x A: %02x  X: %02x  Y: %02x  PC: $%04x  SP: %02x  Flags: %c%cx%c%c%c%c%c\n",
-	       g_vm->getMMU()->read(g_cpu->pc),
-	       g_cpu->a, g_cpu->x, g_cpu->y, g_cpu->pc, g_cpu->sp,
-	       p & (1<<7) ? 'N':' ',
-	       p & (1<<6) ? 'V':' ',
-	       p & (1<<4) ? 'B':' ',
-	       p & (1<<3) ? 'D':' ',
-	       p & (1<<2) ? 'I':' ',
-	       p & (1<<1) ? 'Z':' ',
-	       p & (1<<0) ? 'C':' '
-	       );
-      }
+      debugger.step();
 #endif
       
       if (send_rst) {
+	cpuDebuggerRunning = true;
+
 #if 0
 	printf("Scheduling suspend request...\n");
 	wantSuspend = true;
@@ -320,6 +316,9 @@ int main(int argc, char *argv[])
   //  g_display->blit();
   g_display->redraw();
 
+  /* Load prefs & reset globals appropriately now */
+  readPrefs();
+
   if (argc >= 2) {
     printf("Inserting disk %s\n", argv[1]);
     ((AppleVM *)g_vm)->insertDisk(0, argv[1]);
@@ -350,7 +349,7 @@ int main(int argc, char *argv[])
       printf("Invoking BIOS\n");
       if (bios.runUntilDone()) {
 	// if it returned true, we have something to store persistently in EEPROM.
-	//	writePrefs();
+	writePrefs();
       }
       printf("BIOS done\n");
       
@@ -384,8 +383,6 @@ int main(int argc, char *argv[])
     // fill disk buffer when needed
     ((AppleVM*)g_vm)->disk6->fillDiskBuffer();
 
-    // Make this a little friendlier, and the expense of some framerate?
-    // usleep(10000);
     if (g_vm->vmdisplay->needsRedraw()) {
       AiieRect what = g_vm->vmdisplay->getDirtyRect();
       // make sure to clear the flag before drawing; there's no lock
@@ -393,6 +390,7 @@ int main(int argc, char *argv[])
       g_vm->vmdisplay->didRedraw();
       g_display->blit(what);
     }
+    g_ui->blit();
 
     g_printer->update();
     g_keyboard->maintainKeyboard();
@@ -503,4 +501,58 @@ void doDebugging()
     //    g_display->debugMsg(buf);
     break;*/
   }
+}
+
+void readPrefs()
+{
+  NixPrefs np;
+  prefs_t p;
+  if (np.readPrefs(&p)) {
+    g_volume = p.volume;
+    g_displayType = p.displayType;
+    g_debugMode = p.debug;
+    g_prioritizeDisplay = p.priorityMode;
+    g_speed = (p.speed * (1023000/2)); // steps of half normal speed
+    if (g_speed < (1023000/2))
+      g_speed = (1023000/2);
+    if (p.disk1[0]) {
+      ((AppleVM *)g_vm)->insertDisk(0, p.disk1);
+      strcpy(disk1name, p.disk1);
+    }
+    if (p.disk2[0]) {
+      ((AppleVM *)g_vm)->insertDisk(1, p.disk2);
+      strcpy(disk2name, p.disk2);
+    }
+
+    if (p.hd1[0]) {
+      ((AppleVM *)g_vm)->insertHD(0, p.hd1);
+    }
+
+    if (p.hd2[0]) {
+      ((AppleVM *)g_vm)->insertHD(1, p.hd2);
+    }
+  }
+}
+
+void writePrefs()
+{
+  NixPrefs np;
+  prefs_t p;
+  
+  p.magic = PREFSMAGIC;
+  p.prefsSize = sizeof(prefs_t);
+  p.version = PREFSVERSION;
+
+  p.volume = g_volume;
+  p.displayType = g_displayType;
+  p.debug = g_debugMode;
+  p.priorityMode = g_prioritizeDisplay;
+  p.speed = g_speed / (1023000/2);
+  strcpy(p.disk1, ((AppleVM *)g_vm)->DiskName(0));
+  strcpy(p.disk2, ((AppleVM *)g_vm)->DiskName(1));
+  strcpy(p.hd1, ((AppleVM *)g_vm)->HDName(0));
+  strcpy(p.hd2, ((AppleVM *)g_vm)->HDName(1));
+
+  bool ret = np.writePrefs(&p);
+  printf("writePrefs returns %s\n", ret ? "true" : "false");
 }
