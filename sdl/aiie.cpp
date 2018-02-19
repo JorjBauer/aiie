@@ -22,7 +22,7 @@
 
 //#define SHOWFPS
 //#define SHOWPC
-#define DEBUGCPU
+//#define DEBUGCPU
 //#define SHOWMEMPAGE
 
 BIOS bios;
