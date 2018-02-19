@@ -4,7 +4,6 @@
 #include <stdlib.h>
 
 #include <SDL.h>
-#include <SDL_mutex.h>
 #include <SDL_events.h>
 
 #include "physicaldisplay.h"
