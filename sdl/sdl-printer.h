@@ -28,13 +28,18 @@ class SDLPrinter : public PhysicalPrinter {
 
   virtual void moveDownPixels(uint8_t p);
 
+  void savePageAsBitmap(uint32_t pageno);
+
  private:
   bool isDirty;
   uint16_t ypos;
 
   SDL_Window *window;
   SDL_Renderer *renderer;
-  bool _hackyBitmap[WIDTH * HEIGHT];
+  volatile uint8_t _hackyBitmap[WIDTH * HEIGHT];
+
+  SDL_mutex *printerMutex;
+  uint32_t currentPageNumber;
 };
 
 #endif

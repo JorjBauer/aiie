@@ -1,4 +1,5 @@
 #include "sdl-printer.h"
+#include <stdio.h>
 
 #define WINDOWNAME "printer"
 
@@ -19,15 +20,25 @@ SDLPrinter::SDLPrinter()
 
   window = NULL;
   renderer = NULL;
+
+  printerMutex = SDL_CreateMutex();
+  currentPageNumber = 0;
 }
 
 SDLPrinter::~SDLPrinter()
 {
+  SDL_DestroyMutex(printerMutex);
 }
 
 void SDLPrinter::update()
 {
   if (isDirty) {
+    // If SDL_TryLockMutex returns 0, then it locked the mutex and
+    // we'll continue. Otherwise, assume we're drawing something
+    // complicated and don't gum up the works...
+    if (SDL_TryLockMutex(printerMutex))
+      return;
+
     isDirty = false; // set early in case there's a race
 
     if (!window) {
@@ -50,6 +61,7 @@ void SDLPrinter::update()
 	SDL_RenderDrawPoint(renderer, x, y);
       }
     }
+    SDL_UnlockMutex(printerMutex);
 
     SDL_RenderPresent(renderer);
   }
@@ -57,6 +69,7 @@ void SDLPrinter::update()
 
 void SDLPrinter::addLine(uint8_t *rowOfBits)
 {
+  SDL_LockMutex(printerMutex);
   for (int yoff=0; yoff<9; yoff++) {
     // 960 pixels == 120 bytes -- FIXME
     for (int i=0; i<(NATIVEWIDTH/8); i++) {
@@ -76,16 +89,56 @@ void SDLPrinter::addLine(uint8_t *rowOfBits)
   }
 
   isDirty = true;
+  SDL_UnlockMutex(printerMutex);
 }
 
 void SDLPrinter::moveDownPixels(uint8_t p)
 {
+  SDL_LockMutex(printerMutex);
   ypos+= p;
   if (ypos >= HEIGHT) {
+    savePageAsBitmap(++currentPageNumber);
+
     // clear page & restart
     SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
     SDL_RenderClear(renderer);
+
+    
+    for (int y=0; y<HEIGHT; y++) {
+      for (int x=0; x<WIDTH; x++) {
+	_hackyBitmap[y*WIDTH+x] = 0;
+      }
+    }
+
     isDirty = true;
     ypos = 0;
   }
+  SDL_UnlockMutex(printerMutex);
 }
+
+void SDLPrinter::savePageAsBitmap(uint32_t pageno)
+{
+  SDL_Surface* saveSurface = NULL;
+
+  char buf[255];
+  sprintf(buf, "page-%d.bmp", pageno);
+
+  saveSurface = SDL_CreateRGBSurfaceFrom((void *)_hackyBitmap, 
+					 WIDTH,
+					 HEIGHT,
+					 8, // bpp
+					 WIDTH * 1, // bytes per row
+
+					 0xE0, // rmask
+					 0x1C, // gmask
+					 0x03, // bmask
+					 0x00  // amask
+					 );
+  if (saveSurface) {
+    SDL_SaveBMP(saveSurface, buf);
+    SDL_FreeSurface(saveSurface);
+  } else {
+    printf("Failed to create saveSurface\n");
+  }
+}
+
