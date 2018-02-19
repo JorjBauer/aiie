@@ -32,6 +32,7 @@ void Fx80::Reset()
 {
   charsetEnabled = CS_USA;
   fontMode = FM_Pica;
+  fontMode |= FM_Emphasized;
 
   clearLine();
   escapeMode = false;
