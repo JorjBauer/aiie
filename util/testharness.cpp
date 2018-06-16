@@ -103,7 +103,7 @@ int main(int argc, char *argv[])
       // end of the decimal mode tests
       int result = mmu.read(0x0b);
       printf("Test complete. Result: %s\n", result ? "failed" : "passed");
-      exit(1);
+      exit(result);
     }
 
     cpu.Run(1);
