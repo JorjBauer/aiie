@@ -22,7 +22,6 @@
 
 //#define SHOWFPS
 //#define SHOWPC
-//#define DEBUGCPU
 //#define SHOWMEMPAGE
 
 BIOS bios;
@@ -51,7 +50,8 @@ void writePrefs();
 
 void sigint_handler(int n)
 {
-  send_rst = 1;
+  // If we want control-C to reset the machine, then set this here...
+  //  send_rst = 1;
 }
 
 void nonblock(int state)
@@ -91,7 +91,7 @@ void write(void *arg, uint16_t address, uint8_t v)
 
 static void *cpu_thread(void *dummyptr) {
   struct timespec currentTime;
-  struct timespec nextCycleTime;
+  struct timespec nextSpeakerCycleTime;
   uint32_t nextSpeakerCycle = 0;
 
 #if 0
@@ -108,6 +108,12 @@ static void *cpu_thread(void *dummyptr) {
   do_gettime(&nextInstructionTime);
 
   printf("free-running\n");
+
+  // In this loop, we determine when the next CPU or Speaker event is;
+  // sleep until that event; and then perform the event. There are a
+  // number of maintenance tasks that also happen to be sure that
+  // peripherals are updated appropriately.
+
   while (1) {
     if (g_biosInterrupt) {
       printf("BIOS blocking\n");
@@ -134,117 +140,82 @@ static void *cpu_thread(void *dummyptr) {
 
     do_gettime(&currentTime);
 
-    /* The speaker is our priority. The CPU runs in batches anyway,
-       sometimes a little behind and sometimes a little ahead; but the
-       speaker has to be right on time. */
+    // FIXME: these first two can go in their respective loops after execution
 
-    // Wait until nextSpeakerCycle
-    timespec_add_cycles(&startTime, nextSpeakerCycle, &nextCycleTime);
+    // Determine the next speaker runtime (nextSpeakerCycle).
+    // The speaker runs 48 cycles behind the CPU (an arbitrary number).
+    timespec_add_cycles(&startTime, nextSpeakerCycle-48, &nextSpeakerCycleTime);
 
-    struct timespec diff = tsSubtract(nextCycleTime, currentTime);
-    if (diff.tv_sec >= 0 || diff.tv_nsec >= 0) {
-      nanosleep(&diff, NULL);
+    // Determine the next CPU runtime (nextInstructionTime)
+    timespec_add_cycles(&startTime, g_cpu->cycles, &nextInstructionTime);
+
+    // Sleep until one of them is ready to run.
+
+    // tsSubtract doesn't return negatives; it bounds at zero. So if
+    // either result is zero then it's time to run something.
+
+    struct timespec cpudiff = tsSubtract(nextInstructionTime, currentTime);
+    struct timespec spkrdiff = tsSubtract(nextSpeakerCycleTime, currentTime);
+
+    struct timespec mindiff;
+    if (cpudiff.tv_sec < spkrdiff.tv_sec) {
+      memcpy(&mindiff, &cpudiff, sizeof(struct timespec));
+    } else if (spkrdiff.tv_sec < cpudiff.tv_sec) {
+      memcpy(&mindiff, &spkrdiff, sizeof(struct timespec));
+    } else if (cpudiff.tv_nsec < spkrdiff.tv_nsec) {
+      memcpy(&mindiff, &cpudiff, sizeof(struct timespec));
+    } else {
+      memcpy(&mindiff, &spkrdiff, sizeof(struct timespec));
+    }
+    
+    if (mindiff.tv_sec > 0 || mindiff.tv_nsec > 0) {
+      // Sleep until the first of them is ready & loop...
+      nanosleep(&mindiff, NULL);
+      continue;
     }
 
-    // Speaker runs 48 cycles behind the CPU (an arbitrary number)
-    if (nextSpeakerCycle >= 48) {
-      timespec_add_cycles(&startTime, nextSpeakerCycle-48, &nextCycleTime);
-      uint64_t microseconds = nextCycleTime.tv_sec * 1000000 +
-	(double)nextCycleTime.tv_nsec / 1000.0;
+    // Now we know either the speaker or the CPU is ready to
+    // run. Figure out which and run it.
+
+    if (spkrdiff.tv_sec == 0 && spkrdiff.tv_nsec == 0) {
+      // Run the speaker
+      
+      uint64_t microseconds = nextSpeakerCycleTime.tv_sec * 1000000 +
+        (double)nextSpeakerCycleTime.tv_nsec / 1000.0;
       g_speaker->maintainSpeaker(nextSpeakerCycle-48, microseconds);
+
+      nextSpeakerCycle++;
     }
 
-    // Bump speaker cycle for next go-round
-    nextSpeakerCycle++;
+    if (cpudiff.tv_sec == 0 && cpudiff.tv_nsec == 0) {
+      // Run the CPU
 
-
-    /* Next up is the CPU. */
-
-    // tsSubtract doesn't return negatives; it bounds at 0.
-    diff = tsSubtract(nextInstructionTime, currentTime);
-
-    uint8_t executed = 0;
-    if (diff.tv_sec == 0 && diff.tv_nsec == 0) {
-#ifdef DEBUGCPU
-      executed = g_cpu->Run(1);
-#else
-      executed = g_cpu->Run(24);
-#endif
-      // calculate the real time that we should be at now, and schedule
-      // that as our next instruction time
-      timespec_add_cycles(&startTime, g_cpu->cycles, &nextInstructionTime);
+      uint8_t executed = 0;
+      if (debugger.active()) {
+	// With the debugger running, we need to single-step through
+	// instructions.
+	executed = g_cpu->Run(1);
+      } else {
+	// Otherwise we can run a bunch of instructions at once to
+	// save on the overhead.
+	executed = g_cpu->Run(24);
+      }
 
       // The paddles need to be triggered in real-time on the CPU
       // clock. That happens from the VM's CPU maintenance poller.
       ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
 
-#ifdef DEBUGCPU
-      debugger.step();
-#endif
-      
+      if (debugger.active()) {
+	debugger.step();
+      }
+
       if (send_rst) {
 	cpuDebuggerRunning = true;
-
-#if 0
-	printf("Scheduling suspend request...\n");
-	wantSuspend = true;
-#endif
-#if 0
-	printf("Scheduling resume resume request...\n");
-	wantResume = true;
-#endif
 	
-#if 0
 	printf("Sending reset\n");
 	g_cpu->Reset();
 	
-	// testing startup keyboard presses - perform Apple //e self-test
-	//g_vm->getKeyboard()->keyDepressed(RA);
-	//g_vm->Reset();
-	//g_cpu->Reset();
-	//((AppleVM *)g_vm)->insertDisk(0, "disks/DIAGS.DSK");
-#endif
-	
-#if 0
-	// Swap disks
-	if (disk1name[0] && disk2name[0]) {
-	  printf("Swapping disks\n");
-	  
-	  printf("Inserting disk %s in drive 1\n", disk2name);
-	  ((AppleVM *)g_vm)->insertDisk(0, disk2name);
-	  printf("Inserting disk %s in drive 2\n", disk1name);
-	  ((AppleVM *)g_vm)->insertDisk(1, disk1name);
-	}
-#endif
-	
-#if 0
-	MMU *mmu = g_vm->getMMU();
-	
-	printf("PC: 0x%X\n", g_cpu->pc);
-	for (int i=g_cpu->pc; i<g_cpu->pc + 0x100; i++) {
-	  printf("0x%X ", mmu->read(i));
-	}
-	printf("\n");
-	
-	printf("Dropping to monitor\n");
-	// drop directly to monitor.
-	g_cpu->pc = 0xff69; // "call -151"
-	mmu->read(0xC054); // make sure we're in page 1
-	mmu->read(0xC056); // and that hires is off
-	mmu->read(0xC051); // and text mode is on
-	mmu->read(0xC08A); // and we have proper rom in place
-	mmu->read(0xc008); // main zero-page
-	mmu->read(0xc006); // rom from cards
-	mmu->write(0xc002 +  mmu->read(0xc014)? 1 : 0, 0xff); // make sure aux ram read and write match
-	mmu->write(0x20, 0); // text window
-	mmu->write(0x21, 40);
-	mmu->write(0x22, 0);
-	mmu->write(0x23, 24);
-	mmu->write(0x33, '>');
-	mmu->write(0x48, 0);  // from 0xfb2f: part of text init
-#endif
-	  
-	  send_rst = 0;
+	send_rst = 0;
       }
     }
   }
@@ -252,34 +223,6 @@ static void *cpu_thread(void *dummyptr) {
 
 int main(int argc, char *argv[])
 {
-#if 0
-  // Timing consistency check
-
-  sleep(2); // kinda random, hopefully sloppy? - to make startTime != 0,0
-  printf("starting time consistency check\n");
-  do_gettime(&startTime);
-  for (int i=0; i<10000000; i++) {
-
-    // Calculate the time delta from startTime to cycle # i
-    timespec_add_cycles(&startTime, i, &nextInstructionTime);
-
-    // Recalculate the time difference between nextInstructionTime and startTime
-    struct timespec runtime = tsSubtract(nextInstructionTime, startTime);
-
-    // See if it's the same as cycles_since_time
-    double guesstimate = cycles_since_time(&runtime);
-    printf("cycle %d guesstimate %f\n", i, guesstimate);
-    if (guesstimate != i) {
-      printf("FAILED: cycle %d has guesstimate %f\n", i, guesstimate);
-      exit(1);
-    }
-  }
-
-  printf("All ok\n");
-
-  exit(1);
-#endif
-
   SDL_Init(SDL_INIT_EVERYTHING);
 
   g_speaker = new SDLSpeaker();
@@ -344,7 +287,9 @@ int main(int argc, char *argv[])
     //    pthread_setschedparam(cpuThreadID, SCHED_RR, PTHREAD_MAX_PRIORITY);
   }
 
+  uint32_t lastCycleCount = -1;
   while (1) {
+
     if (g_biosInterrupt) {
       printf("Invoking BIOS\n");
       if (bios.runUntilDone()) {
@@ -378,7 +323,7 @@ int main(int argc, char *argv[])
     }
 
 
-    static uint32_t usleepcycles = 16384; // step-down for display drawing. Dynamically updated based on FPS calculations.
+    static uint32_t usleepcycles = 16384*4; // step-down for display drawing. Dynamically updated based on FPS calculations.
 
     // fill disk buffer when needed
     ((AppleVM*)g_vm)->disk6->fillDiskBuffer();
@@ -413,9 +358,9 @@ int main(int argc, char *argv[])
       g_display->debugMsg(buf);
 #endif
 
-      if (fps > 60) {
+      if (fps > 30 && usleepcycles < 0x3FFFFFFF) {
 	usleepcycles *= 2;
-      } else if (fps < 40) {
+      } else if (fps < 20 && usleepcycles > 0xF) {
 	usleepcycles /= 2;
       }
 
@@ -451,6 +396,15 @@ int main(int argc, char *argv[])
 
 #endif
 
+    if (g_cpu->cycles == lastCycleCount) {
+      // If the CPU didn't advance during our last loop, then delay
+      // here; there can't be any substantial updates, so no need to
+      // beat up the host machine
+
+      usleep(100000);
+    } else {
+      lastCycleCount = g_cpu->cycles;
+    }
 
   }
 }

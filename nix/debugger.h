@@ -2,6 +2,7 @@
 #define __DEBUGGER_H
 
 #include <pthread.h>
+#include <inttypes.h>
 
 class Debugger {
  public:
@@ -10,12 +11,14 @@ class Debugger {
 
   void setSocket(int cliSock);
   void step();
+  bool active();
 
   // private:
   int sd; // server (listener)
   int cd; // client (connected to us)
   pthread_t listenThreadID;
 
+  uint32_t breakpoint;
 };
 
 

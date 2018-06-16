@@ -40,6 +40,7 @@ Debugger::Debugger()
 
   sd = socket(AF_INET, SOCK_STREAM, 0);
   cd = -1;
+  breakpoint = 0;
 
   optval=1;
   setsockopt(sd, SOL_SOCKET, SO_REUSEADDR,
@@ -72,29 +73,6 @@ void Debugger::step()
   static char buf[256];
 
   if (cd != -1) {
-    bzero(buf,256);
-    int n = read( cd,buf,255 );
-
-    if (n < 0) {
-      // error
-      close(cd);
-      cd = -1;
-      return;
-    }
-    
-    if (n > 0) {
-      if (buf[0] == 'c') {
-	// Continue - close connection
-	close(cd);
-	return;
-      }
-      // ... ?
-      //   b - set breakpoint
-      //   s - step over
-      //   S - step out
-      //   c - continue (close connection)
-      //   d - disassemble @ current PC
-    }
 
     // Print the status back out the socket
     uint8_t p = g_cpu->flags;
@@ -124,11 +102,70 @@ void Debugger::step()
       buf[1] = 10;
       write(cd, buf, 2);
     }
+
+
+    if (breakpoint && g_cpu->pc != breakpoint) {
+      // Running until we reach the breakpoint
+      return;
+    }
+
+    bzero(buf,256);
+    int n = read( cd,buf,255 );
+
+    if (n < 0) {
+      // error
+      close(cd);
+      cd = -1;
+      return;
+    }
+    
+    if (n > 0) {
+      if (buf[0] == 'c') {
+	// Continue - close connection
+	close(cd);
+	return;
+      }
+      if (buf[0] == 'b') {
+	// FIXME: set breakpoint
+	if (buf[1] == ' ' &&
+	    buf[2] == '0' &&
+	    buf[3] == 'x') {
+	  // Hex
+	  breakpoint = strtol(&buf[4], NULL, 16);
+	} else if (buf[1] == ' ' && 
+		   buf[2] == '$') {
+	  // Also hex
+	  breakpoint = strtol(&buf[3], NULL, 16);
+	} else if (sscanf(buf, "b %d", &breakpoint) == 1) {
+	  // decimal
+	} else {
+	  breakpoint = 0;
+	}
+	if (breakpoint) {
+	  snprintf(buf, sizeof(buf), "Breakpoint set to 0x%X\012\015", breakpoint);
+	  write(cd, buf, strlen(buf));
+	}
+      }
+
+      // ... ?
+      //   b - set breakpoint
+      //   s - step over
+      //   S - step out
+      //   c - continue (close connection)
+      //   d - disassemble @ current PC
+    }
+
   }
 }
 
 
 void Debugger::setSocket(int fd)
 {
+  printf("New debugger session established\n");
   cd = fd;
+}
+
+bool Debugger::active()
+{
+  return (cd != -1);
 }
