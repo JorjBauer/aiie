@@ -27,12 +27,13 @@ linuxfb: roms $(COMMONOBJS) $(FBOBJS)
 	g++ $(LDFLAGS) $(FBLIBS) -o aiie-fb $(COMMONOBJS) $(FBOBJS)
 
 clean:
-	rm -f *.o *~ */*.o */*~ testharness.basic testharness.verbose testharness.extended apple/diskii-rom.h apple/applemmu-rom.h apple/parallel-rom.h aiie-sdl
+	rm -f *.o *~ */*.o */*~ testharness.basic testharness.verbose testharness.extended testharness apple/diskii-rom.h apple/applemmu-rom.h apple/parallel-rom.h aiie-sdl
 
 test: $(TSRC)
-	g++ $(CXXFLAGS) -DEXIT_ON_ILLEGAL -DVERBOSE_CPU_ERRORS -DTESTHARNESS -DBASICTEST $(TSRC) -o testharness.basic
-	g++ $(CXXFLAGS) -DEXIT_ON_ILLEGAL -DVERBOSE_CPU_ERRORS -DTESTHARNESS -DVERBOSETEST $(TSRC) -o testharness.verbose
-	g++ $(CXXFLAGS) -DEXIT_ON_ILLEGAL -DVERBOSE_CPU_ERRORS -DTESTHARNESS -DEXTENDEDTEST $(TSRC) -o testharness.extended
+	g++ $(CXXFLAGS) -DEXIT_ON_ILLEGAL -DVERBOSE_CPU_ERRORS -DTESTHARNESS $(TSRC) -o testharness
+	./testharness -f tests/6502_functional_test_verbose.bin -s 0x400 && \
+	./testharness -f tests/65C02_extended_opcodes_test.bin -s 0x400 && \
+	./testharness -f tests/65c02-all.bin -s 0x200
 
 roms: apple2e.rom disk.rom parallel.rom HDDRVR.BIN
 	./util/genrom.pl apple2e.rom disk.rom parallel.rom HDDRVR.BIN
