@@ -741,7 +741,7 @@ uint8_t Cpu::step()
     break;
   case O_TAX:
     x = a;
-    SETNZA;
+    SETNZX; 
     break;
   case O_BPL:
     if (!(flags & F_N)) {
@@ -977,64 +977,95 @@ uint8_t Cpu::step()
     break;
   case O_SBC:
     {
-      uint8_t memTemp = readmem(param) ^ 0xFF;
+      uint8_t B = readmem(param) ^ 0xFF;
+      uint8_t Cin = (flags & F_C);
+      uint8_t Cout, Vout;
+      int16_t Aout;
 
-      int16_t c;
-      uint8_t v;
-      if (flags & F_D) {
-	cyclesThisStep++;
-	c = (a & 0x0F) + (memTemp & 0x0F) + (flags & F_C);
-	if (c < 0x10)
-	  c = (c - 0x06) & 0x0f;
-	c += (a & 0xf0) + (memTemp & 0xf0);
-	v = (c >> 1) ^ c;
-	if (c < 0x100)
-	  c = (c + 0xa0) & 0xff;
+      if ((flags & F_D) == 0) {
+	// Binary mode: same as ADC
+	Aout = a + B + Cin;
+	Vout = (a ^ Aout) & (B ^ Aout) & 0x80;
+	Cout = (Aout >= 0x100) ? 1 : 0;
+	a = Aout & 0xFF;
       } else {
-	c = a + memTemp + (flags & F_C);
-	v = (c ^ a) & 0x80;
+	// Decimal mode
+	cyclesThisStep++;
+
+	Aout = (a & 0x0F) + (B & 0x0F) + Cin;
+	if (Aout < 0x10) {
+	  Aout = (Aout - 0x06) & 0x0F;
+	}
+	Aout = Aout + (a & 0xF0) + (B & 0xF0);
+	Vout = (a ^ Aout) & (B ^ Aout) & 0x80;
+	if (Aout < 0x100) {
+	  Aout = (Aout + 0xa0) & 0xFF;
+	}
+	Cout = (Aout >= 0x100) ? 1 : 0;
+
+	B = readmem(param);
+	int8_t AL = (a & 0x0F) - (B & 0x0F) + (Cin - 1);
+	Aout = a - B + Cin - 1;
+	if (Aout < 0) {
+	  Aout = Aout - 0x60;
+	}
+	if (AL < 0) {
+	  Aout = Aout - 0x06;
+	}
+
+	a = Aout & 0xFF;
       }
 
-      if (((a ^ memTemp) & 0x80) != 0) {
-	v = 0;
-      }
-
-      FLAG(F_C, c > 0xFF);
-      FLAG(F_V, v);
-
-      a = c & 0xFF;
+      FLAG(F_C, Cout);
+      FLAG(F_V, Vout);
       SETNZA;
     }
     break;
 
   case O_ADC:
     {
-      uint8_t memTemp = readmem(param);
+      uint8_t B = readmem(param);
+      uint8_t Cin = (flags & F_C);
+      uint8_t Cout, Vout;
+      uint16_t Aout;
 
-      int16_t c;
-      uint8_t v;
-      if (flags & F_D) {
-	cyclesThisStep++;
-	c = (a & 0x0F) + (memTemp & 0x0F) + (flags & F_C);
-	if (c > 0x09)
-	  c = (c - 0x0a) | 0x10;
-	c += (a & 0xf0) + (memTemp & 0xf0);
-	v = (c >> 1) ^ c;
-	if (c > 0x99)
-	  c += 0x60;
+      if ((flags & F_D) == 0x00) {
+	// Simple binary mode
+	Aout = a + B + Cin;
+	Vout = (a ^ Aout) & (B ^ Aout) & 0x80;
+	Cout = (Aout >= 0x100) ? 1 : 0;
+	a = Aout & 0xFF;
       } else {
-	c = a + memTemp + (flags & F_C);
-	v = (c ^ a) & 0x80;
+	// Decimal mode
+	cyclesThisStep++;
+	Aout = (a & 0x0F) + (B & 0x0F) + Cin;
+	int tmpOverflow = 0;
+	if (Aout >= 0x0A) {
+	  tmpOverflow = 0x10;
+	  Aout = (Aout + 0x06) & 0x0F;
+	}
+	Aout = Aout | (a & 0xF0);
+	Aout = Aout + (B & 0xF0) + tmpOverflow;
+
+	Vout = 0;
+	if ( ((a ^ B) & 0x80) == 0) {
+	  if (((a ^ Aout) & 0x80)) {
+	    Vout = 1;
+	  }
+	}
+
+	if (Aout >= 0xA0) {
+	  Aout = Aout + 0x60;
+	  Cout = 1;
+	} else {
+	  Cout = 0;
+	}
+
+	a = Aout & 0xFF;
       }
 
-      if (((a ^ memTemp) & 0x80) != 0) {
-	v = 0;
-      }
-
-      FLAG(F_C, c > 0xFF);
-      FLAG(F_V, v);
-
-      a = c & 0xFF;
+      FLAG(F_C, Cout);
+      FLAG(F_V, Vout);
       SETNZA;
     }
     break;
