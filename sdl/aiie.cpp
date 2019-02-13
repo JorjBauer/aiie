@@ -280,6 +280,7 @@ int main(int argc, char *argv[])
   nonblock(NB_ENABLE);
 
   signal(SIGINT, sigint_handler);
+  signal(SIGPIPE, SIG_IGN); // debugger might have a SIGPIPE happen if the remote end drops
 
   printf("creating CPU thread\n");
   if (!pthread_create(&cpuThreadID, NULL, &cpu_thread, (void *)NULL)) {

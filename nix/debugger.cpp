@@ -68,12 +68,34 @@ Debugger::~Debugger()
 {
 }
 
+bool getAddress(const char *buf, unsigned int *addrOut)
+{
+  unsigned int val;
+  if (sscanf(buf, " 0x%X", &val) == 1) {
+    *addrOut = val;
+    return true;
+  } else if (sscanf(buf, " $%X", &val) == 1) {
+    *addrOut = val;
+    return true;
+  } else if (sscanf(buf, " %d", &val) == 1) {
+    *addrOut = val;
+    return true;
+  }
+  return false;
+}
+
+#define GETCH { if ((read(cd,&b,1)) == -1) { close(cd); cd=-1; return; } }
+
+#define GETLN {   int ptr=0;   while (((read(cd,&b,1)) != -1) && ptr < sizeof(buf) && b != 10 && b != 13) {   if (b) {buf[ptr++] = b;}   }   buf[ptr]=0; }
+
+#define HEXCHAR(x) ((x>='0'&&x<='9')?x-'0':(x>='a'&&x<='f')?x-'a'+10:(x>='A'&&x<='F')?x-'A'+10:(x=='i' || x=='I')?1:(x=='o' || x=='O')?0:0)
+#define FROMHEXP(p) ((HEXCHAR(*p) << 4) | HEXCHAR(*(p+1)))
+
 void Debugger::step()
 {
   static char buf[256];
 
   if (cd != -1) {
-
     // Print the status back out the socket
     uint8_t p = g_cpu->flags;
     snprintf(buf, sizeof(buf), "OP: $%02x A: %02x  X: %02x  Y: %02x  PC: $%04x  SP: %02x  Flags: %c%cx%c%c%c%c%c\n",
@@ -87,7 +109,11 @@ void Debugger::step()
 	   p & (1<<1) ? 'Z':' ',
 	   p & (1<<0) ? 'C':' '
 	   );
-    write(cd, buf, strlen(buf));
+    if (write(cd, buf, strlen(buf)) != strlen(buf)) {
+      close(cd);
+      cd=-1;
+      return;
+    }
 
     uint8_t cmdbuf[50];
 
@@ -109,43 +135,70 @@ void Debugger::step()
       return;
     }
 
-    bzero(buf,256);
-    int n = read( cd,buf,255 );
-
-    if (n < 0) {
-      // error
-      close(cd);
-      cd = -1;
-      return;
-    }
+    uint8_t b; // byte value used in parsing
+    unsigned int val; // common value buffer used in parsing
     
-    if (n > 0) {
-      if (buf[0] == 'c') {
-	// Continue - close connection
-	close(cd);
-	return;
+    GETCH;
+    snprintf(buf, sizeof(buf), "Got char %d\012\015", b);
+    write(cd, buf, strlen(buf));
+
+    switch (b) {
+    case 'c': // Continue - close connection and let execution flow
+      printf("Closing debugging socket\n");
+      close(cd); cd=-1;
+      break;
+    case 'b': // Set breakpoint
+      GETLN;
+      if (getAddress(buf, &val)) {
+	breakpoint = val;
+      } else {
+	breakpoint = 0;
       }
-      if (buf[0] == 'b') {
-	// FIXME: set breakpoint
-	if (buf[1] == ' ' &&
-	    buf[2] == '0' &&
-	    buf[3] == 'x') {
-	  // Hex
-	  breakpoint = strtol(&buf[4], NULL, 16);
-	} else if (buf[1] == ' ' && 
-		   buf[2] == '$') {
-	  // Also hex
-	  breakpoint = strtol(&buf[3], NULL, 16);
-	} else if (sscanf(buf, "b %d", &breakpoint) == 1) {
-	  // decimal
-	} else {
-	  breakpoint = 0;
-	}
-	if (breakpoint) {
-	  snprintf(buf, sizeof(buf), "Breakpoint set to 0x%X\012\015", breakpoint);
-	  write(cd, buf, strlen(buf));
+      if (breakpoint) {
+	snprintf(buf, sizeof(buf), "Breakpoint set to 0x%X\012\015", breakpoint);
+      } else {
+	snprintf(buf, sizeof(buf), "Breakpoint removed\012\015");
+      }
+      write(cd, buf, strlen(buf));
+      break;
+
+    case 'L': // Load data to memory. Use: "L 0x<address>\n" followed by lines of packed hex; ends with a blank line
+      {
+	printf("Loading data\n");
+	GETLN;
+	if (getAddress(buf, &val)) {
+	  printf("Load data address: 0x%X\n", val);
+	  uint16_t address = val;
+	  while (1) {
+	    GETLN;
+	    if (strlen(buf)==0)
+	      break;
+	    const char *p = buf;
+	    while (*p && *(p+1)) {
+	      val = FROMHEXP(p);
+	      printf("0x%.2X ", val);
+	      g_vm->getMMU()->write(address++, val);
+	      p+=2;
+	    }
+	    printf("\n");
+	  }
 	}
       }
+      break;
+
+    case 'G': // Goto (set PC)
+      GETLN;
+      if (getAddress(buf, &val)) {
+	snprintf(buf, sizeof(buf), "Setting PC to 0x%X\012\015", val);
+	write(cd, buf, strlen(buf));
+	g_cpu->pc = val;
+	printf("Closing debugging socket\n");
+	close(cd); cd=-1;
+      } else {
+	snprintf(buf, sizeof(buf), "sscanf failed, skipping\012\015");
+	write(cd, buf, strlen(buf));
+      }
+      break;
 
       // ... ?
       //   b - set breakpoint
@@ -153,6 +206,8 @@ void Debugger::step()
       //   S - step out
       //   c - continue (close connection)
       //   d - disassemble @ current PC
+      //   L - load data to memory
+      //   G - Goto (set PC)
     }
 
   }
