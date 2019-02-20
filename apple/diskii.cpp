@@ -139,10 +139,6 @@ void DiskII::Reset()
 
 uint8_t DiskII::readSwitches(uint8_t s)
 {
-#if 0
-  g_cpu->realtime(); /* cause the CPU to stop processing its outer            
-		      * loop b/c the disk might need attention immediately */
-#endif
   switch (s) {
   case 0x00: // change stepper motor phase
     break;
