@@ -112,6 +112,16 @@ class FileManager {
 
   virtual void getRootPath(char *toWhere, int8_t maxLen) = 0;
 
+  virtual uint32_t getSeekPosition(int8_t fd) {
+    return fileSeekPositions[fd];
+  };
+
+  virtual void setSeekPosition(int8_t fd, uint32_t pos) {
+    fileSeekPositions[fd] = pos;
+  };
+
+  virtual void seekToEnd(int8_t fd) = 0;
+
  protected:
   unsigned long fileSeekPositions[MAXFILES];
   char cachedNames[MAXFILES][MAXPATH];

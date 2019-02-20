@@ -3,6 +3,7 @@
 #include "crc32.h"
 #include "nibutil.h"
 #include "version.h"
+#include "globals.h"
 
 // Block number we start packing data bits after (Woz 2.0 images)
 #define STARTBLOCK 3
@@ -13,16 +14,16 @@
     return false;                 \
   if (!write32(f, 0))             \
     return false;                 \
-  curpos = ftello(f);		  \
+  curpos = g_filemanager->getSeekPosition(f);    \
  }
 
 #define END_SECTION(f) {                    \
-  long endpos = ftello(f);                  \
-  fseeko(f, curpos-4, SEEK_SET);            \
+  uint32_t endpos = g_filemanager->getSeekPosition(f); \
+  g_filemanager->setSeekPosition(f, curpos-4); \
   uint32_t chunksize = endpos - curpos;     \
   if (!write32(f, chunksize))               \
     return false;                           \
-  fseeko(f, 0, SEEK_END);                   \
+  g_filemanager->seekToEnd(f);              \
   }
 
 Woz::Woz()
@@ -95,49 +96,47 @@ uint8_t Woz::nextDiskByte(uint8_t track)
   return d;
 }
 
-static bool write8(FILE *f, uint8_t v)
+static bool write8(uint8_t fh, uint8_t v)
 {
-  if (fwrite(&v, 1, 1, f) != 1)
+  if (!g_filemanager->writeByte(fh, v))
     return false;
   return true;
 }
 
-static bool write16(FILE *f, uint16_t v)
+static bool write16(uint8_t fh, uint16_t v)
 {
-  if (!write8(f, v & 0xFF))
+  if (!write8(fh, v & 0xFF))
     return false;
   v >>= 8;
-  if (!write8(f, v & 0xFF))
+  if (!write8(fh, v & 0xFF))
     return false;
   return true;
 }
 
-static bool write32(FILE *f, uint32_t v)
+static bool write32(uint8_t fh, uint32_t v)
 {
   for (int i=0; i<4; i++) {
-    if (!write8(f, v&0xFF))
+    if (!write8(fh, v&0xFF))
       return false;
     v >>= 8;
   }
   return true;
 }
 
-static bool read8(FILE *f, uint8_t *toWhere)
+static bool read8(uint8_t fd, uint8_t *toWhere)
 {
-  uint8_t r;
-  if (fread(&r, 1, 1, f) != 1)
-    return false;
-  *toWhere = r;
+  // FIXME: no error checking
+  *toWhere = g_filemanager->readByte(fd);
 
   return true;
 }
 
-static bool read16(FILE *f, uint16_t *toWhere)
+static bool read16(uint8_t fh, uint16_t *toWhere)
 {
   uint16_t ret = 0;
   for (int i=0; i<2; i++) {
     uint8_t r;
-    if (!read8(f, &r)) {
+    if (!read8(fh, &r)) {
       return false;
     }
     ret >>= 8;
@@ -149,12 +148,12 @@ static bool read16(FILE *f, uint16_t *toWhere)
   return true;
 }
 
-static bool read32(FILE *f, uint32_t *toWhere)
+static bool read32(uint8_t fh, uint32_t *toWhere)
 {
   uint32_t ret = 0;
   for (int i=0; i<4; i++) {
     uint8_t r;
-    if (!read8(f, &r)) {
+    if (!read8(fh, &r)) {
       return false;
     }
     ret >>= 8;
@@ -168,7 +167,7 @@ static bool read32(FILE *f, uint32_t *toWhere)
 
 bool Woz::writeFile(uint8_t version, const char *filename)
 {
-  FILE *f = NULL;
+  int8_t fh = -1; // filehandle (-1 == closed)
   bool retval = false;
   uint32_t tmp32; // scratch 32-bit value
   off_t crcPos, endPos;
@@ -178,13 +177,17 @@ bool Woz::writeFile(uint8_t version, const char *filename)
 
 
   if (version > 2 || !version) {
+#ifndef TEENSYDUINO
     fprintf(stderr, "ERROR: version must be 1 or 2\n");
+#endif
     goto done;
   }
 
-  f = fopen(filename, "w+");
-  if (!f) {
-    perror("ERROR: Unable to open output file");
+  fh = g_filemanager->openFile(filename);
+  if (fh==-1) {
+#ifndef TEENSYDUINO
+    printf("ERROR: Unable to open output file\n");
+#endif
     goto done;
   }
   
@@ -194,83 +197,102 @@ bool Woz::writeFile(uint8_t version, const char *filename)
   } else {
     tmp32 = 0x325A4F57;
   }
-  if (!write32(f, tmp32)) {
+  if (!write32(fh, tmp32)) {
+#ifndef TEENSYDUINO
     fprintf(stderr, "ERROR: failed to write\n");
+#endif
     goto done;
   }
   tmp32 = 0x0A0D0AFF;
-  if (!write32(f, tmp32)) {
+  if (!write32(fh, tmp32)) {
+#ifndef TEENSYDUINO
     fprintf(stderr, "ERROR: failed to write\n");
+#endif
     goto done;
   }
 
   // We'll come back and write the checksum later
-  crcPos = ftello(f);
+  crcPos = g_filemanager->getSeekPosition(fh);
   tmp32 = 0;
-  if (!write32(f, tmp32)) {
+  if (!write32(fh, tmp32)) {
+#ifndef TEENSYDUINO
     fprintf(stderr, "ERROR: failed to write\n");
+#endif
     goto done;
   }
 
-  PREP_SECTION(f, 0x4F464E49); // 'INFO'
-  if (!writeInfoChunk(version, f)) {
+  PREP_SECTION(fh, 0x4F464E49); // 'INFO'
+  if (!writeInfoChunk(version, fh)) {
+#ifndef TEENSYDUINO
     fprintf(stderr, "ERROR: failed to write INFO chunk\n");
+#endif
     goto done;
   }
-  END_SECTION(f);
+  END_SECTION(fh);
 
-  PREP_SECTION(f, 0x50414D54); // 'TMAP'
-  if (!writeTMAPChunk(version, f)) {
+  PREP_SECTION(fh, 0x50414D54); // 'TMAP'
+  if (!writeTMAPChunk(version, fh)) {
+#ifndef TEENSYDUINO
     fprintf(stderr, "ERROR: failed to write TMAP chunk\n");
+#endif
     goto done;
   }
-  END_SECTION(f);
+  END_SECTION(fh);
 
-  PREP_SECTION(f, 0x534B5254); // 'TRKS'
-  if (!writeTRKSChunk(version, f)) {
+  PREP_SECTION(fh, 0x534B5254); // 'TRKS'
+  if (!writeTRKSChunk(version, fh)) {
     fprintf(stderr, "ERROR: failed to write TRKS chunk\n");
     goto done;
   }
-  END_SECTION(f);
+  END_SECTION(fh);
 
   // Write the metadata if we have any
   if (metaData) {
-    PREP_SECTION(f, 0x4154454D); // 'META'
-    if (fwrite(metaData, 1, strlen(metaData), f) != strlen(metaData)) {
-      fprintf(stderr, "ERROR: failed to write META chunk\n");
-      goto done;
+    PREP_SECTION(fh, 0x4154454D); // 'META'
+    for (int i=0; i<strlen(metaData); i++) {
+      if (!write8(fh, metaData[i])) {
+#ifndef TEENSYDUINO
+	fprintf(stderr, "ERROR: failed to write META chunk\n");
+#endif
+	goto done;
+      }
     }
-    END_SECTION(f);
+    END_SECTION(fh);
   }
 
   // FIXME: missing the WRIT chunk, if it exists
 
   // Fix up the checksum
-  endPos = ftello(f);
+  endPos = g_filemanager->getSeekPosition(fh);
   crcDataSize = endPos-crcPos-4;
   crcData = (uint8_t *)malloc(crcDataSize);
   if (!crcData) {
+#ifndef TEENSYDUINO
     fprintf(stderr, "ERROR: failed to malloc crc data chunk\n");
+#endif
     goto done;
   }
     
   // Read the data in for checksumming
-  if (fseeko(f, crcPos+4, SEEK_SET)) {
-    fprintf(stderr, "ERROR: failed to fseek to crcPos+4 (0x%llX)\n", crcPos+4);
-    goto done;
-  }
+  // FIXME: no error checking on seek
+  g_filemanager->setSeekPosition(fh, crcPos+4);
 
-  tmp32 = fread(crcData, 1, crcDataSize, f);
-  if (tmp32 != crcDataSize) {
-    fprintf(stderr, "ERROR: failed to read in data for checksum [read %d, wanted %d]\n", tmp32, crcDataSize);
-    goto done;
+  for (int i=0; i<crcDataSize; i++) {
+    if (!read8(fh, &crcData[i])) {
+#ifndef TEENSYDUINO
+      fprintf(stderr, "ERROR: failed to read in data for checksum [read %d, wanted %d]\n", tmp32, crcDataSize);
+#endif
+      goto done;
+    }
   }
     
   tmp32 = compute_crc_32(crcData, crcDataSize);
   // Write it back out
-  fseeko(f, crcPos, SEEK_SET);
-  if (!write32(f, tmp32)) {
+  g_filemanager->setSeekPosition(fh, crcPos);
+  if (!write32(fh, tmp32)) {
+#ifndef TEENSYDUINO
     fprintf(stderr, "ERROR: failed to write CRC\n");
+#endif
     goto done;
   }
 
@@ -279,8 +301,9 @@ bool Woz::writeFile(uint8_t version, const char *filename)
  done:
   if (crcData)
     free(crcData);
-  if (f)
-    fclose(f);
+  if (fh != -1) {
+    g_filemanager->closeFile(fh);
+  }
   return retval;
 }
 
@@ -317,9 +340,11 @@ bool Woz::readDskFile(const char *filename, uint8_t subtype)
 {
   bool retval = false;
 
-  FILE *f = fopen(filename, "r");
-  if (!f) {
+  int8_t fh = g_filemanager->openFile(filename);
+  if (fh == -1) {
+#ifndef TEENSYDUINO
     perror("Unable to open input file");
+#endif
     goto done;
   }
 
@@ -328,15 +353,16 @@ bool Woz::readDskFile(const char *filename, uint8_t subtype)
   // Now read in the 35 tracks of data from the DSK file and convert them to NIB
   uint8_t sectorData[256*16];
   for (int track=0; track<35; track++) {
-      uint32_t bytesRead = fread(sectorData, 1, 256*16, f);
-      if (bytesRead != 256*16) {
-	fprintf(stderr, "Failed to read DSK data; got %d bytes, wanted %d\n", bytesRead, 256);
-	goto done;
+      for (int i=0; i<256*16; i++) {
+	// FIXME: no error checking
+	sectorData[i] = g_filemanager->readByte(fh);
       }
 
       tracks[track].trackData = (uint8_t *)calloc(NIBTRACKSIZE, 1);
       if (!tracks[track].trackData) {
+#ifndef TEENSYDUINO
 	fprintf(stderr, "Failed to malloc track data\n");
+#endif
 	goto done;
       }
       tracks[track].startingBlock = STARTBLOCK + 13*track;
@@ -348,16 +374,18 @@ bool Woz::readDskFile(const char *filename, uint8_t subtype)
   retval = true;
 
  done:
-  if (f)
-    fclose(f);
+  if (fh != -1)
+    g_filemanager->closeFile(fh);
   return retval;
 }
 
 bool Woz::readNibFile(const char *filename)
 {
-  FILE *f = fopen(filename, "r");
-  if (!f) {
+  int8_t fh = g_filemanager->openFile(filename);
+  if (fh == -1) {
+#ifndef TEENSYDUINO
     perror("Unable to open input file");
+#endif
     return false;
   }
   
@@ -365,16 +393,18 @@ bool Woz::readNibFile(const char *filename)
 
   // Now read in the 35 tracks of data from the nib file
   nibSector nibData[16];
+  uint8_t *nibDataPtr = (uint8_t *)nibData;
   for (int track=0; track<35; track++) {
-    uint32_t bytesRead = fread(nibData, 1, NIBTRACKSIZE, f);
-    if (bytesRead != NIBTRACKSIZE) {
-      printf("Failed to read NIB data; got %d bytes, wanted %d\n", bytesRead, NIBTRACKSIZE);
-      return false;
+    for (int i=0; i<NIBTRACKSIZE; i++) {
+      // FIXME: no error checking
+      nibDataPtr[i] = g_filemanager->readByte(fh);
     }
     
     tracks[track].trackData = (uint8_t *)calloc(NIBTRACKSIZE, 1);
     if (!tracks[track].trackData) {
+#ifndef TEENSYDUINO
       printf("Failed to malloc track data\n");
+#endif
       return false;
     }
     
@@ -383,43 +413,53 @@ bool Woz::readNibFile(const char *filename)
     tracks[track].blockCount = 13;
     tracks[track].bitCount = NIBTRACKSIZE*8;
   }
-  fclose(f);
+  g_filemanager->closeFile(fh);
 
   return true;
 }
 
 bool Woz::readWozFile(const char *filename)
 {
-  FILE *f = fopen(filename, "r");
-  if (!f) {
+  int8_t fh = g_filemanager->openFile(filename);
+  if (fh == -1) {
+#ifndef TEENSYDUINO
     perror("Unable to open input file");
+#endif
     return false;
   }
 
   // Header
   uint32_t h;
-  read32(f, &h);
+  read32(fh, &h);
   if (h == 0x325A4F57 || h == 0x315A4F57) {
+#ifndef TEENSYDUINO
     printf("WOZ%c disk image\n", (h & 0xFF000000)>>24);
+#endif
   } else {
+#ifndef TEENSYDUINO
     printf("Unknown disk image type; can't continue\n");
-    fclose(f);
+#endif
+    g_filemanager->closeFile(fh);
     return false;
   }
 
   uint32_t tmp;
-  if (!read32(f, &tmp)) {
+  if (!read32(fh, &tmp)) {
+#ifndef TEENSYDUINO
     printf("Read failure\n");
-    fclose(f);
+#endif
+    g_filemanager->closeFile(fh);
     return false;
   }
   if (tmp != 0x0A0D0AFF) {
+#ifndef TEENSYDUINO
     printf("WOZ header failure; exiting\n");
-    fclose(f);
+#endif
+    g_filemanager->closeFile(fh);
     return false;
   }
   uint32_t crc32;
-  read32(f, &crc32);
+  read32(fh, &crc32);
   //  printf("Disk crc32 should be 0x%X\n", crc32);
   // FIXME: check CRC. Remember that 0x00 means "don't check CRC"
   
@@ -431,45 +471,47 @@ bool Woz::readWozFile(const char *filename)
 #define cTRKS 4
 
   while (1) {
-    if (fseeko(f, fpos, SEEK_SET)) {
-      break;
-    }
+    g_filemanager->setSeekPosition(fh, fpos); // FIXME: no error checking
 
     uint32_t chunkType;
-    if (!read32(f, &chunkType)) {
+    if (!read32(fh, &chunkType)) {
       break;
     }
     uint32_t chunkDataSize;
-    read32(f, &chunkDataSize);
+    read32(fh, &chunkDataSize);
 
     bool isOk;
 
     switch (chunkType) {
     case 0x4F464E49: // 'INFO'
-      isOk = parseInfoChunk(f, chunkDataSize);
+      isOk = parseInfoChunk(fh, chunkDataSize);
       haveData |= cINFO;
       break;
     case 0x50414D54: // 'TMAP'
-      isOk = parseTMAPChunk(f, chunkDataSize);
+      isOk = parseTMAPChunk(fh, chunkDataSize);
       haveData |= cTMAP;
       break;
     case 0x534B5254: // 'TRKS'
-      isOk = parseTRKSChunk(f, chunkDataSize);
+      isOk = parseTRKSChunk(fh, chunkDataSize);
       haveData |= cTRKS;
       break;
     case 0x4154454D: // 'META'
-      isOk = parseMetaChunk(f, chunkDataSize);
+      isOk = parseMetaChunk(fh, chunkDataSize);
       break;
     default:
+#ifndef TEENSYDUINO
       printf("Unknown chunk type 0x%X\n", chunkType);
-      fclose(f);
+#endif
+      g_filemanager->closeFile(fh);
       return false;
       break;
     }
 
     if (!isOk) {
+#ifndef TEENSYDUINO
       printf("Chunk parsing [0x%X] failed; exiting\n", chunkType);
-      fclose(f);
+#endif
+      g_filemanager->closeFile(fh);
       return false;
     }
     
@@ -477,20 +519,26 @@ bool Woz::readWozFile(const char *filename)
   }
 
   if (haveData != 0x07) {
+#ifndef TEENSYDUINO
     printf("ERROR: missing one or more critical sections\n");
+#endif
     return false;
   }
 
   for (int i=0; i<35; i++) {
-    if (!readQuarterTrackData(f, i*4)) {
+    if (!readQuarterTrackData(fh, i*4)) {
+#ifndef TEENSYDUINO
       printf("Failed to read QTD for track %d\n", i);
-      fclose(f);
+#endif
+      g_filemanager->closeFile(fh);
       return false;
     }
   }
 
-  fclose(f);
+  g_filemanager->closeFile(fh);
+#ifndef TEENSYDUINO
   printf("File read successful\n");
+#endif
   return true;
 }
 
@@ -500,7 +548,9 @@ bool Woz::readFile(const char *filename, uint8_t forceType)
     // Try to determine type from the file extension
     const char *p = strrchr(filename, '.');
     if (!p) {
+#ifndef TEENSYDUINO
       printf("Unable to determine file type of '%s'\n", filename);
+#endif
       return false;
     }
     if (strcasecmp(p, ".woz") == 0) {
@@ -513,37 +563,47 @@ bool Woz::readFile(const char *filename, uint8_t forceType)
     } else if (strcasecmp(p, ".nib") == 0) {
       forceType = T_NIB;
     } else {
+#ifndef TEENSYDUINO
       printf("Unable to determine file type of '%s'\n", filename);
+#endif
       return false;
     }
   }
 
   switch (forceType) {
   case T_WOZ:
+#ifndef TEENSYDUINO
     printf("reading woz file %s\n", filename);
+#endif
     return readWozFile(filename);
   case T_DSK:
   case T_PO:
+#ifndef TEENSYDUINO
     printf("reading DSK file %s\n", filename);
+#endif
     return readDskFile(filename, forceType);
   case T_NIB:
+#ifndef TEENSYDUINO
     printf("reading NIB file %s\n", filename);
+#endif
     return readNibFile(filename);
   default:
+#ifndef TEENSYDUINO
     printf("Unknown disk type; unable to read\n");
+#endif
     return false;
   }
 }
 
-bool Woz::parseTRKSChunk(FILE *f, uint32_t chunkSize)
+bool Woz::parseTRKSChunk(int8_t fh, uint32_t chunkSize)
 {
   if (di.version == 2) {
     for (int i=0; i<160; i++) {
-      if (!read16(f, &tracks[i].startingBlock))
+      if (!read16(fh, &tracks[i].startingBlock))
 	return false;
-      if (!read16(f, &tracks[i].blockCount))
+      if (!read16(fh, &tracks[i].blockCount))
 	return false;
-      if (!read32(f, &tracks[i].bitCount))
+      if (!read32(fh, &tracks[i].bitCount))
 	return false;
       tracks[i].startingByte = 0; // v1-specific
     }
@@ -557,9 +617,9 @@ bool Woz::parseTRKSChunk(FILE *f, uint32_t chunkSize)
     tracks[trackNumber].startingByte = trackNumber * 6656 + 256;
     tracks[trackNumber].startingBlock = 0; // v2-specific
     tracks[trackNumber].blockCount = 13;
-    fseeko(f, (trackNumber * 6656 + 256) + 6648, SEEK_SET);
+    g_filemanager->setSeekPosition(fh, (trackNumber * 6656 + 256) + 6648); // FIXME: no error checking
     uint16_t numBits;
-    if (!read16(f, &numBits)) {
+    if (!read16(fh, &numBits)) {
       return false;
     }
     tracks[trackNumber].bitCount = numBits;
@@ -570,15 +630,17 @@ bool Woz::parseTRKSChunk(FILE *f, uint32_t chunkSize)
   return true;
 }
 
-bool Woz::parseTMAPChunk(FILE *f, uint32_t chunkSize)
+bool Woz::parseTMAPChunk(int8_t fh, uint32_t chunkSize)
 {
   if (chunkSize != 0xa0) {
+#ifndef TEENSYDUINO
     printf("TMAP chunk is the wrong size; aborting\n");
+#endif
     return false;
   }
 
   for (int i=0; i<40*4; i++) {
-    if (!read8(f, (uint8_t *)&quarterTrackMap[i]))
+    if (!read8(fh, (uint8_t *)&quarterTrackMap[i]))
       return false;
     chunkSize--;
   }
@@ -587,54 +649,60 @@ bool Woz::parseTMAPChunk(FILE *f, uint32_t chunkSize)
 }
 
 // return true if successful
-bool Woz::parseInfoChunk(FILE *f, uint32_t chunkSize)
+bool Woz::parseInfoChunk(int8_t fh, uint32_t chunkSize)
 {
   if (chunkSize != 60) {
+#ifndef TEENSYDUINO
     printf("INFO chunk size is not 60; aborting\n");
+#endif
     return false;
   }
 
-  if (!read8(f, &di.version))
+  if (!read8(fh, &di.version))
     return false;
   if (di.version > 2) {
+#ifndef TEENSYDUINO
     printf("Incorrect version header; aborting\n");
+#endif
     return false;
   }
 
-  if (!read8(f, &di.diskType))
+  if (!read8(fh, &di.diskType))
     return false;
   if (di.diskType != 1) {
+#ifndef TEENSYDUINO
     printf("Not a 5.25\" disk image; aborting\n");
+#endif
     return false;
   }
 
-  if (!read8(f, &di.writeProtected))
+  if (!read8(fh, &di.writeProtected))
     return false;
 
-  if (!read8(f, &di.synchronized))
+  if (!read8(fh, &di.synchronized))
     return false;
 
-  if (!read8(f, &di.cleaned))
+  if (!read8(fh, &di.cleaned))
     return false;
 
   di.creator[32] = 0;
   for (int i=0; i<32; i++) {
-    if (!read8(f, (uint8_t *)&di.creator[i]))
+    if (!read8(fh, (uint8_t *)&di.creator[i]))
       return false;
   }
 
   if (di.version >= 2) {
-    if (!read8(f, &di.diskSides))
+    if (!read8(fh, &di.diskSides))
       return false;
-    if (!read8(f, &di.bootSectorFormat))
+    if (!read8(fh, &di.bootSectorFormat))
       return false;
-    if (!read8(f, &di.optimalBitTiming))
+    if (!read8(fh, &di.optimalBitTiming))
       return false;
-    if (!read16(f, &di.compatHardware))
+    if (!read16(fh, &di.compatHardware))
       return false;
-    if (!read16(f, &di.requiredRam))
+    if (!read16(fh, &di.requiredRam))
       return false;
-    if (!read16(f, &di.largestTrack))
+    if (!read16(fh, &di.largestTrack))
       return false;
   } else {
     di.diskSides = 0;
@@ -649,21 +717,22 @@ bool Woz::parseInfoChunk(FILE *f, uint32_t chunkSize)
   return true;
 }
 
-bool Woz::parseMetaChunk(FILE *f, uint32_t chunkSize)
+bool Woz::parseMetaChunk(int8_t fh, uint32_t chunkSize)
 {
   metaData = (char *)calloc(chunkSize+1, 1);
   if (!metaData)
     return false;
 
-  if (fread(metaData, 1, chunkSize, f) != chunkSize)
-    return false;
+  for (int i=0; i<chunkSize; i++) {
+    metaData[i] = g_filemanager->readByte(fh); // FIXME: no error checking
+  }
 
   metaData[chunkSize] = 0;
 
   return true;
 }
 
-bool Woz::readQuarterTrackData(FILE *f, uint8_t quartertrack)
+bool Woz::readQuarterTrackData(int8_t fh, uint8_t quartertrack)
 {
   uint8_t targetImageTrack = quarterTrackMap[quartertrack];
   if (targetImageTrack == 0xFF) {
@@ -681,25 +750,20 @@ bool Woz::readQuarterTrackData(FILE *f, uint8_t quartertrack)
   if (di.version == 1) count = (tracks[targetImageTrack].bitCount / 8) + ((tracks[targetImageTrack].bitCount % 8) ? 1 : 0);
   tracks[targetImageTrack].trackData = (uint8_t *)calloc(count, 1);
   if (!tracks[targetImageTrack].trackData) {
+#ifndef TEENSYDUINO
     perror("Failed to alloc buf to read track magnetic data");
+#endif
     return false;
   }
 
   if (di.version == 1) {
-    if (fseeko(f, tracks[targetImageTrack].startingByte, SEEK_SET)) {
-      perror("Failed to seek to start of block");
-      return false;
-    }
+    g_filemanager->setSeekPosition(fh, tracks[targetImageTrack].startingByte); // FIXME: no error checking
   } else {
-    if (fseeko(f, bitsStartBlock*512, SEEK_SET)) {
-      perror("Failed to seek to start of block");
-      return false;
-    }
+    g_filemanager->setSeekPosition(fh, bitsStartBlock*512); // FIXME: no error checking
   }
-  uint32_t didRead = fread(tracks[targetImageTrack].trackData, 1, count, f);
-  if (didRead != count) {
-    printf("Failed to read all track data for track [read %d, wanted %d]\n", didRead, count);
-    return false;
+  for (int i=0; i<count; i++) {
+    // FIXME: no error checking
+    tracks[targetImageTrack].trackData[i] = g_filemanager->readByte(fh);
   }
 
   return true;
@@ -781,17 +845,17 @@ bool Woz::readSectorData(uint8_t track, uint8_t sector, nibSector *sectorData)
   return false;
 }
 
-bool Woz::writeInfoChunk(uint8_t version, FILE *f)
+bool Woz::writeInfoChunk(uint8_t version, int8_t fh)
 {
-  if (!write8(f, version) ||
-      !write8(f, di.diskType) ||
-      !write8(f, di.writeProtected) ||
-      !write8(f, di.synchronized) ||
-      !write8(f, di.cleaned))
+  if (!write8(fh, version) ||
+      !write8(fh, di.diskType) ||
+      !write8(fh, di.writeProtected) ||
+      !write8(fh, di.synchronized) ||
+      !write8(fh, di.cleaned))
     return false;
 
   for (int i=0; i<32; i++) {
-    if (!write8(f, di.creator[i]))
+    if (!write8(fh, di.creator[i]))
       return false;
   }
   
@@ -800,37 +864,39 @@ bool Woz::writeInfoChunk(uint8_t version, FILE *f)
     if (di.diskSides == 0)
       di.diskSides = 1;
 
-    if ( !write8(f, di.diskSides) ||
-	 !write8(f, di.bootSectorFormat) ||
-	 !write8(f, di.optimalBitTiming) ||
-	 !write16(f, di.compatHardware) ||
-	 !write16(f, di.requiredRam) ||
-	 !write16(f, di.largestTrack))
+    if ( !write8(fh, di.diskSides) ||
+	 !write8(fh, di.bootSectorFormat) ||
+	 !write8(fh, di.optimalBitTiming) ||
+	 !write16(fh, di.compatHardware) ||
+	 !write16(fh, di.requiredRam) ||
+	 !write16(fh, di.largestTrack))
       return false;
   }
 
   // Padding
   for (int i=0; i<((version==1)?23:14); i++) {
-    if (!write8(f, 0))
+    if (!write8(fh, 0))
       return false;
   }
   return true;
 }
 
-bool Woz::writeTMAPChunk(uint8_t version, FILE *f)
+bool Woz::writeTMAPChunk(uint8_t version, int8_t fh)
 {
   for (int i=0; i<40*4; i++) {
-    if (!write8(f, quarterTrackMap[i]))
+    if (!write8(fh, quarterTrackMap[i]))
       return false;
   }
 
   return true;
 }
 
-bool Woz::writeTRKSChunk(uint8_t version, FILE *f)
+bool Woz::writeTRKSChunk(uint8_t version, int8_t fh)
 {
   if (version == 1) {
+#ifndef TEENSYDUINO
     printf("V1 write is not implemented\n");
+#endif
     return false;
   }
 
@@ -851,11 +917,11 @@ bool Woz::writeTRKSChunk(uint8_t version, FILE *f)
       tracks[i].bitCount = 0;
     }
 
-    if (!write16(f, tracks[i].startingBlock))
+    if (!write16(fh, tracks[i].startingBlock))
       return false;
-    if (!write16(f, tracks[i].blockCount))
+    if (!write16(fh, tracks[i].blockCount))
       return false;
-    if (!write32(f, tracks[i].bitCount))
+    if (!write32(fh, tracks[i].bitCount))
       return false;
   }
 
@@ -863,13 +929,16 @@ bool Woz::writeTRKSChunk(uint8_t version, FILE *f)
   for (int i=0; i<160; i++) {
     if (tracks[i].startingBlock &&
 	tracks[i].blockCount) {
-      fseeko(f, tracks[i].startingBlock * 512, SEEK_SET);
+      g_filemanager->setSeekPosition(fh, tracks[i].startingBlock*512); // FIXME: no error checking
       uint32_t writeSize = (tracks[i].bitCount / 8) + ((tracks[i].bitCount % 8) ? 1 : 0);
-      if (fwrite(tracks[i].trackData, 1, writeSize, f) != writeSize)
-	return false;
+      for (int j=0; j<writeSize; j++) {
+	if (!g_filemanager->writeByte(fh, tracks[i].trackData[j])) {
+	  return false;
+	}
+      }
       uint8_t c = 0;
       while (writeSize < tracks[i].blockCount * 512) {
-	if (fwrite(&c, 1, 1, f) != 1)
+	if (!write8(fh, c))
 	  return false;
 	writeSize++;
       }
@@ -902,6 +971,7 @@ bool Woz::decodeWozTrackToDsk(uint8_t track, uint8_t subtype, uint8_t sectorData
   return true;
 }
 
+#ifndef TEENSYDUINO
 void Woz::dumpInfo()
 {
   printf("WOZ image version %d\n", di.version);
@@ -1074,6 +1144,7 @@ void Woz::dumpInfo()
     }
   }
 }
+#endif
 
 bool Woz::isSynchronized()
 {

@@ -9,6 +9,13 @@
 
 #include "globals.h"
 
+// define DEBUGSTEPS to show disassembly of each instruction as it's processed
+//#define DEBUGSTEPS
+#ifdef DEBUGSTEPS
+#include "disassembler.h"
+extern Disassembler dis;
+#endif
+
 // To see calls to unimplemented opcodes, define this:
 //#define VERBOSE_CPU_ERRORS
 
@@ -486,6 +493,36 @@ uint8_t Cpu::step()
     irqPending = false;
     irq();
   }
+
+#ifdef DEBUGSTEPS
+  static uint8_t cmdbuf[10];
+  static char buf[50];
+
+  uint16_t loc=g_cpu->pc;
+  for (int idx=0; idx<sizeof(cmdbuf); idx++) {
+    cmdbuf[idx] = g_vm->getMMU()->read(loc+idx);
+  }
+  dis.instructionToMnemonic(loc, cmdbuf, buf, sizeof(buf));
+  while (strlen(buf) < 25) {
+    strcat(buf, " ");
+  }
+  printf("%s ;", buf);
+
+  uint8_t p = g_cpu->flags;
+  printf("BS/BT: %02x/%02x A: %02x  X: %02x  Y: %02x  SP: %02x  Flags: %c%cx%c%c%c%c%c\n",
+	 g_vm->getMMU()->read(0x3D),
+	 g_vm->getMMU()->read(0x41),
+	 g_cpu->a, g_cpu->x, g_cpu->y, g_cpu->sp,
+	 p & (1<<7) ? 'N':' ',
+	 p & (1<<6) ? 'V':' ',
+	 p & (1<<4) ? 'B':' ',
+	 p & (1<<3) ? 'D':' ',
+	 p & (1<<2) ? 'I':' ',
+	 p & (1<<1) ? 'Z':' ',
+	 p & (1<<0) ? 'C':' '
+	 );
+
+#endif
   
   uint8_t m = readmem(pc++);
 

@@ -384,3 +384,14 @@ void NixFileManager::getRootPath(char *toWhere, int8_t maxLen)
   strcpy(toWhere, ROOTDIR);
   //  strncpy(toWhere, ROOTDIR, maxLen);
 }
+
+void NixFileManager::seekToEnd(int8_t fd)
+{
+  // This could just be a stat call...
+  FILE *f = fopen(cachedNames[fd], "r");
+  if (f) {
+    fseeko(f, 0, SEEK_END);
+    fileSeekPositions[fd] = ftello(f);
+    fclose(f);
+  }
+}

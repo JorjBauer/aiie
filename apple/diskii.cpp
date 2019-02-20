@@ -47,7 +47,7 @@ bool DiskII::Serialize(int8_t fd)
 {
   return false;
 
-  // FIXME: all the new variables are missing
+  // FIXME: all the new variables are missing ***
 
   g_filemanager->writeByte(fd, DISKIIMAGIC);
 
@@ -84,7 +84,7 @@ bool DiskII::Serialize(int8_t fd)
 bool DiskII::Deserialize(int8_t fd)
 {
   return false;
-  // FIXME: all the new variables are missing
+  // FIXME: all the new variables are missing ***
 
   if (g_filemanager->readByte(fd) != DISKIIMAGIC) {
     return false;
@@ -167,11 +167,11 @@ uint8_t DiskII::readSwitches(uint8_t s)
 
   case 0x08: // drive off
     indicatorIsOn[selectedDisk] = 99;
-    g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false); // FIXME: delay a bit? Queue for later drawing?
+    g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false); // FIXME: delay a bit? Queue for later drawing? ***
     break;
   case 0x09: // drive on
     indicatorIsOn[selectedDisk] = 100;
-    g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, true); // FIXME: delay a bit? Queue for later drawing?
+    g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, true); // FIXME: delay a bit? Queue for later drawing? ***
 
     // Start the given disk drive spinning
     lastDiskRead[selectedDisk] = g_cpu->cycles;
@@ -186,6 +186,10 @@ uint8_t DiskII::readSwitches(uint8_t s)
 
   case 0x0C: // shift one read or write byte
     readWriteLatch = readOrWriteByte();
+    /*
+    if (readWriteLatch & 0x80)
+      printf(" => Disk II reads 0x%.2X @ $%.4X\n", sequencer, g_cpu->pc);
+    */
     if (readWriteLatch & 0x80)
       sequencer = 0;
     break;
@@ -210,9 +214,9 @@ uint8_t DiskII::readSwitches(uint8_t s)
   }
 
   // FIXME: improve the spin-down here. We need a CPU cycle callback
-  // for some period of time instead of this silly decrement counter.
+  // for some period of time instead of this silly decrement counter ***
   if (!indicatorIsOn[selectedDisk]) {
-    printf("Unexpected read while disk isn't on?\n");
+    //    printf("Unexpected read while disk isn't on?\n");
     indicatorIsOn[selectedDisk] = 100;
     g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, true); // FIXME: queue for later drawing?
   }
@@ -222,7 +226,7 @@ uint8_t DiskII::readSwitches(uint8_t s)
       g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false); // FIXME: queue for later drawing?
 
     // Stop the given disk drive spinning
-      lastDiskRead[selectedDisk] = 0; // FIXME: magic value. We need a tristate for this.
+      lastDiskRead[selectedDisk] = 0; // FIXME: magic value. We need a tristate for this. ***
     }
 
   }
@@ -351,10 +355,8 @@ void DiskII::setPhase(uint8_t phase)
 
   if (curHalfTrack[selectedDisk] != prevHalfTrack) {
     // We're changing track - flush the old track back to disk
-    printf("track change\n");
 
     curWozTrack[selectedDisk] = disk[selectedDisk]->trackNumberForQuarterTrack(curHalfTrack[selectedDisk]*2);
-    printf("New half: %d; track: %d\n", curHalfTrack[selectedDisk]*2, curWozTrack[selectedDisk]);
   }
 }
 
@@ -400,7 +402,6 @@ void DiskII::insertDisk(int8_t driveNum, const char *filename, bool drawIt)
   disk[driveNum]->readFile(filename); // FIXME error checking
 
   curWozTrack[driveNum] = disk[driveNum]->trackNumberForQuarterTrack(curHalfTrack[driveNum]*2);
-  printf("Cur track: %d\n", curWozTrack[driveNum]);
 
   if (drawIt)
     g_ui->drawOnOffUIElement(UIeDisk1_state + driveNum, false);
@@ -420,8 +421,6 @@ void DiskII::select(int8_t which)
   if (which != 0 && which != 1)
     return;
 
-  printf("Select disk %d\n", which);
-
   if (which != selectedDisk) {
     indicatorIsOn[selectedDisk] = 100; // spindown time (fixme)
     g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false); // FIXME: queue for later drawing?
@@ -433,14 +432,12 @@ void DiskII::select(int8_t which)
   // Update the current woz track for the given disk drive
   curWozTrack[selectedDisk] =
     disk[selectedDisk]->trackNumberForQuarterTrack(curHalfTrack[selectedDisk]*2);
-  printf("Cur Woz track is %d\n", curWozTrack[selectedDisk]);
-  
 }
 
 uint8_t DiskII::readOrWriteByte()
 {
   if (!disk[selectedDisk]) {
-    printf("reading from uninserted disk\n");
+    //printf("reading from uninserted disk\n");
     return 0xFF;
   }
 

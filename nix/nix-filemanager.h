@@ -29,6 +29,8 @@ class NixFileManager : public FileManager {
 
   void getRootPath(char *toWhere, int8_t maxLen);
 
+  virtual void seekToEnd(int8_t fd);
+
  private:
   int8_t numCached;
   

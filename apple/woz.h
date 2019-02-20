@@ -46,7 +46,9 @@ class Woz {
   bool decodeWozTrackToNib(uint8_t track, nibSector sectorData[16]);
   bool decodeWozTrackToDsk(uint8_t track, uint8_t subtype, uint8_t sectorData[256*16]);
 
+#ifndef TEENSYDUINO
   void dumpInfo();
+#endif
 
   bool isSynchronized();
 
@@ -59,16 +61,16 @@ class Woz {
 
   uint8_t fakeBit();
 
-  bool parseTRKSChunk(FILE *f, uint32_t chunkSize);
-  bool parseTMAPChunk(FILE *f, uint32_t chunkSize);
-  bool parseInfoChunk(FILE *f, uint32_t chunkSize);
-  bool parseMetaChunk(FILE *f, uint32_t chunkSize);
+  bool parseTRKSChunk(int8_t fh, uint32_t chunkSize);
+  bool parseTMAPChunk(int8_t fh, uint32_t chunkSize);
+  bool parseInfoChunk(int8_t fh, uint32_t chunkSize);
+  bool parseMetaChunk(int8_t fh, uint32_t chunkSize);
 
-  bool writeInfoChunk(uint8_t version, FILE *f);
-  bool writeTMAPChunk(uint8_t version, FILE *f);
-  bool writeTRKSChunk(uint8_t version, FILE *f);
+  bool writeInfoChunk(uint8_t version, int8_t fh);
+  bool writeTMAPChunk(uint8_t version, int8_t fh);
+  bool writeTRKSChunk(uint8_t version, int8_t fh);
 
-  bool readQuarterTrackData(FILE *f, uint8_t quartertrack);
+  bool readQuarterTrackData(int8_t fh, uint8_t quartertrack);
   bool readSectorData(uint8_t track, uint8_t sector, nibSector *sectorData);
 
   void _initInfo();
