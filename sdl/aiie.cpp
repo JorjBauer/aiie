@@ -27,7 +27,7 @@
 BIOS bios;
 Debugger debugger;
 
-static struct timespec nextInstructionTime, startTime;
+struct timespec nextInstructionTime, startTime;
 
 #define NB_ENABLE 1
 #define NB_DISABLE 0
@@ -91,8 +91,6 @@ void write(void *arg, uint16_t address, uint8_t v)
 
 static void *cpu_thread(void *dummyptr) {
   struct timespec currentTime;
-  struct timespec nextSpeakerCycleTime;
-  uint32_t nextSpeakerCycle = 0;
 
 #if 0
   int policy;
@@ -109,10 +107,9 @@ static void *cpu_thread(void *dummyptr) {
 
   printf("free-running\n");
 
-  // In this loop, we determine when the next CPU or Speaker event is;
-  // sleep until that event; and then perform the event. There are a
-  // number of maintenance tasks that also happen to be sure that
-  // peripherals are updated appropriately.
+  // In this loop, we determine when the next CPU event is; sleep until 
+  // that event; and then perform the event. There are also peripheral 
+  // maintenance calls embedded in the loop...
 
   while (1) {
     if (g_biosInterrupt) {
@@ -140,55 +137,24 @@ static void *cpu_thread(void *dummyptr) {
 
     do_gettime(&currentTime);
 
-    // FIXME: these first two can go in their respective loops after execution
-
-    // Determine the next speaker runtime (nextSpeakerCycle).
-    // The speaker runs 48 cycles behind the CPU (an arbitrary number).
-    timespec_add_cycles(&startTime, nextSpeakerCycle-48, &nextSpeakerCycleTime);
-
     // Determine the next CPU runtime (nextInstructionTime)
     timespec_add_cycles(&startTime, g_cpu->cycles, &nextInstructionTime);
 
-    // Sleep until one of them is ready to run.
+    // Sleep until the CPU is ready to run.
 
     // tsSubtract doesn't return negatives; it bounds at zero. So if
     // either result is zero then it's time to run something.
 
     struct timespec cpudiff = tsSubtract(nextInstructionTime, currentTime);
-    struct timespec spkrdiff = tsSubtract(nextSpeakerCycleTime, currentTime);
 
-    struct timespec mindiff;
-    if (cpudiff.tv_sec < spkrdiff.tv_sec) {
-      memcpy(&mindiff, &cpudiff, sizeof(struct timespec));
-    } else if (spkrdiff.tv_sec < cpudiff.tv_sec) {
-      memcpy(&mindiff, &spkrdiff, sizeof(struct timespec));
-    } else if (cpudiff.tv_nsec < spkrdiff.tv_nsec) {
-      memcpy(&mindiff, &cpudiff, sizeof(struct timespec));
-    } else {
-      memcpy(&mindiff, &spkrdiff, sizeof(struct timespec));
-    }
-    
-    if (mindiff.tv_sec > 0 || mindiff.tv_nsec > 0) {
-      // Sleep until the first of them is ready & loop...
-      nanosleep(&mindiff, NULL);
+    if (cpudiff.tv_sec > 0 || cpudiff.tv_nsec > 0) {
+      // Sleep until the it's ready and loop...
+      nanosleep(&cpudiff, NULL);
       continue;
     }
 
-    // Now we know either the speaker or the CPU is ready to
-    // run. Figure out which and run it.
-
-    if (spkrdiff.tv_sec == 0 && spkrdiff.tv_nsec == 0) {
-      // Run the speaker
-      
-      uint64_t microseconds = nextSpeakerCycleTime.tv_sec * 1000000 +
-        (double)nextSpeakerCycleTime.tv_nsec / 1000.0;
-      g_speaker->maintainSpeaker(nextSpeakerCycle-48, microseconds);
-
-      nextSpeakerCycle++;
-    }
-
     if (cpudiff.tv_sec == 0 && cpudiff.tv_nsec == 0) {
-      // Run the CPU
+      // Run the CPU; it's caught up to "real time"
 
       uint8_t executed = 0;
       if (debugger.active()) {
@@ -288,6 +254,8 @@ int main(int argc, char *argv[])
     //    pthread_setschedparam(cpuThreadID, SCHED_RR, PTHREAD_MAX_PRIORITY);
   }
 
+  g_speaker->begin();
+
   uint32_t lastCycleCount = -1;
   while (1) {
 
@@ -311,8 +279,7 @@ int main(int argc, char *argv[])
       do_gettime(&startTime);
       do_gettime(&nextInstructionTime);
 
-      // Drain the speaker queue (FIXME: a little hacky)
-      g_speaker->maintainSpeaker(-1, -1);
+      // FIXME: drain whatever's in the speaker queue
 
       /* FIXME
       // Force the display to redraw
