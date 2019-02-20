@@ -8,6 +8,8 @@
 #include <stdio.h>
 #endif
 
+#include "woz-serializer.h"
+
 #include "filemanager.h"
 #include "applemmu.h"
 #include "slot.h"
@@ -44,28 +46,24 @@ class DiskII : public Slot {
   void select(int8_t which); // 0 or 1 for drives 1 and 2, respectively
   uint8_t readOrWriteByte();
 
-  void checkFlush(int8_t track);
-  void readDiskTrack(int8_t diskWeAreUsing, int8_t trackWeAreReading);
-
 #ifndef TEENSYDUINO
   void convertDskToNib(const char *outFN);
 #endif
 
  private:
   volatile int8_t curHalfTrack[2];
+  volatile uint8_t curWozTrack[2];
   volatile int8_t curPhase[2];
   uint8_t readWriteLatch;
-  LRingBuffer *trackBuffer; // nibblized data
-  uint8_t rawTrackBuffer[4096]; // not nibblized data
+  uint8_t sequencer, dataRegister; // diskII logic state sequencer vars
+  WozSerializer *disk[2];
+  uint32_t lastDiskRead[2];
   
   bool writeMode;
   bool writeProt;
   AppleMMU *mmu;
 
-  int8_t disk[2];
   volatile uint8_t indicatorIsOn[2];
-  uint8_t diskType[2];
-  volatile int8_t trackToFlush; // -1 when there's none
 
   volatile int8_t selectedDisk;
 };

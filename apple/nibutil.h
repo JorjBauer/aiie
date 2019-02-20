@@ -1,44 +1,54 @@
-#ifdef TEENSYDUINO
-#include <Arduino.h>
-#else
+#ifndef __NIBUTIL_H
+#define __NIBUTIL_H
+
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
 #endif
 
-#include "LRingBuffer.h"
-
 #define NIBTRACKSIZE 0x1A00
-// Minimum viable nibblized sector size. With GAP bytes, could be much longer.
-#define MINNIBSECTORSIZE (343 + 13 + 3)
+#define NIBSECTORSIZE 416
 
-#define         nib1(a) (((a & 0xAA) >> 1) | 0xAA)
-#define         nib2(b) (((b & 0x55)     ) | 0xAA)
-#define denib(a, b) ((((a) & ~0xAA) << 1) | ((b) & ~0xAA))
+typedef struct _nibSector {
+  uint8_t gap1[48];
 
-#define GAP 0xFF
+  uint8_t sectorProlog[3];
+  uint8_t volume44[2];
+  uint8_t track44[2];
+  uint8_t sector44[2];
+  uint8_t checksum44[2];
+  uint8_t sectorEpilog[3];
 
-enum {
-  dosDisk    = 0,
-  prodosDisk = 1,
-  nibDisk    = 2
-};
+  uint8_t gap2[5];
+
+  uint8_t dataProlog[3];
+  uint8_t data62[342];
+  uint8_t checksum;
+  uint8_t dataEpilog[3];
+} nibSector;
 
 enum nibErr {
   errorNone           = 0,
-  errorShortTrack     = 1,
-  errorMissingSectors = 2
+  errorMissingSectors = 1,
+  errorBadData        = 2
 };
 
-void nibblizeTrack(LRingBuffer *trackBuffer, uint8_t *rawTrackBuffer,
-		   uint8_t diskType, int8_t track);
-
-nibErr denibblizeTrack(LRingBuffer *trackBuffer, uint8_t *rawTrackBuffer,
+uint32_t nibblizeTrack(uint8_t outputBuffer[NIBTRACKSIZE], const uint8_t rawTrackBuffer[256*16],
 		       uint8_t diskType, int8_t track);
 
+nibErr denibblizeTrack(const uint8_t input[NIBTRACKSIZE], uint8_t rawTrackBuffer[256*16],
+		       uint8_t diskType, int8_t track);
 
-bool decodeData(LRingBuffer *trackBuffer, uint16_t startAt, uint8_t *output);
-void encodeData(LRingBuffer *trackBuffer, uint8_t *data);
+uint8_t de44(uint8_t nibs[2]);
 
+#ifdef __cplusplus
+};
+#endif
+
+#endif
