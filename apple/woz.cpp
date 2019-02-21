@@ -43,10 +43,22 @@ Woz::Woz()
 
 Woz::~Woz()
 {
-  // FIXME: free all the stuff
-
-  if (fh != -1)
+  if (fh != -1) {
     g_filemanager->closeFile(fh);
+    fh = -1;
+  }
+
+  for (int i=0; i<160; i++) {
+    if (tracks[i].trackData) {
+      free(tracks[i].trackData);
+      tracks[i].trackData = NULL;
+    }
+  }
+
+  if (metaData) {
+    free(metaData);
+    metaData = NULL;
+  }
 }
 
 
