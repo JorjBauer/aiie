@@ -294,7 +294,7 @@ uint8_t NixFileManager::readByteAt(int8_t fd, uint32_t pos)
   }
 
   if (!ret) {
-    printf("ERROR reading: %d\n", errno);
+    printf("ERROR reading byte at %u: %d\n", pos, errno);
   }
 
   // FIXME: error handling?
@@ -372,7 +372,7 @@ uint8_t NixFileManager::readByte(int8_t fd)
   fileSeekPositions[fd]++;
 
   if (!ret) {
-    printf("ERROR reading: %d\n", errno);
+    printf("ERROR reading from pos %d: %d\n", pos, errno);
   }
 
   // FIXME: error handling?
@@ -384,6 +384,26 @@ void NixFileManager::getRootPath(char *toWhere, int8_t maxLen)
   strcpy(toWhere, ROOTDIR);
   //  strncpy(toWhere, ROOTDIR, maxLen);
 }
+
+bool NixFileManager::setSeekPosition(int8_t fd, uint32_t pos)
+{
+  // This could be a whole lot simpler.
+  bool ret = false;
+  FILE *f = fopen(cachedNames[fd], "r");
+  if (f) {
+    fseeko(f, 0, SEEK_END);
+    fileSeekPositions[fd] = ftello(f);
+
+    if (pos < ftello(f)) {
+      fileSeekPositions[fd] = pos;
+      ret = true;
+    }
+    fclose(f);
+  }
+
+  return ret;
+};
+
 
 void NixFileManager::seekToEnd(int8_t fd)
 {

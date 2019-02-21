@@ -223,8 +223,3 @@ void SDLSpeaker::beginMixing()
 void SDLSpeaker::mixOutput(uint8_t v)
 {
 }
-
-uint32_t SDLSpeaker::bufferedContentSize()
-{
-  return bufIdx;
-}

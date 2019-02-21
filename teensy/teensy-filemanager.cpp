@@ -394,3 +394,30 @@ void TeensyFileManager::getRootPath(char *toWhere, int8_t maxLen)
   strcpy(toWhere, "/A2DISKS/");
   //  strncpy(toWhere, "/A2DISKS/", maxLen);
 }
+
+bool TeensyFileManager::setSeekPosition(int8_t fd, uint32_t pos)
+{
+  seekToEnd(fd);
+  uint32_t endPos = getSeekPosition(fd);
+  if (pos >= endPos) {
+    return false;
+  }
+
+  fileSeekPositions[fd] = pos;
+  return true;
+}
+
+
+void TeensyFileManager::seekToEnd(int8_t fd)
+{
+  File f = sd.open(cachedNames[fd], FILE_READ);
+  if (!f) {
+    Serial.println("failed to open");
+    return;
+  }
+
+  fileSeekPositions[fd] = f.fileSize();
+
+  f.close();
+}
+

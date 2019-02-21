@@ -8,6 +8,8 @@ class TeensySpeaker : public PhysicalSpeaker {
   TeensySpeaker(uint8_t pinNum);
   virtual ~TeensySpeaker();
 
+  virtual void begin() {};
+
   virtual void toggle(uint32_t c);
   virtual void maintainSpeaker(uint32_t c, uint64_t runtimeInMicros);
 

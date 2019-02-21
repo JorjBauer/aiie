@@ -116,10 +116,7 @@ class FileManager {
     return fileSeekPositions[fd];
   };
 
-  virtual void setSeekPosition(int8_t fd, uint32_t pos) {
-    fileSeekPositions[fd] = pos;
-  };
-
+  virtual bool setSeekPosition(int8_t fd, uint32_t pos) = 0;
   virtual void seekToEnd(int8_t fd) = 0;
 
  protected:

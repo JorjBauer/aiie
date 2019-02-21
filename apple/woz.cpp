@@ -336,9 +336,64 @@ void Woz::_initInfo()
   }
 }
 
-bool Woz::readDskFile(const char *filename, uint8_t subtype)
+bool Woz::readAndDecodeTrack(uint8_t track, int8_t fh)
+{
+  if (imageType == T_PO || 
+      imageType == T_DSK) {
+    static uint8_t sectorData[256*16];
+
+    g_filemanager->setSeekPosition(fh, 256*16*track);
+    
+    for (int i=0; i<256*16; i++) {
+      // FIXME: no error checking
+      sectorData[i] = g_filemanager->readByte(fh);
+    }
+    
+    tracks[track].trackData = (uint8_t *)calloc(NIBTRACKSIZE, 1);
+    if (!tracks[track].trackData) {
+#ifndef TEENSYDUINO
+      fprintf(stderr, "Failed to malloc track data\n");
+#endif
+      return false;
+    }
+    tracks[track].startingBlock = STARTBLOCK + 13*track;
+    tracks[track].blockCount = 13;
+    uint32_t sizeInBits = nibblizeTrack(tracks[track].trackData, sectorData, imageType, track);
+    tracks[track].bitCount = sizeInBits; // ... reality.
+
+    return true;
+  }
+  else if (imageType == T_NIB) {
+    tracks[track].trackData = (uint8_t *)malloc(NIBTRACKSIZE);
+    if (!tracks[track].trackData) {
+#ifndef TEENSYDUINO
+      printf("Failed to malloc track data\n");
+#endif
+      return false;
+    }
+
+    g_filemanager->setSeekPosition(fh, NIBTRACKSIZE * track);
+    for (int i=0; i<NIBTRACKSIZE; i++) {
+      // FIXME: no error checking
+      tracks[track].trackData[i] = g_filemanager->readByte(fh);
+    }
+
+    tracks[track].startingBlock = STARTBLOCK + 13*track;
+    tracks[track].blockCount = 13;
+    tracks[track].bitCount = NIBTRACKSIZE*8;
+
+    return true;
+  }
+
+  printf("ERROR: need to implement WOZ support in track reader\n");
+  return false;
+}
+
+bool Woz::readDskFile(const char *filename, bool preloadTracks, uint8_t subtype)
 {
   bool retval = false;
+
+  imageType = subtype;
 
   int8_t fh = g_filemanager->openFile(filename);
   if (fh == -1) {
@@ -351,25 +406,13 @@ bool Woz::readDskFile(const char *filename, uint8_t subtype)
   _initInfo();
 
   // Now read in the 35 tracks of data from the DSK file and convert them to NIB
-  uint8_t sectorData[256*16];
-  for (int track=0; track<35; track++) {
-      for (int i=0; i<256*16; i++) {
-	// FIXME: no error checking
-	sectorData[i] = g_filemanager->readByte(fh);
-      }
-
-      tracks[track].trackData = (uint8_t *)calloc(NIBTRACKSIZE, 1);
-      if (!tracks[track].trackData) {
-#ifndef TEENSYDUINO
-	fprintf(stderr, "Failed to malloc track data\n");
-#endif
+  if (preloadTracks) {
+    for (int track=0; track<35; track++) {
+      if (!readAndDecodeTrack(track, fh)) {
 	goto done;
       }
-      tracks[track].startingBlock = STARTBLOCK + 13*track;
-      tracks[track].blockCount = 13;
-      uint32_t sizeInBits = nibblizeTrack(tracks[track].trackData, sectorData, subtype, track);
-      tracks[track].bitCount = sizeInBits; // ... reality.
-  }
+    }
+  }      
 
   retval = true;
 
@@ -379,47 +422,41 @@ bool Woz::readDskFile(const char *filename, uint8_t subtype)
   return retval;
 }
 
-bool Woz::readNibFile(const char *filename)
+bool Woz::readNibFile(const char *filename, bool preloadTracks)
 {
+  bool ret = false;
+
+  imageType = T_NIB;
+
   int8_t fh = g_filemanager->openFile(filename);
   if (fh == -1) {
 #ifndef TEENSYDUINO
     perror("Unable to open input file");
 #endif
-    return false;
+    goto done;
   }
   
   _initInfo();
 
-  // Now read in the 35 tracks of data from the nib file
-  nibSector nibData[16];
-  uint8_t *nibDataPtr = (uint8_t *)nibData;
-  for (int track=0; track<35; track++) {
-    for (int i=0; i<NIBTRACKSIZE; i++) {
-      // FIXME: no error checking
-      nibDataPtr[i] = g_filemanager->readByte(fh);
+  if (preloadTracks) {
+    for (int track=0; track<35; track++) {
+      if (!readAndDecodeTrack(track, fh)) {
+	goto done;
+      }
     }
-    
-    tracks[track].trackData = (uint8_t *)calloc(NIBTRACKSIZE, 1);
-    if (!tracks[track].trackData) {
-#ifndef TEENSYDUINO
-      printf("Failed to malloc track data\n");
-#endif
-      return false;
-    }
-    
-    memcpy(tracks[track].trackData, nibData, NIBTRACKSIZE);
-    tracks[track].startingBlock = STARTBLOCK + 13*track;
-    tracks[track].blockCount = 13;
-    tracks[track].bitCount = NIBTRACKSIZE*8;
   }
-  g_filemanager->closeFile(fh);
+  ret = true;
 
-  return true;
+ done:
+  if (fh != -1) 
+    g_filemanager->closeFile(fh);
+  return ret;
 }
 
-bool Woz::readWozFile(const char *filename)
+bool Woz::readWozFile(const char *filename, bool preloadTracks)
 {
+  imageType = T_WOZ;
+
   int8_t fh = g_filemanager->openFile(filename);
   if (fh == -1) {
 #ifndef TEENSYDUINO
@@ -471,17 +508,19 @@ bool Woz::readWozFile(const char *filename)
 #define cTRKS 4
 
   while (1) {
-    g_filemanager->setSeekPosition(fh, fpos); // FIXME: no error checking
+    if (!g_filemanager->setSeekPosition(fh, fpos))
+      break;
 
     uint32_t chunkType;
     if (!read32(fh, &chunkType)) {
+      printf("Failed to read chunktype; breaking from loop\n");
       break;
     }
     uint32_t chunkDataSize;
     read32(fh, &chunkDataSize);
 
     bool isOk;
-
+    printf("reading chunk type 0x%X\n", chunkType);
     switch (chunkType) {
     case 0x4F464E49: // 'INFO'
       isOk = parseInfoChunk(fh, chunkDataSize);
@@ -500,11 +539,10 @@ bool Woz::readWozFile(const char *filename)
       break;
     default:
 #ifndef TEENSYDUINO
-      printf("Unknown chunk type 0x%X\n", chunkType);
+      printf("Unknown chunk type 0x%X; failed to read woz file\n", chunkType);
 #endif
       g_filemanager->closeFile(fh);
       return false;
-      break;
     }
 
     if (!isOk) {
@@ -525,13 +563,15 @@ bool Woz::readWozFile(const char *filename)
     return false;
   }
 
-  for (int i=0; i<35; i++) {
-    if (!readQuarterTrackData(fh, i*4)) {
+  if (preloadTracks) {
+    for (int i=0; i<40*4; i++) {
+      if (!readQuarterTrackData(fh, i)) {
 #ifndef TEENSYDUINO
-      printf("Failed to read QTD for track %d\n", i);
+	printf("Failed to read QTD for track %d\n", i);
 #endif
-      g_filemanager->closeFile(fh);
-      return false;
+	g_filemanager->closeFile(fh);
+	return false;
+      }
     }
   }
 
@@ -542,7 +582,7 @@ bool Woz::readWozFile(const char *filename)
   return true;
 }
 
-bool Woz::readFile(const char *filename, uint8_t forceType)
+bool Woz::readFile(const char *filename, bool preloadTracks, uint8_t forceType)
 {
   if (forceType == T_AUTO) {
     // Try to determine type from the file extension
@@ -575,18 +615,18 @@ bool Woz::readFile(const char *filename, uint8_t forceType)
 #ifndef TEENSYDUINO
     printf("reading woz file %s\n", filename);
 #endif
-    return readWozFile(filename);
+    return readWozFile(filename, preloadTracks);
   case T_DSK:
   case T_PO:
 #ifndef TEENSYDUINO
     printf("reading DSK file %s\n", filename);
 #endif
-    return readDskFile(filename, forceType);
+    return readDskFile(filename, preloadTracks, forceType);
   case T_NIB:
 #ifndef TEENSYDUINO
     printf("reading NIB file %s\n", filename);
 #endif
-    return readNibFile(filename);
+    return readNibFile(filename, preloadTracks);
   default:
 #ifndef TEENSYDUINO
     printf("Unknown disk type; unable to read\n");
@@ -598,6 +638,7 @@ bool Woz::readFile(const char *filename, uint8_t forceType)
 bool Woz::parseTRKSChunk(int8_t fh, uint32_t chunkSize)
 {
   if (di.version == 2) {
+    printf("v2 parse\n");
     for (int i=0; i<160; i++) {
       if (!read16(fh, &tracks[i].startingBlock))
 	return false;
@@ -610,6 +651,7 @@ bool Woz::parseTRKSChunk(int8_t fh, uint32_t chunkSize)
     return true;
   }
 
+  printf("v1 parse\n");
   // V1 parsing
   uint32_t ptr = 0;
   uint8_t trackNumber = 0;
@@ -739,6 +781,10 @@ bool Woz::readQuarterTrackData(int8_t fh, uint8_t quartertrack)
     // It's a tween-track with no reliable data.
     return true;
   }
+
+  // assume if it's malloc'd, then we've already read it
+  if (tracks[targetImageTrack].trackData)
+    return true;
 
   uint16_t bitsStartBlock = tracks[targetImageTrack].startingBlock;
 

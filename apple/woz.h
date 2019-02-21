@@ -36,7 +36,7 @@ class Woz {
   Woz();
   ~Woz();
 
-  bool readFile(const char *filename, uint8_t forceType = T_AUTO);
+  bool readFile(const char *filename, bool preloadTracks, uint8_t forceType = T_AUTO);
   bool writeFile(uint8_t version, const char *filename);
 
   uint8_t getNextWozBit(uint8_t track);
@@ -55,9 +55,9 @@ class Woz {
   uint8_t trackNumberForQuarterTrack(uint16_t qt);
 
  private:
-  bool readWozFile(const char *filename);
-  bool readDskFile(const char *filename, uint8_t subtype);
-  bool readNibFile(const char *filename);
+  bool readWozFile(const char *filename, bool preloadTracks);
+  bool readDskFile(const char *filename, bool preloadTracks, uint8_t subtype);
+  bool readNibFile(const char *filename, bool preloadTracks);
 
   uint8_t fakeBit();
 
@@ -73,9 +73,13 @@ class Woz {
   bool readQuarterTrackData(int8_t fh, uint8_t quartertrack);
   bool readSectorData(uint8_t track, uint8_t sector, nibSector *sectorData);
 
+  bool readAndDecodeTrack(uint8_t track, int8_t fh);
+
   void _initInfo();
 
  protected:
+  uint8_t imageType;
+
   uint8_t quarterTrackMap[40*4];
   diskInfo di;
   trackInfo tracks[160];

@@ -19,8 +19,6 @@ class SDLSpeaker : public PhysicalSpeaker {
   virtual void beginMixing();
   virtual void mixOutput(uint8_t v);
 
-  virtual uint32_t bufferedContentSize();
-
  private:
   uint8_t mixerValue;
   bool toggleState;

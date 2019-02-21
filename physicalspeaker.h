@@ -14,8 +14,6 @@ class PhysicalSpeaker {
   virtual void beginMixing() = 0;
   virtual void mixOutput(uint8_t v) = 0;
 
-  virtual uint32_t bufferedContentSize() = 0;
-
 };
 
 #endif
