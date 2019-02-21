@@ -395,7 +395,7 @@ void DiskII::insertDisk(int8_t driveNum, const char *filename, bool drawIt)
   ejectDisk(driveNum);
 
   disk[driveNum] = new WozSerializer();
-  disk[driveNum]->readFile(filename, true, T_AUTO); // FIXME error checking
+  disk[driveNum]->readFile(filename, false, T_AUTO); // FIXME error checking
 
   curWozTrack[driveNum] = disk[driveNum]->trackNumberForQuarterTrack(curHalfTrack[driveNum]*2);
 

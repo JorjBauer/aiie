@@ -71,6 +71,7 @@ class Woz {
   bool writeTRKSChunk(uint8_t version, int8_t fh);
 
   bool readQuarterTrackData(int8_t fh, uint8_t quartertrack);
+  bool readWozTrackData(int8_t fh, uint8_t wt);
   bool readSectorData(uint8_t track, uint8_t sector, nibSector *sectorData);
 
   bool readAndDecodeTrack(uint8_t track, int8_t fh);
@@ -79,6 +80,9 @@ class Woz {
 
  protected:
   uint8_t imageType;
+
+  int8_t fh;
+  bool autoFlushTrackData;
 
   uint8_t quarterTrackMap[40*4];
   diskInfo di;
