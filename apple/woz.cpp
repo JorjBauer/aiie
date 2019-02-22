@@ -30,6 +30,7 @@ Woz::Woz()
 {
   trackPointer = 0;
   trackBitIdx = 0x80;
+  trackBitCounter = 0;
   trackLoopCounter = 0;
   metaData = NULL;
 
@@ -39,6 +40,7 @@ Woz::Woz()
   memset(&quarterTrackMap, 255, sizeof(quarterTrackMap));
   memset(&di, 0, sizeof(diskInfo));
   memset(&tracks, 0, sizeof(tracks));
+  randPtr = 0;
 }
 
 Woz::~Woz()
@@ -70,11 +72,16 @@ uint8_t Woz::getNextWozBit(uint8_t track)
     }
     // need another byte out of the track stream
     trackByte = tracks[track].trackData[trackPointer++];
-    if (trackPointer >= tracks[track].bitCount / 8) {
-      trackPointer = 0;
-      trackLoopCounter++;
-    }
   }
+
+  if (trackBitCounter >= tracks[track].bitCount) {
+    trackPointer = 0;
+    trackBitIdx = 0x80;
+    trackLoopCounter++;
+    trackByte = tracks[track].trackData[trackPointer++];
+    trackBitCounter = 0;
+  }
+  trackBitCounter++;
 
   uint8_t ret = (trackByte & trackBitIdx) ? 1 : 0;
 
@@ -88,8 +95,18 @@ uint8_t Woz::getNextWozBit(uint8_t track)
 
 uint8_t Woz::fakeBit()
 {
-  // 30% should be 1s
-  return 0;
+  // 30% should be 1s, but I'm not biasing the data here, so this is
+  // more like 50% 1s.
+
+  if (randPtr == 0) {
+    randPtr = 0x80;
+    randData = (uint8_t) ((float)256*rand()/(RAND_MAX+1.0));
+  }
+
+  uint8_t ret = (randData & randPtr) ? 1 : 0;
+  randPtr >>= 1;
+
+  return ret;
 }
 
 uint8_t Woz::nextDiskBit(uint8_t track)

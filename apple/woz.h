@@ -90,10 +90,12 @@ class Woz {
 
   // cursor for track enumeration
   uint32_t trackPointer;
+  uint32_t trackBitCounter;
   uint8_t trackByte;
   uint8_t trackBitIdx;
   uint8_t trackLoopCounter;
   char *metaData;
+  uint8_t randData, randPtr;
 };
 
 #endif
