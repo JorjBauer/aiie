@@ -244,8 +244,6 @@ void loop()
     biosInterrupt();
   } 
 
-  ((AppleVM*)g_vm)->disk6->fillDiskBuffer();
-
   g_keyboard->maintainKeyboard();
 
   //debugLCDState = !debugLCDState;

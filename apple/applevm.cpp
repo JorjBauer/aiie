@@ -132,6 +132,7 @@ void AppleVM::cpuMaintenance(uint32_t cycles)
   }
 
   keyboard->maintainKeyboard(cycles);
+  disk6->maintenance(cycles);
 }
 
 void AppleVM::Reset()

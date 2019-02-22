@@ -422,9 +422,6 @@ int main(int argc, char *argv[])
     
     static uint32_t usleepcycles = 16384; // step-down for display drawing. Dynamically updated based on FPS calculations.
 
-    // fill disk buffer when needed
-    ((AppleVM*)g_vm)->disk6->fillDiskBuffer();
-
     g_ui->blit();
     if (g_vm->vmdisplay->needsRedraw()) {
       AiieRect what = g_vm->vmdisplay->getDirtyRect();

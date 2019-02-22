@@ -36,7 +36,7 @@ class DiskII : public Slot {
   const char *DiskName(int8_t num);
   void flushTrack(int8_t track, int8_t sel);
 
-  void fillDiskBuffer(); // called from main loop
+  void maintenance(uint32_t cycles);
 
  private:
   void setPhase(uint8_t phase);
@@ -63,7 +63,7 @@ class DiskII : public Slot {
   bool writeProt;
   AppleMMU *mmu;
 
-  volatile uint8_t indicatorIsOn[2];
+  volatile uint32_t diskIsSpinningUntil[2];
 
   volatile int8_t selectedDisk;
 };

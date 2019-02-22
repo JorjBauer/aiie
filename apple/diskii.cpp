@@ -19,6 +19,9 @@
 
 #define DISKIIMAGIC 0xAA
 
+// how many CPU cycles do we wait to spin down the disk drive?
+#define SPINDOWNDELAY (1023)
+
 DiskII::DiskII(AppleMMU *mmu)
 {
   this->mmu = mmu;
@@ -35,7 +38,7 @@ DiskII::DiskII(AppleMMU *mmu)
   lastDiskRead[0] = lastDiskRead[1] = 0;
 
   disk[0] = disk[1] = NULL;
-  indicatorIsOn[0] = indicatorIsOn[1] = 0;
+  diskIsSpinningUntil[0] = diskIsSpinningUntil[1] = 0;
   selectedDisk = 0;
 }
 
@@ -71,8 +74,24 @@ bool DiskII::Serialize(int8_t fd)
       return false;
   }
 
-  g_filemanager->writeByte(fd, indicatorIsOn[0]);
-  g_filemanager->writeByte(fd, indicatorIsOn[1]);
+  g_filemanager->writeByte(fd, 
+			   (diskIsSpinningUntil[0] & 0xFF000000) >> 24);
+  g_filemanager->writeByte(fd, 
+			   (diskIsSpinningUntil[0] & 0x00FF0000) >> 16);
+  g_filemanager->writeByte(fd, 
+			   (diskIsSpinningUntil[0] & 0x0000FF00) >> 8);
+  g_filemanager->writeByte(fd, 
+			   (diskIsSpinningUntil[0] & 0x000000FF)     );
+
+  g_filemanager->writeByte(fd, 
+			   (diskIsSpinningUntil[1] & 0xFF000000) >> 24);
+  g_filemanager->writeByte(fd, 
+			   (diskIsSpinningUntil[1] & 0x00FF0000) >> 16);
+  g_filemanager->writeByte(fd, 
+			   (diskIsSpinningUntil[1] & 0x0000FF00) >> 8);
+  g_filemanager->writeByte(fd, 
+			   (diskIsSpinningUntil[1] & 0x000000FF)     );
+  
 
   g_filemanager->writeByte(fd, selectedDisk);
 
@@ -112,8 +131,15 @@ bool DiskII::Deserialize(int8_t fd)
     }
   }
 
-  indicatorIsOn[0] = g_filemanager->readByte(fd);
-  indicatorIsOn[1] = g_filemanager->readByte(fd);
+  diskIsSpinningUntil[0] = g_filemanager->readByte(fd);
+  diskIsSpinningUntil[0] <<= 8;diskIsSpinningUntil[0] = g_filemanager->readByte(fd);
+  diskIsSpinningUntil[0] <<= 8;diskIsSpinningUntil[0] = g_filemanager->readByte(fd);
+  diskIsSpinningUntil[0] <<= 8;diskIsSpinningUntil[0] = g_filemanager->readByte(fd);
+
+  diskIsSpinningUntil[1] = g_filemanager->readByte(fd);
+  diskIsSpinningUntil[1] <<= 8;diskIsSpinningUntil[1] = g_filemanager->readByte(fd);
+  diskIsSpinningUntil[1] <<= 8;diskIsSpinningUntil[1] = g_filemanager->readByte(fd);
+  diskIsSpinningUntil[1] <<= 8;diskIsSpinningUntil[1] = g_filemanager->readByte(fd);
 
   selectedDisk = g_filemanager->readByte(fd);
 
@@ -162,11 +188,13 @@ uint8_t DiskII::readSwitches(uint8_t s)
     break;
 
   case 0x08: // drive off
-    indicatorIsOn[selectedDisk] = 99;
-    g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false); // FIXME: delay a bit? Queue for later drawing? ***
+    diskIsSpinningUntil[selectedDisk] = g_cpu->cycles + SPINDOWNDELAY; // 1 second lag
+    if (diskIsSpinningUntil[selectedDisk] == -1 ||
+	diskIsSpinningUntil[selectedDisk] == 0)
+      diskIsSpinningUntil[selectedDisk] = 2; // fudge magic numbers; 0 is "off" and -1 is "forever".
     break;
   case 0x09: // drive on
-    indicatorIsOn[selectedDisk] = 100;
+    diskIsSpinningUntil[selectedDisk] = -1; // magic "forever"
     g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, true); // FIXME: delay a bit? Queue for later drawing? ***
 
     // Start the given disk drive spinning
@@ -182,10 +210,6 @@ uint8_t DiskII::readSwitches(uint8_t s)
 
   case 0x0C: // shift one read or write byte
     readWriteLatch = readOrWriteByte();
-    /*
-    if (readWriteLatch & 0x80)
-      printf(" => Disk II reads 0x%.2X @ $%.4X\n", sequencer, g_cpu->pc);
-    */
     if (readWriteLatch & 0x80)
       sequencer = 0;
     break;
@@ -207,24 +231,6 @@ uint8_t DiskII::readSwitches(uint8_t s)
   case 0x0F: // set write mode
     setWriteMode(true);
     break;
-  }
-
-  // FIXME: improve the spin-down here. We need a CPU cycle callback
-  // for some period of time instead of this silly decrement counter ***
-  if (!indicatorIsOn[selectedDisk]) {
-    //    printf("Unexpected read while disk isn't on?\n");
-    indicatorIsOn[selectedDisk] = 100;
-    g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, true); // FIXME: queue for later drawing?
-  }
-  if (indicatorIsOn[selectedDisk] > 0 && indicatorIsOn[selectedDisk] < 100) {
-    // slowly spin it down...
-    if (--indicatorIsOn[selectedDisk] == 0) {
-      g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false); // FIXME: queue for later drawing?
-
-    // Stop the given disk drive spinning
-      lastDiskRead[selectedDisk] = 0; // FIXME: magic value. We need a tristate for this. ***
-    }
-
   }
 
   // Any even address read returns the readWriteLatch (UTA2E Table 9.1,
@@ -257,8 +263,17 @@ void DiskII::writeSwitches(uint8_t s, uint8_t v)
     break;
 
   case 0x08: // drive off
+    diskIsSpinningUntil[selectedDisk] = g_cpu->cycles + SPINDOWNDELAY; // 1 second lag
+    if (diskIsSpinningUntil[selectedDisk] == -1 ||
+	diskIsSpinningUntil[selectedDisk] == 0)
+      diskIsSpinningUntil[selectedDisk] = 2; // fudge magic numbers; 0 is "off" and -1 is "forever".
     break;
   case 0x09: // drive on
+    diskIsSpinningUntil[selectedDisk] = -1; // magic "forever"
+    g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, true); // FIXME: delay a bit? Queue for later drawing? ***
+
+    // Start the given disk drive spinning
+    lastDiskRead[selectedDisk] = g_cpu->cycles;
     break;
 
   case 0x0A: // select drive 1
@@ -418,8 +433,11 @@ void DiskII::select(int8_t which)
     return;
 
   if (which != selectedDisk) {
+#if 0
+    *** fixme check if the drive is still "on"
     indicatorIsOn[selectedDisk] = 100; // spindown time (fixme)
     g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false); // FIXME: queue for later drawing?
+#endif
 
     // set the selected disk drive
     selectedDisk = which;
@@ -445,38 +463,39 @@ uint8_t DiskII::readOrWriteByte()
   uint32_t curCycles = g_cpu->cycles;
   bool updateCycles = false;
 
-  if (lastDiskRead[selectedDisk] == 0) {
-    // assume it's a first-read-after-spinup; return the first valid data
-    sequencer = disk[selectedDisk]->nextDiskByte(curWozTrack[selectedDisk]);
-    updateCycles = true;
-    goto done;
+  if (diskIsSpinningUntil[selectedDisk] >= curCycles) {
+
+    if (lastDiskRead[selectedDisk] == 0) {
+      // assume it's a first-read-after-spinup; return the first valid data
+      sequencer = disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
+      updateCycles = true;
+      goto done;
+    }
+    
+    // Otherwise we figure out how many cycles we missed since the last
+    // disk read, and pop the right number of bits off the woz track
+    uint32_t missedCycles;
+    missedCycles = curCycles - lastDiskRead[selectedDisk];
+    
+    missedCycles >>= 2;
+    if (missedCycles)
+      updateCycles = true;
+    while (missedCycles) {
+      sequencer <<= 1;
+      sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
+      missedCycles--;
+    }
   }
 
-  // Otherwise we figure out how many cycles we missed since the last
-  // disk read, and pop the right number of bits off the woz track
-  uint32_t missedCycles;
-  missedCycles = curCycles - lastDiskRead[selectedDisk];
-
-  missedCycles >>= 2;
-  if (missedCycles)
-    updateCycles = true;
-  while (missedCycles) {
-    sequencer <<= 1;
-    sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
-    missedCycles--;
-  }
-
+    
  done:
   if (updateCycles) {
     // We only update the lastDiskRead counter if the number of passed
     // cycles indicates that we did some sort of work...
     lastDiskRead[selectedDisk] = curCycles;
   }
+  
   return sequencer;
-}
-
-void DiskII::fillDiskBuffer()
-{
 }
 
 const char *DiskII::DiskName(int8_t num)
@@ -508,4 +527,19 @@ void DiskII::flushTrack(int8_t track, int8_t sel)
   }
 
   // ***
+}
+
+void DiskII::maintenance(uint32_t cycle)
+{
+  // Handle spin-down for the drive. Drives stay on for a second after
+  // the stop was noticed.
+  for (int i=0; i<2; i++) {
+    if (diskIsSpinningUntil[i] && 
+	g_cpu->cycles > diskIsSpinningUntil[i]) {
+      // Stop the given disk drive spinning
+      lastDiskRead[i] = 0; // FIXME: magic value. We need a tristate for this. ***
+      diskIsSpinningUntil[i] = 0;
+      g_ui->drawOnOffUIElement(UIeDisk1_activity + i, false); // FIXME: queue for later drawing?
+    }
+  }
 }
