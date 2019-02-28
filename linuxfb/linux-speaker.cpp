@@ -14,6 +14,10 @@ LinuxSpeaker::~LinuxSpeaker()
 {
 }
 
+void LinuxSpeaker::begin()
+{
+}
+
 void LinuxSpeaker::toggle(uint32_t c)
 {
 }

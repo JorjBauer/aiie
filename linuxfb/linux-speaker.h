@@ -12,6 +12,8 @@ class LinuxSpeaker : public PhysicalSpeaker {
   LinuxSpeaker();
   virtual ~LinuxSpeaker();
 
+  virtual void begin();
+  
   virtual void toggle(uint32_t c);
   virtual void maintainSpeaker(uint32_t c, uint64_t microseconds);
   virtual void beginMixing();

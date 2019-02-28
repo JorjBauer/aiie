@@ -82,8 +82,9 @@ void preload_crc()
 uint32_t compute_crc_32(unsigned char *buffer, unsigned long length)
 {
   uint32_t ret = ~0U;
-	
-  for (unsigned long i=0; i<length; i++)
+
+  unsigned long i;
+  for (i=0; i<length; i++)
     ret = (ret>>8) ^ preload32[(ret ^ buffer[i])&0xFF];
   
   return ret ^ ~0U;
