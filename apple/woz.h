@@ -8,6 +8,16 @@
 #include "nibutil.h"
 #include "disktypes.h"
 
+#define DUMP_TRACK         0x01
+#define DUMP_QTMAP         0x02
+#define DUMP_QTCRC         0x04
+// these all require DUMP_TRACK:
+#define DUMP_TOFILE        0x10
+#define DUMP_SECTOR        0x20
+#define DUMP_RAWTRACK      0x40
+#define DUMP_ORDEREDSECTOR 0x80
+
+
 typedef struct _diskInfo {
   uint8_t version;          // Woz format version #
   uint8_t diskType;         // 1 = 5.25"; 2 = 3.5"
@@ -33,57 +43,72 @@ typedef struct _trackInfo {
 
 class Woz {
  public:
-  Woz();
+  Woz(bool verbose, uint8_t dumpflags);
   ~Woz();
 
   bool readFile(const char *filename, bool preloadTracks, uint8_t forceType = T_AUTO);
-  bool writeFile(uint8_t version, const char *filename);
+  bool writeFile(const char *filename, uint8_t forceType = T_AUTO);
 
-  uint8_t getNextWozBit(uint8_t track);
-  uint8_t nextDiskBit(uint8_t track);
-  uint8_t nextDiskByte(uint8_t track);
+  uint8_t getNextWozBit(uint8_t datatrack);
 
-  bool decodeWozTrackToNib(uint8_t track, nibSector sectorData[16]);
-  bool decodeWozTrackToDsk(uint8_t track, uint8_t subtype, uint8_t sectorData[256*16]);
-
-#ifndef TEENSYDUINO
   void dumpInfo();
-#endif
 
   bool isSynchronized();
 
-  uint8_t trackNumberForQuarterTrack(uint16_t qt);
+  uint8_t dataTrackNumberForQuarterTrack(uint16_t qt);
+  
+  bool flush();
+
+  //protected:
+  // Interface for AiiE
+  bool writeNextWozBit(uint8_t datatrack, uint8_t bit);
+  bool writeNextWozByte(uint8_t datatrack, uint8_t b);
+  uint8_t nextDiskBit(uint8_t datatrack);
+  uint8_t nextDiskByte(uint8_t datatrack);
+  bool skipByte(uint8_t datatrack);
 
  private:
   bool readWozFile(const char *filename, bool preloadTracks);
   bool readDskFile(const char *filename, bool preloadTracks, uint8_t subtype);
   bool readNibFile(const char *filename, bool preloadTracks);
 
+  bool decodeWozTrackToNib(uint8_t phystrack, nibSector sectorData[16]);
+  bool decodeWozTrackToDsk(uint8_t phystrack, uint8_t subtype, uint8_t sectorData[256*16]);
+
+  bool writeWozFile(const char *filename, uint8_t subtype);
+  bool writeDskFile(const char *filename, uint8_t subtype);
+  bool writeNibFile(const char *filename);
+
   uint8_t fakeBit();
 
-  bool parseTRKSChunk(int8_t fh, uint32_t chunkSize);
-  bool parseTMAPChunk(int8_t fh, uint32_t chunkSize);
-  bool parseInfoChunk(int8_t fh, uint32_t chunkSize);
-  bool parseMetaChunk(int8_t fh, uint32_t chunkSize);
+  bool parseTRKSChunk(uint32_t chunkSize);
+  bool parseTMAPChunk(uint32_t chunkSize);
+  bool parseInfoChunk(uint32_t chunkSize);
+  bool parseMetaChunk(uint32_t chunkSize);
 
-  bool writeInfoChunk(uint8_t version, int8_t fh);
-  bool writeTMAPChunk(uint8_t version, int8_t fh);
-  bool writeTRKSChunk(uint8_t version, int8_t fh);
+  bool writeInfoChunk(uint8_t version, int fdout);
+  bool writeTMAPChunk(uint8_t version, int fdout);
+  bool writeTRKSChunk(uint8_t version, int fdout);
 
-  bool readQuarterTrackData(int8_t fh, uint8_t quartertrack);
-  bool readWozTrackData(int8_t fh, uint8_t wt);
-  bool readSectorData(uint8_t track, uint8_t sector, nibSector *sectorData);
+  bool readWozDataTrack(uint8_t datatrack);
+  bool readNibSectorData(uint8_t phystrack, uint8_t sector, nibSector *sectorData);
 
-  bool readAndDecodeTrack(uint8_t track, int8_t fh);
+  bool loadMissingTrackFromImage(uint8_t datatrack);
+  
+  bool checksumWozDataTrack(uint8_t datatrack, uint32_t *retCRC);
 
   void _initInfo();
 
- protected:
+ private:
+  int fd;
   uint8_t imageType;
+  
+  bool verbose;
+  uint8_t dumpflags;
 
-  int8_t fh;
   bool autoFlushTrackData;
-
+  bool trackDirty;
+  
   uint8_t quarterTrackMap[40*4];
   diskInfo di;
   trackInfo tracks[160];

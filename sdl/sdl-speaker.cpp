@@ -104,7 +104,7 @@ void SDLSpeaker::begin()
   audioDevice.userdata = NULL;
 
   memset(&soundBuf[0], 0, SDLSIZE);
-  bufIdx = SDLSIZE/2;
+  bufIdx = SDLSIZE/2; // FIXME: why? Shouldn't this just be 0?
 
   SDL_OpenAudio(&audioDevice, &audioActual); // FIXME retval
   printf("Actual: freq %d channels %d samples %d\n", 

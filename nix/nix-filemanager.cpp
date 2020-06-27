@@ -56,6 +56,12 @@ void NixFileManager::closeFile(int8_t fd)
   cachedNames[fd][0] = '\0';
 }
 
+void NixFileManager::truncate(int8_t fd)
+{
+  FILE *f = fopen(cachedNames[fd], "w+");
+  fclose(f);
+}
+
 const char *NixFileManager::fileName(int8_t fd)
 {
   if (fd < 0 || fd >= numCached)

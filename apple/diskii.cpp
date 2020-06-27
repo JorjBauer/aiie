@@ -40,6 +40,10 @@ DiskII::DiskII(AppleMMU *mmu)
   disk[0] = disk[1] = NULL;
   diskIsSpinningUntil[0] = diskIsSpinningUntil[1] = 0;
   selectedDisk = 0;
+
+  driveSpinupCycles = 0;
+  deliveredDiskBits = 0;
+  //  debugDeliveredDiskBits = 0;
 }
 
 DiskII::~DiskII()
@@ -163,6 +167,36 @@ void DiskII::Reset()
   ejectDisk(1);
 }
 
+void DiskII::driveOff()
+{
+  diskIsSpinningUntil[selectedDisk] = g_cpu->cycles + SPINDOWNDELAY; // 1 second lag
+  if (diskIsSpinningUntil[selectedDisk] == -1 ||
+      diskIsSpinningUntil[selectedDisk] == 0)
+    diskIsSpinningUntil[selectedDisk] = 2; // fudge magic numbers; 0 is "off" and -1 is "forever".
+
+  // The drive-is-on-indicator is turned off later, when the disk
+  // actually spins down.
+}
+
+void DiskII::driveOn()
+{
+  if (diskIsSpinningUntil[selectedDisk] != -1) {
+    // If the drive isn't already spinning, then start keeping track of how
+    // many bits we've delivered (so we can honor the disk bit-delivery time
+    // that might be in the Woz disk image).
+    driveSpinupCycles = g_cpu->cycles;
+    //printf("driveOn @ cycle %d\n", driveSpinupCycles);
+    deliveredDiskBits = 0;
+    //    debugDeliveredDiskBits = 0;
+    diskIsSpinningUntil[selectedDisk] = -1; // magic "forever"
+  }
+
+  g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, true); // FIXME: do we really want to update the UI from inside this thread?
+  
+  // Start the given disk drive spinning
+  lastDiskRead[selectedDisk] = g_cpu->cycles;
+}
+
 uint8_t DiskII::readSwitches(uint8_t s)
 {
   switch (s) {
@@ -188,17 +222,10 @@ uint8_t DiskII::readSwitches(uint8_t s)
     break;
 
   case 0x08: // drive off
-    diskIsSpinningUntil[selectedDisk] = g_cpu->cycles + SPINDOWNDELAY; // 1 second lag
-    if (diskIsSpinningUntil[selectedDisk] == -1 ||
-	diskIsSpinningUntil[selectedDisk] == 0)
-      diskIsSpinningUntil[selectedDisk] = 2; // fudge magic numbers; 0 is "off" and -1 is "forever".
+    driveOff();
     break;
   case 0x09: // drive on
-    diskIsSpinningUntil[selectedDisk] = -1; // magic "forever"
-    g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, true); // FIXME: delay a bit? Queue for later drawing? ***
-
-    // Start the given disk drive spinning
-    lastDiskRead[selectedDisk] = g_cpu->cycles;
+    driveOn();
     break;
 
   case 0x0A: // select drive 1
@@ -210,8 +237,15 @@ uint8_t DiskII::readSwitches(uint8_t s)
 
   case 0x0C: // shift one read or write byte
     readWriteLatch = readOrWriteByte();
-    if (readWriteLatch & 0x80)
+    if (readWriteLatch & 0x80) {
+      //      static uint32_t lastC = 0;
+      //      printf("%u: read data\n", g_cpu->cycles - lastC);
+      //      lastC = g_cpu->cycles;
+      if (!(sequencer & 0x80)) {
+	printf("SEQ RESET EARLY [1]\n");
+      }
       sequencer = 0;
+    }
     break;
 
   case 0x0D: // load data register (latch)
@@ -223,6 +257,10 @@ uint8_t DiskII::readSwitches(uint8_t s)
       else
 	readWriteLatch &= 0x7F;
     }
+    if (!(sequencer & 0x80)) {
+      printf("SEQ RESET EARLY [2]\n");
+    }
+    sequencer = 0;
     break;
 
   case 0x0E: // set read mode
@@ -263,17 +301,10 @@ void DiskII::writeSwitches(uint8_t s, uint8_t v)
     break;
 
   case 0x08: // drive off
-    diskIsSpinningUntil[selectedDisk] = g_cpu->cycles + SPINDOWNDELAY; // 1 second lag
-    if (diskIsSpinningUntil[selectedDisk] == -1 ||
-	diskIsSpinningUntil[selectedDisk] == 0)
-      diskIsSpinningUntil[selectedDisk] = 2; // fudge magic numbers; 0 is "off" and -1 is "forever".
+    driveOff();
     break;
   case 0x09: // drive on
-    diskIsSpinningUntil[selectedDisk] = -1; // magic "forever"
-    g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, true); // FIXME: delay a bit? Queue for later drawing? ***
-
-    // Start the given disk drive spinning
-    lastDiskRead[selectedDisk] = g_cpu->cycles;
+    driveOn();
     break;
 
   case 0x0A: // select drive 1
@@ -284,8 +315,12 @@ void DiskII::writeSwitches(uint8_t s, uint8_t v)
     break;
 
   case 0x0C: // shift one read or write byte
-    if (readOrWriteByte() & 0x80)
+    if (readOrWriteByte() & 0x80) {
+      if (!(sequencer & 0x80)) {
+	printf("SEQ RESET EARLY [3]\n");
+      }
       sequencer = 0;
+    }
     break;
 
   case 0x0D: // drive write
@@ -366,8 +401,9 @@ void DiskII::setPhase(uint8_t phase)
 
   if (curHalfTrack[selectedDisk] != prevHalfTrack) {
     // We're changing track - flush the old track back to disk
-
-    curWozTrack[selectedDisk] = disk[selectedDisk]->trackNumberForQuarterTrack(curHalfTrack[selectedDisk]*2);
+    // FIXME flush
+    curWozTrack[selectedDisk] = disk[selectedDisk]->dataTrackNumberForQuarterTrack(curHalfTrack[selectedDisk]*2);
+    printf("track change => %d\n", curWozTrack[selectedDisk]);
   }
 }
 
@@ -410,9 +446,9 @@ void DiskII::insertDisk(int8_t driveNum, const char *filename, bool drawIt)
   ejectDisk(driveNum);
 
   disk[driveNum] = new WozSerializer();
-  disk[driveNum]->readFile(filename, false, T_AUTO); // FIXME error checking
+  disk[driveNum]->readFile(filename, true, T_AUTO); // FIXME error checking; also FIXME the true is 'preload all tracks' and that won't work on the teensy
 
-  curWozTrack[driveNum] = disk[driveNum]->trackNumberForQuarterTrack(curHalfTrack[driveNum]*2);
+  curWozTrack[driveNum] = disk[driveNum]->dataTrackNumberForQuarterTrack(curHalfTrack[driveNum]*2);
 
   if (drawIt)
     g_ui->drawOnOffUIElement(UIeDisk1_state + driveNum, false);
@@ -444,8 +480,10 @@ void DiskII::select(int8_t which)
   }
 
   // Update the current woz track for the given disk drive
-  curWozTrack[selectedDisk] =
-    disk[selectedDisk]->trackNumberForQuarterTrack(curHalfTrack[selectedDisk]*2);
+  if (disk[selectedDisk]) {
+    curWozTrack[selectedDisk] =
+      disk[selectedDisk]->dataTrackNumberForQuarterTrack(curHalfTrack[selectedDisk]*2);
+  }
 }
 
 uint8_t DiskII::readOrWriteByte()
@@ -455,18 +493,24 @@ uint8_t DiskII::readOrWriteByte()
     return 0xFF;
   }
 
-  // FIXME: not handling writes at all at the moment ***
-  if (writeMode && !writeProt) {
-    return 0;
-  }
-
   uint32_t curCycles = g_cpu->cycles;
   bool updateCycles = false;
+
+  // FIXME: for writes, we need to check s/t like ... if (diskIsSpinningUntil[selectedDisk] >= curCycles) { return } ...
+
+  if (writeMode && !writeProt) {
+    // It's a write request. Inject 'readWriteLatch'.
+    disk[selectedDisk]->writeNextWozByte(curWozTrack[selectedDisk], readWriteLatch);
+
+    updateCycles = true; // need to update when we last read, b/c disk is still spinning
+    goto done;
+  }
 
   if (diskIsSpinningUntil[selectedDisk] >= curCycles) {
 
     if (lastDiskRead[selectedDisk] == 0) {
       // assume it's a first-read-after-spinup; return the first valid data
+      printf("FIRST SPIN\n");
       sequencer = disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
       updateCycles = true;
       goto done;
@@ -474,16 +518,87 @@ uint8_t DiskII::readOrWriteByte()
     
     // Otherwise we figure out how many cycles we missed since the last
     // disk read, and pop the right number of bits off the woz track
-    uint32_t missedCycles;
-    missedCycles = curCycles - lastDiskRead[selectedDisk];
-    
-    missedCycles >>= 2;
-    if (missedCycles)
+    //    uint32_t missedCycles;
+    //    missedCycles = curCycles - lastDiskRead[selectedDisk];
+
+    // The stock 4ms disk bit timing is just missedCycles >> 2. But we
+    // want to support others, too. We can't simply base it on cycle
+    // count any more at that point, because of fractional cycles
+    // being important.
+    // So instead of just "missedCycles >>= 2" here, we need to calculate
+    // how many *bits* should have been transited at time (x); and we need
+    // a floating counter of how long the drive has been spinning (b/c
+    // that's not a constant since startup!); and we need the counter of 
+    // how many bits we actually did pull from the drive. Then we can 
+    // calculate exactly how many bits we should pull this time, update the 
+    // number that did transit, and be more or less where we're supposed 
+    // to be for this clock cycle.
+
+    // Handle rollover, which is a mess.
+    if (driveSpinupCycles > g_cpu->cycles) {
+      printf("Cycle rollover\n");
+      driveSpinupCycles = g_cpu->cycles-1;
+#ifndef TEENSYDUINO
+      exit(2); // for debugging, FIXME ***
+#endif
+    }
+
+    uint32_t cyclesPassed = g_cpu->cycles - driveSpinupCycles;
+    //    printf("cy: %d cp: %d ", g_cpu->cycles, cyclesPassed);
+
+    // bits = cycles * (us per cycle) * (bits/us)
+    //#define BITSPEED 4.0
+    //    uint64_t expectedDiskBits = (float)cyclesPassed * (float)(1.0/(1.023*BITSPEED)); // clock speed*2 b/c the disk clock runs at twice the speed?
+    //        uint64_t expectedDiskBits = (float)cyclesPassed / 8.0;
+    uint64_t expectedDiskBits = (float) cyclesPassed / 3.52;
+    int64_t bitsToDeliver = expectedDiskBits - deliveredDiskBits;
+
+    //    printf("btd: %llu\n",bitsToDeliver);
+   // printf("mc>>2: %d; btd: %llu\n", missedCycles >> 2, bitsToDeliver);
+    //int64_t    bitsToDeliver = missedCycles>>2;
+    //    debugDeliveredDiskBits += (missedCycles >> 2);
+
+    if (bitsToDeliver > 0) {
+
+#if 1
+      /* TESTING - try delivering a byte, if there's a simple request, and let it drift forward in time very slightly */
+      if (bitsToDeliver < 16) {
+
+	//	if (bitsToDeliver >= 8) { sequencer = 0; }
+	while (bitsToDeliver > -16 && ((sequencer & 0x80) == 0)) {
+	  sequencer <<= 1;
+	  sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
+	  bitsToDeliver--;
+	  deliveredDiskBits++;
+	}
+	updateCycles = true;
+	goto done;
+      }
+      /* END TESTING */
+
+      //      printf("WARNING: missed data [%lld]\n", bitsToDeliver);
+#endif
       updateCycles = true;
-    while (missedCycles) {
-      sequencer <<= 1;
-      sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
-      missedCycles--;
+      
+      // Something is wrong here. I don't know why
+      // debugDeliveredDiskBits doesn't match bitsToDeliver. In
+      // theory, debugDDB is just missedCycles/4. deliveredDiskBits
+      // should be pretty much the same (1.023/4.0, so off by
+      // 2.3%). But in reality the drift is much greater.
+      //
+      // Is it related to the disk on/off timers? How does
+      // missedCycles differ? I could use missedCycles, except that it
+      // loses precision when we're talking about using a 3.5us bit
+      // timing, so that's a problem -- which is why I'm trying to
+      // base it on "real time" from when the disk drive starts
+      // spinning...
+
+      deliveredDiskBits += bitsToDeliver;
+      while (bitsToDeliver) {
+	sequencer <<= 1;
+	sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
+	bitsToDeliver--;
+      }
     }
   }
 
@@ -494,14 +609,18 @@ uint8_t DiskII::readOrWriteByte()
     // cycles indicates that we did some sort of work...
     lastDiskRead[selectedDisk] = curCycles;
   }
-  
+
   return sequencer;
 }
 
 const char *DiskII::DiskName(int8_t num)
 {
-  // ***
+  if (disk[num]) {
+    // *** need to get name from disk image FIXME
+    return "[inserted]";
+  }
 
+  // Nothing inserted in that drive
   return "";
 }
 
@@ -539,6 +658,11 @@ void DiskII::maintenance(uint32_t cycle)
       // Stop the given disk drive spinning
       lastDiskRead[i] = 0; // FIXME: magic value. We need a tristate for this. ***
       diskIsSpinningUntil[i] = 0;
+
+      if (disk[i]) {
+	disk[i]->flush();
+      }
+
       g_ui->drawOnOffUIElement(UIeDisk1_activity + i, false); // FIXME: queue for later drawing?
     }
   }

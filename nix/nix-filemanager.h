@@ -12,6 +12,8 @@ class NixFileManager : public FileManager {
   virtual int8_t openFile(const char *name);
   virtual void closeFile(int8_t fd);
 
+  virtual void truncate(int8_t fd);
+
   virtual const char *fileName(int8_t fd);
   
   virtual int8_t readDir(const char *where, const char *suffix, char *outputFN, int8_t startIdx, uint16_t maxlen);

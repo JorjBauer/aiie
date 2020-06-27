@@ -46,18 +46,26 @@ class DiskII : public Slot {
   void select(int8_t which); // 0 or 1 for drives 1 and 2, respectively
   uint8_t readOrWriteByte();
 
+  void driveOn();
+  void driveOff();
+
 #ifndef TEENSYDUINO
   void convertDskToNib(const char *outFN);
 #endif
 
+ public:
+  // debugging
+  WozSerializer *disk[2];
  private:
   volatile int8_t curHalfTrack[2];
   volatile uint8_t curWozTrack[2];
   volatile int8_t curPhase[2];
   uint8_t readWriteLatch;
   uint8_t sequencer, dataRegister; // diskII logic state sequencer vars
-  WozSerializer *disk[2];
   uint32_t lastDiskRead[2];
+  uint64_t driveSpinupCycles;
+  uint64_t deliveredDiskBits;
+  uint64_t debugDeliveredDiskBits;
   
   bool writeMode;
   bool writeProt;
