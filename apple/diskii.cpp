@@ -49,8 +49,6 @@ DiskII::~DiskII()
 
 bool DiskII::Serialize(int8_t fd)
 {
-  return false;
-
   g_filemanager->writeByte(fd, DISKIIMAGIC);
 
   g_filemanager->writeByte(fd, readWriteLatch);
@@ -110,11 +108,18 @@ bool DiskII::Serialize(int8_t fd)
     
     if (disk[i]) {
       g_filemanager->writeByte(fd, 1);
+      // FIXME: this ONLY works for builds using the filemanager to read
+      // the disk image, so it's broken until we port Woz to do that!
+      const char *fn = disk[i]->diskName();
+      for (int j=0; j<strlen(fn); j++) {
+	g_filemanager->writeByte(fd, fn[j]);
+      }
+      g_filemanager->writeByte(fd, 0);
+      if (!disk[i]->Serialize(fd))
+	return false;
     } else {
       g_filemanager->writeByte(fd, 0);
     }
-    if (!disk[i]->Serialize(fd))
-      return false;
   }
   
   g_filemanager->writeByte(fd, DISKIIMAGIC);
@@ -167,6 +172,24 @@ bool DiskII::Deserialize(int8_t fd)
       delete disk[i];
     if (g_filemanager->readByte(fd) == 1) {
       disk[i] = new WozSerializer();
+      char buf[MAXPATH];
+      char c;
+      int ptr = 0;
+      while ( (c = g_filemanager->readByte(fd) != 0) ) {
+	buf[ptr++] = c;
+      }
+      buf[ptr] = 0;
+      if (buf[0]) {
+#ifdef TEENSYDUINO
+	disk[i]->readFile(buf, false, T_AUTO); // FIXME error checking    
+#else
+	disk[i]->readFile(buf, true, T_AUTO); // FIXME error checking     
+#endif
+      } else {
+	// ERROR: there's a disk but we don't have the path to its image?
+	return false;
+      }
+      
       if (!disk[i]->Deserialize(fd))
 	return false;
     } else {

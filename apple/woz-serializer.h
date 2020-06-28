@@ -5,6 +5,7 @@
 class WozSerializer: public virtual Woz {
 public:
   WozSerializer();
+  const char *diskName();
 
  public:
   bool Serialize(int8_t fd);

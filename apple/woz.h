@@ -100,7 +100,6 @@ class Woz {
   void _initInfo();
 
  private:
-  int fd;
   uint8_t imageType;
   
   bool verbose;
@@ -114,11 +113,15 @@ class Woz {
   trackInfo tracks[160];
 
   // cursor for track enumeration
+protected:
+  int fd;
+  
   uint32_t trackPointer;
   uint32_t trackBitCounter;
   uint8_t trackByte;
   uint8_t trackBitIdx;
   uint8_t trackLoopCounter;
+private:
   char *metaData;
   uint8_t randData, randPtr;
 };
