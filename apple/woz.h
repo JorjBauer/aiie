@@ -76,8 +76,11 @@ class Woz {
   bool decodeWozTrackToDsk(uint8_t phystrack, uint8_t subtype, uint8_t sectorData[256*16]);
 
   bool writeWozFile(const char *filename, uint8_t subtype);
+  bool writeWozFile(int fd, uint8_t subtype);
   bool writeDskFile(const char *filename, uint8_t subtype);
+  bool writeDskFile(int fd, uint8_t subtype);
   bool writeNibFile(const char *filename);
+  bool writeNibFile(int fd);
 
   uint8_t fakeBit();
 
