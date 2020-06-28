@@ -11,6 +11,13 @@
 
 #define FMMAGIC 'F'
 
+#ifndef SEEK_SET
+#define SEEK_SET 0
+#endif
+#ifndef SEEK_CUR
+#define SEEK_CUR 1
+#endif
+
 class FileManager {
  public:
   virtual ~FileManager() {};
@@ -120,6 +127,34 @@ class FileManager {
 
   virtual bool setSeekPosition(int8_t fd, uint32_t pos) = 0;
   virtual void seekToEnd(int8_t fd) = 0;
+
+  int write(int8_t fd, const void *buf, int nbyte) {
+    uint8_t *p = (uint8_t *)buf;
+    for (int i=0; i<nbyte; i++) {
+      if (!writeByte(fd, p[i]))
+	return -1;
+    }
+    return nbyte;
+  };
+  int read(int8_t fd, void *buf, int nbyte) {
+    uint8_t *p = (uint8_t *)buf;
+    for (int i=0; i<nbyte; i++) {
+      p[i] = readByte(fd); // FIXME: no error handling
+    }
+    return nbyte;
+  };
+  int seek(int8_t fd, int offset, int whence) {
+    if (whence == SEEK_CUR && offset == 0) {
+      return fileSeekPositions[fd];
+    }
+    if (whence == SEEK_SET) {
+      if (!setSeekPosition(fd, offset))
+	return -1;
+      return offset;
+    }
+    // Other cases not supported yet
+    return -1;
+  };
 
  protected:
   unsigned long fileSeekPositions[MAXFILES];
