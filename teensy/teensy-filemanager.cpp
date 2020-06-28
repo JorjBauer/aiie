@@ -69,6 +69,11 @@ void TeensyFileManager::closeFile(int8_t fd)
   cachedNames[fd][0] = '\0';
 }
 
+void TeensyFileManager::truncate(int8_t fd)
+{
+  /* Not used in the code anywhere, yet, and unimplemented here... */
+}
+
 const char *TeensyFileManager::fileName(int8_t fd)
 {
   if (fd < 0 || fd >= numCached)
@@ -332,6 +337,7 @@ bool TeensyFileManager::writeByteAt(int8_t fd, uint8_t v, uint32_t pos)
   return (rawFile.write(&v, 1) == 1);
 }
 
+// FIXME: the semantics of this are wrong - lots of 'return false' for a uint8_t
 uint8_t TeensyFileManager::readByte(int8_t fd)
 {
   // open, seek, read, close.
