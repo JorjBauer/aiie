@@ -3,6 +3,9 @@
 #include "crc32.h"
 #include "nibutil.h"
 #include "version.h"
+#ifdef TEENSYDUINO
+#include "fscompat.h"
+#endif
 
 // Block number we start packing data bits after (Woz 2.0 images)
 #define STARTBLOCK 3
@@ -36,6 +39,7 @@ Woz::Woz(bool verbose, uint8_t dumpflags)
   metaData = NULL;
   this->verbose = verbose;
   this->dumpflags = dumpflags;
+  trackDirty = false;
 
   memset(&quarterTrackMap, 255, sizeof(quarterTrackMap));
   memset(&di, 0, sizeof(diskInfo));
@@ -121,6 +125,7 @@ bool Woz::writeNextWozByte(uint8_t datatrack, uint8_t b)
   
   // We could be byte-aligned, but it's not guaranteed, so this
   // handles it bitwise.
+#if 0
   printf("track %d write byte 0x%.2X @ ptr[%d] bitidx==0x%.2X ctr=%d\n", datatrack, b, trackPointer, trackBitIdx, trackBitCounter);
 
   // Debugging: aligning to bytes so I can see the effective bitstream
@@ -132,7 +137,8 @@ bool Woz::writeNextWozByte(uint8_t datatrack, uint8_t b)
     trackBitIdx = 0x80;
   }
   // end debugging
-
+#endif
+  
   for (uint8_t i=0; i<8; i++) {
     writeNextWozBit(datatrack, b & (1 << (7-i)) ? 1 : 0);
   }
@@ -347,9 +353,21 @@ bool Woz::writeFile(const char *filename, uint8_t forceType)
 
 bool Woz::writeWozFile(const char *filename, uint8_t subtype)
 {
-  int version = 2; // FIXME: determine from subtype
-  
   int fdout = -1;
+
+  fdout = open(filename, O_TRUNC|O_CREAT|O_RDWR, S_IRUSR|S_IWUSR);
+  if (fdout == -1) {
+    perror("ERROR: Unable to open output file");
+    return false;
+  }
+
+  bool retval = writeWozFile(fdout, subtype);
+  close(fdout);
+  return retval;
+}
+
+bool Woz::writeWozFile(int fdout, uint8_t subtype)
+{
   bool retval = false;
   uint32_t tmp32; // scratch 32-bit value
   off_t crcPos, endPos;
@@ -357,17 +375,13 @@ bool Woz::writeWozFile(const char *filename, uint8_t subtype)
   uint32_t crcDataSize;
   uint8_t *crcData = NULL;
 
-
+  int version = 2; // FIXME: determine from subtype
+  
   if (version > 2 || !version) {
     fprintf(stderr, "ERROR: version must be 1 or 2\n");
-    goto done;
+    return false;
   }
-
-  fdout = open(filename, O_TRUNC|O_CREAT|O_RDWR, S_IRUSR|S_IWUSR);
-  if (fdout == -1) {
-    perror("ERROR: Unable to open output file");
-    goto done;
-  }
+  lseek(fdout, 0, SEEK_SET);
   
   // header
   if (version == 1) {
@@ -460,22 +474,29 @@ bool Woz::writeWozFile(const char *filename, uint8_t subtype)
  done:
   if (crcData)
     free(crcData);
-  if (fdout != -1)
-    close(fdout);
   return retval;
 }
 
 bool Woz::writeDskFile(const char *filename, uint8_t subtype)
 {
-  if (isSynchronized()) {
-    fprintf(stderr, "WARNING: disk image has synchronized tracks; it may not work as a DSK or NIB file.\n");
-  }
-
   int fdout = open(filename, O_CREAT|O_TRUNC|O_WRONLY, S_IRUSR|S_IWUSR);
   if (fdout == -1) {
     perror("Failed to open output file");
     exit(1);
   }
+
+  bool retval = writeDskFile(fdout, subtype);
+  close(fdout);
+  return retval;
+}
+
+bool Woz::writeDskFile(int fdout, uint8_t subtype)
+{
+  if (isSynchronized()) {
+    fprintf(stderr, "WARNING: disk image has synchronized tracks; it may not work as a DSK or NIB file.\n");
+  }
+  lseek(fdout, 0, SEEK_SET);
+
   uint8_t sectorData[256*16];
   for (int phystrack=0; phystrack<35; phystrack++) {
     if (!decodeWozTrackToDsk(quarterTrackMap[phystrack*4], subtype, sectorData)) {
@@ -494,15 +515,24 @@ bool Woz::writeDskFile(const char *filename, uint8_t subtype)
 
 bool Woz::writeNibFile(const char *filename)
 {
-  if (isSynchronized()) {
-    fprintf(stderr, "WARNING: disk image has synchronized tracks; it may not work as a DSK or NIB file.\n");
-  }
-
   int fdout = open(filename, O_CREAT|O_TRUNC|O_WRONLY, S_IRUSR|S_IWUSR);
   if (fdout == -1) {
     perror("Failed to open output file");
     exit(1);
   }
+
+  bool retval = writeNibFile(fdout);
+  close(fdout);
+  return retval;
+}
+
+bool Woz::writeNibFile(int fdout)
+{
+  if (isSynchronized()) {
+    fprintf(stderr, "WARNING: disk image has synchronized tracks; it may not work as a DSK or NIB file.\n");
+  }
+  lseek(fdout, 0, SEEK_SET);
+
   nibSector nibData[16];
   for (int phystrack=0; phystrack<35; phystrack++) {
     if (!decodeWozTrackToNib(quarterTrackMap[phystrack*4], nibData)) {
@@ -555,12 +585,7 @@ bool Woz::loadMissingTrackFromImage(uint8_t datatrack)
   // that might be malloc'd and purge them if we're
   // autoFlushTrackData==true (trying to limit memory use)
   if (autoFlushTrackData == true) {
-    
-    if (trackDirty) {
-      printf("Hackily writing /tmp/auto.woz\n");
-      trackDirty = false;
-      writeFile("/tmp/auto.woz"/*, T_WOZ2*/); // FIXME: debugging
-    }
+    flush();
     
     for (int i=0; i<160; i++) {
       if (tracks[i].trackData) {
@@ -644,7 +669,7 @@ bool Woz::readDskFile(const char *filename, bool preloadTracks, uint8_t subtype)
   imageType = subtype;
 
   if (fd != -1) close(fd);
-  fd = open(filename, O_RDONLY);
+  fd = open(filename, O_RDWR, S_IRUSR|S_IWUSR);
   if (fd == -1) {
     perror("Unable to open input file");
     goto done;
@@ -677,10 +702,6 @@ bool Woz::readDskFile(const char *filename, bool preloadTracks, uint8_t subtype)
   retval = true;
 
  done:
-  if (preloadTracks && fd != -1) {
-    close(fd);
-    fd = -1;
-  }
   return retval;
 }
 
@@ -690,7 +711,7 @@ bool Woz::readNibFile(const char *filename, bool preloadTracks)
   imageType = T_NIB;
 
   if (fd != -1) close(fd);
-  fd = open(filename, O_RDONLY);
+  fd = open(filename, O_RDWR, S_IRUSR|S_IWUSR);
   if (fd == -1) {
     perror("Unable to open input file");
     return false;
@@ -734,7 +755,7 @@ bool Woz::readWozFile(const char *filename, bool preloadTracks)
   autoFlushTrackData = !preloadTracks;
 
   if (fd != -1) close(fd);
-  fd = open(filename, O_RDONLY);
+  fd = open(filename, O_RDWR, S_IRUSR|S_IWUSR);
   if (fd == -1) {
     perror("Unable to open input file");
     return false;
@@ -1579,14 +1600,26 @@ uint8_t Woz::dataTrackNumberForQuarterTrack(uint16_t qt)
   return quarterTrackMap[qt];
 }
 
-#if 1
 bool Woz::flush()
 {
   if (trackDirty) {
-    printf("Hackily writing /tmp/auto.woz\n");
+    printf("FLUSH!\n");
     trackDirty = false;
-    return writeFile("/tmp/auto.woz"); // FIXME: debugging
+    // From the imageType, call the appropriate function to write.
+    switch (imageType) {
+    case T_WOZ:
+      return writeWozFile(fd, imageType);
+    case T_DSK:
+    case T_PO:
+      return writeDskFile(fd, imageType);
+    case T_NIB:
+      return writeNibFile(fd);
+    default:
+      fprintf(stderr, "Error: unknown imageType; can't flush\n");
+      return false;
+    }
   }
-  return true;
+
+  /* NOTREACHED */
+  return false;
 }
-#endif
