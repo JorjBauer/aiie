@@ -204,9 +204,11 @@ bool Woz::skipByte(uint8_t datatrack)
 uint8_t Woz::nextDiskBit(uint8_t datatrack)
 {
   if (!tracks[datatrack].trackData) {
-    fprintf(stderr, "ERROR: nextDiskBit was called without the track being cached, and it can't possibly know which QT to load it from\n");
-    return 0;
+    loadMissingTrackFromImage(datatrack);
   }
+
+  if (!tracks[datatrack].trackData)
+    return 0;
 
   static uint8_t head_window = 0;
   head_window <<= 1;
