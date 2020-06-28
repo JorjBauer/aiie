@@ -17,7 +17,8 @@ const char *WozSerializer::diskName()
 
 bool WozSerializer::Serialize(int8_t fd)
 {
-  // FIXME: if trackDirty is set, we MUST flush first before exiting!
+  // If we're being asked to serialize, make sure we've flushed any data first
+  flush();
   
   g_filemanager->writeByte(fd, WOZMAGIC);
 
