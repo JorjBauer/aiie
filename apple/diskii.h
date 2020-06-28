@@ -60,12 +60,10 @@ class DiskII : public Slot {
   volatile int8_t curHalfTrack[2];
   volatile uint8_t curWozTrack[2];
   volatile int8_t curPhase[2];
-  uint8_t readWriteLatch;
-  uint8_t sequencer, dataRegister; // diskII logic state sequencer vars
-  uint32_t lastDiskRead[2];
-  uint64_t driveSpinupCycles;
-  uint64_t deliveredDiskBits;
-  uint64_t debugDeliveredDiskBits;
+  volatile uint8_t readWriteLatch;
+  volatile uint8_t sequencer, dataRegister; // diskII logic state sequencer vars
+  volatile uint64_t driveSpinupCycles[2];
+  volatile uint64_t deliveredDiskBits[2];
   
   bool writeMode;
   bool writeProt;

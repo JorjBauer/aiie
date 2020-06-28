@@ -19,8 +19,8 @@
 
 #define DISKIIMAGIC 0xAA
 
-// how many CPU cycles do we wait to spin down the disk drive?
-#define SPINDOWNDELAY (1023)
+// how many CPU cycles do we wait to spin down the disk drive? 1023000 == 1 second
+#define SPINDOWNDELAY (1023000)
 
 DiskII::DiskII(AppleMMU *mmu)
 {
@@ -35,15 +35,12 @@ DiskII::DiskII(AppleMMU *mmu)
   readWriteLatch = 0x00;
   sequencer = 0;
   dataRegister = 0;
-  lastDiskRead[0] = lastDiskRead[1] = 0;
+  driveSpinupCycles[0] = driveSpinupCycles[1] = 0;
+  deliveredDiskBits[0] = deliveredDiskBits[1] = 0;
 
   disk[0] = disk[1] = NULL;
   diskIsSpinningUntil[0] = diskIsSpinningUntil[1] = 0;
   selectedDisk = 0;
-
-  driveSpinupCycles = 0;
-  deliveredDiskBits = 0;
-  //  debugDeliveredDiskBits = 0;
 }
 
 DiskII::~DiskII()
@@ -184,17 +181,14 @@ void DiskII::driveOn()
     // If the drive isn't already spinning, then start keeping track of how
     // many bits we've delivered (so we can honor the disk bit-delivery time
     // that might be in the Woz disk image).
-    driveSpinupCycles = g_cpu->cycles;
-    //printf("driveOn @ cycle %d\n", driveSpinupCycles);
-    deliveredDiskBits = 0;
-    //    debugDeliveredDiskBits = 0;
+    driveSpinupCycles[selectedDisk] = g_cpu->cycles;
+    deliveredDiskBits[selectedDisk] = 0;
     diskIsSpinningUntil[selectedDisk] = -1; // magic "forever"
   }
+  // FIXME: does the sequencer get reset? Maybe if it's the selected disk? Or no?
+  // sequencer = 0;
 
   g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, true); // FIXME: do we really want to update the UI from inside this thread?
-  
-  // Start the given disk drive spinning
-  lastDiskRead[selectedDisk] = g_cpu->cycles;
 }
 
 uint8_t DiskII::readSwitches(uint8_t s)
@@ -403,7 +397,6 @@ void DiskII::setPhase(uint8_t phase)
     // We're changing track - flush the old track back to disk
     // FIXME flush
     curWozTrack[selectedDisk] = disk[selectedDisk]->dataTrackNumberForQuarterTrack(curHalfTrack[selectedDisk]*2);
-    printf("track change => %d\n", curWozTrack[selectedDisk]);
   }
 }
 
@@ -469,12 +462,21 @@ void DiskII::select(int8_t which)
     return;
 
   if (which != selectedDisk) {
-#if 0
-    *** fixme check if the drive is still "on"
-    indicatorIsOn[selectedDisk] = 100; // spindown time (fixme)
-    g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false); // FIXME: queue for later drawing?
-#endif
+    if (diskIsSpinningUntil[selectedDisk] == -1) {
+      // FIXME: I'm not sure what the right behavior is here (read
+      // UTA2E and see if the state diagrams show the right
+      // behavior). For now, I'm setting the spindown of the
+      // now-deselected disk.
+      diskIsSpinningUntil[selectedDisk] = g_cpu->cycles + SPINDOWNDELAY;
+      if (diskIsSpinningUntil[selectedDisk] == -1 ||
+	  diskIsSpinningUntil[selectedDisk] == 0)
+	diskIsSpinningUntil[selectedDisk] = 2; // fudge magic numbers; 0 is "off" and -1 is "forever".
+    }
 
+    // Flush the cache of the disk that's no longer selected
+    if (disk[selectedDisk])
+      disk[selectedDisk]->flush();
+    
     // set the selected disk drive
     selectedDisk = which;
   }
@@ -494,106 +496,79 @@ uint8_t DiskII::readOrWriteByte()
   }
 
   uint32_t curCycles = g_cpu->cycles;
-  bool updateCycles = false;
 
   // FIXME: for writes, we need to check s/t like ... if (diskIsSpinningUntil[selectedDisk] >= curCycles) { return } ...
 
   if (writeMode && !writeProt) {
     // It's a write request. Inject 'readWriteLatch'.
     disk[selectedDisk]->writeNextWozByte(curWozTrack[selectedDisk], readWriteLatch);
-
-    updateCycles = true; // need to update when we last read, b/c disk is still spinning
     goto done;
   }
 
   if (diskIsSpinningUntil[selectedDisk] >= curCycles) {
 
-    if (lastDiskRead[selectedDisk] == 0) {
-      // assume it's a first-read-after-spinup; return the first valid data
-      printf("FIRST SPIN\n");
-      sequencer = disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
-      updateCycles = true;
-      goto done;
-    }
-    
-    // Otherwise we figure out how many cycles we missed since the last
-    // disk read, and pop the right number of bits off the woz track
-    //    uint32_t missedCycles;
-    //    missedCycles = curCycles - lastDiskRead[selectedDisk];
-
-    // The stock 4ms disk bit timing is just missedCycles >> 2. But we
-    // want to support others, too. We can't simply base it on cycle
-    // count any more at that point, because of fractional cycles
-    // being important.
-    // So instead of just "missedCycles >>= 2" here, we need to calculate
-    // how many *bits* should have been transited at time (x); and we need
-    // a floating counter of how long the drive has been spinning (b/c
-    // that's not a constant since startup!); and we need the counter of 
-    // how many bits we actually did pull from the drive. Then we can 
-    // calculate exactly how many bits we should pull this time, update the 
-    // number that did transit, and be more or less where we're supposed 
-    // to be for this clock cycle.
+    // Figure out how many cycles we missed since the last disk read,
+    // and pop the right number of bits off the woz track.
 
     // Handle rollover, which is a mess.
-    if (driveSpinupCycles > g_cpu->cycles) {
+    if (driveSpinupCycles[selectedDisk] > g_cpu->cycles) {
       printf("Cycle rollover\n");
-      driveSpinupCycles = g_cpu->cycles-1;
+      driveSpinupCycles[selectedDisk] = g_cpu->cycles-1; // FIXME: is the -1 correct? What if we were @ 0?
 #ifndef TEENSYDUINO
       exit(2); // for debugging, FIXME ***
 #endif
     }
 
-    uint32_t cyclesPassed = g_cpu->cycles - driveSpinupCycles;
-    //    printf("cy: %d cp: %d ", g_cpu->cycles, cyclesPassed);
-
-    // bits = cycles * (us per cycle) * (bits/us)
-    //#define BITSPEED 4.0
-    //    uint64_t expectedDiskBits = (float)cyclesPassed * (float)(1.0/(1.023*BITSPEED)); // clock speed*2 b/c the disk clock runs at twice the speed?
-    //        uint64_t expectedDiskBits = (float)cyclesPassed / 8.0;
-    uint64_t expectedDiskBits = (float) cyclesPassed / 3.52;
-    int64_t bitsToDeliver = expectedDiskBits - deliveredDiskBits;
-
-    //    printf("btd: %llu\n",bitsToDeliver);
-   // printf("mc>>2: %d; btd: %llu\n", missedCycles >> 2, bitsToDeliver);
-    //int64_t    bitsToDeliver = missedCycles>>2;
-    //    debugDeliveredDiskBits += (missedCycles >> 2);
+    uint32_t cyclesPassed = g_cpu->cycles - driveSpinupCycles[selectedDisk];
+    // FIXME: this is a bit of a magic constant, which makes the drive
+    // test in Copy2+ at 179.4ms per revolution (334.4rpm). I'd like to
+    // understand that better and get to to the proper 200ms (300rpm).
+    uint64_t expectedDiskBits = (float) cyclesPassed / 3.51;
+    int64_t bitsToDeliver = expectedDiskBits - deliveredDiskBits[selectedDisk];
 
     if (bitsToDeliver > 0) {
-
-#if 1
-      /* TESTING - try delivering a byte, if there's a simple request, and let it drift forward in time very slightly */
+      // We're expected to deliver some bits to the Disk II sequencer.
+      // Instead of piecemeal delivering a small number of bits (which we
+      // could do, but it's kinda busywork) - instead, we'll do one of two
+      // possible things.
+      //
+      // The first: if we're expecting a small number of bits to be delivered,
+      // then we'll grab the next byte from the nibble stream and return it.
+      // This itself has three possible cases -
+      //   (a) we should be delivering less than a full byte, but we're
+      //       actually going to deliver a full byte. bitsToDeliver will
+      //       become negative, because we're delivering these too early.
+      //       The next call will probably see that it has nothing to deliver
+      //       and, as long as the disk image we're using doesn't have a
+      //       really fine tolerance on the delivery rate of the bits,
+      //       it will all come out in the wash.
+      //   (b) we should be delivering exactly a byte, and we're doing the
+      //       absolute right thing.
+      //   (c) we are more than 1 byte, but less than 2 bytes, behind. If
+      //       this is the case, we're probably making up for a timing
+      //       problem in this code - where the bits would now have been
+      //       lost. By returning the first byte that we found, we're hoping
+      //       that the next call will be closer to on time, and we will
+      //       eventually catch back up to the stream. Hopefully this makes
+      //       the stream a little more resilient - and the error isn't
+      //       so far off that the reader notices something is weird on the
+      //       timing. (Standard RWTS doesn't, but some copy protection
+      //       might.)
       if (bitsToDeliver < 16) {
-
-	//	if (bitsToDeliver >= 8) { sequencer = 0; }
 	while (bitsToDeliver > -16 && ((sequencer & 0x80) == 0)) {
 	  sequencer <<= 1;
 	  sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
 	  bitsToDeliver--;
-	  deliveredDiskBits++;
+	  deliveredDiskBits[selectedDisk]++;
 	}
-	updateCycles = true;
 	goto done;
       }
-      /* END TESTING */
 
-      //      printf("WARNING: missed data [%lld]\n", bitsToDeliver);
-#endif
-      updateCycles = true;
-      
-      // Something is wrong here. I don't know why
-      // debugDeliveredDiskBits doesn't match bitsToDeliver. In
-      // theory, debugDDB is just missedCycles/4. deliveredDiskBits
-      // should be pretty much the same (1.023/4.0, so off by
-      // 2.3%). But in reality the drift is much greater.
-      //
-      // Is it related to the disk on/off timers? How does
-      // missedCycles differ? I could use missedCycles, except that it
-      // loses precision when we're talking about using a 3.5us bit
-      // timing, so that's a problem -- which is why I'm trying to
-      // base it on "real time" from when the disk drive starts
-      // spinning...
-
-      deliveredDiskBits += bitsToDeliver;
+      // If we reach here, we're throwing away a bunch of missed data.
+      // This might be normal (where the machine wasn't listening for the data),
+      // or it might be exceptional (something wrong with the tuning of data
+      // delivery, based on the magic constant in expectedDiskBits above)...
+      deliveredDiskBits[selectedDisk] += bitsToDeliver;
       while (bitsToDeliver) {
 	sequencer <<= 1;
 	sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
@@ -604,12 +579,6 @@ uint8_t DiskII::readOrWriteByte()
 
     
  done:
-  if (updateCycles) {
-    // We only update the lastDiskRead counter if the number of passed
-    // cycles indicates that we did some sort of work...
-    lastDiskRead[selectedDisk] = curCycles;
-  }
-
   return sequencer;
 }
 
@@ -645,7 +614,7 @@ void DiskII::flushTrack(int8_t track, int8_t sel)
     return;
   }
 
-  // ***
+  // FIXME: *** needs implementing
 }
 
 void DiskII::maintenance(uint32_t cycle)
@@ -656,10 +625,11 @@ void DiskII::maintenance(uint32_t cycle)
     if (diskIsSpinningUntil[i] && 
 	g_cpu->cycles > diskIsSpinningUntil[i]) {
       // Stop the given disk drive spinning
-      lastDiskRead[i] = 0; // FIXME: magic value. We need a tristate for this. ***
       diskIsSpinningUntil[i] = 0;
+      // FIXME: consume any disk bits that need to be consumed, and spin it down
 
       if (disk[i]) {
+	// ensure any changes are written to our disk image
 	disk[i]->flush();
       }
 
