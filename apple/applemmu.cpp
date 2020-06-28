@@ -162,22 +162,22 @@ AppleMMU::~AppleMMU()
 
 bool AppleMMU::Serialize(int8_t fd)
 {
-  g_filemanager->writeByte(fd, MMUMAGIC);
-
-  g_filemanager->writeByte(fd, (switches >> 8) & 0xFF);
-  g_filemanager->writeByte(fd, (switches     ) & 0xFF);
-
-  g_filemanager->writeByte(fd, auxRamRead ? 1 : 0);
-  g_filemanager->writeByte(fd, auxRamWrite ? 1 : 0);
-  g_filemanager->writeByte(fd, bank2 ? 1 : 0);
-  g_filemanager->writeByte(fd, readbsr ? 1 : 0);
-  g_filemanager->writeByte(fd, writebsr ? 1 : 0);
-  g_filemanager->writeByte(fd, altzp ? 1 : 0);
-  g_filemanager->writeByte(fd, intcxrom ? 1 : 0);
-  g_filemanager->writeByte(fd, slot3rom ? 1 : 0);
-  g_filemanager->writeByte(fd, slotLatch);
-  g_filemanager->writeByte(fd, preWriteFlag ? 1 : 0);
-
+  uint8_t buf[13] = { MMUMAGIC,
+		      (switches >> 8) & 0xFF,
+		      (switches     ) & 0xFF,
+		      auxRamRead ? 1 : 0,
+		      auxRamWrite ? 1 : 0,
+		      bank2 ? 1 : 0,
+		      readbsr ? 1 : 0,
+		      writebsr ? 1 : 0,
+		      altzp ? 1 : 0,
+		      intcxrom ? 1 : 0,
+		      slot3rom ? 1 : 0,
+		      slotLatch,
+		      preWriteFlag ? 1 : 0 };
+  if (g_filemanager->write(fd, buf, 13) != 13)
+    return false;
+  
   if (!g_ram.Serialize(fd))
     return false;
 
@@ -187,36 +187,41 @@ bool AppleMMU::Serialize(int8_t fd)
   // Not suspending/resuming slots b/c they're a fixed configuration
   // in this project. Should probably checksum them though. FIXME.
 
-  g_filemanager->writeByte(fd, MMUMAGIC);
+  if (g_filemanager->write(fd, buf, 1) != 1)
+    return false;
+  
   return true;
 }
 
 bool AppleMMU::Deserialize(int8_t fd)
 {
-  if (g_filemanager->readByte(fd) != MMUMAGIC) {
+  uint8_t buf[13];
+
+  if (g_filemanager->read(fd, buf, 13) != 13)
     return false;
-  }
 
-  switches = g_filemanager->readByte(fd);
-  switches <<= 8;
-  switches |= g_filemanager->readByte(fd);
+  if (buf[0] != MMUMAGIC)
+    return false;
 
-  auxRamRead = g_filemanager->readByte(fd);
-  auxRamWrite = g_filemanager->readByte(fd);
-  bank2 = g_filemanager->readByte(fd);
-  readbsr = g_filemanager->readByte(fd);
-  writebsr = g_filemanager->readByte(fd);
-  altzp = g_filemanager->readByte(fd);
-  intcxrom = g_filemanager->readByte(fd);
-  slot3rom = g_filemanager->readByte(fd);
-  slotLatch = g_filemanager->readByte(fd);
-  preWriteFlag = g_filemanager->readByte(fd);
-
+  switches = (buf[1] << 8) | buf[2];
+  auxRamRead = buf[3];
+  auxRamWrite = buf[4];
+  bank2 = buf[5];
+  readbsr = buf[6];
+  writebsr = buf[7];
+  altzp = buf[8];
+  intcxrom = buf[9];
+  slot3rom = buf[10];
+  slotLatch = buf[11];
+  preWriteFlag = buf[12];
+  
   if (!g_ram.Deserialize(fd)) {
     return false;
   }
 
-  if (g_filemanager->readByte(fd) != MMUMAGIC)
+  if (g_filemanager->read(fd, buf, 1) != 1)
+    return false;
+  if (buf[0] != MMUMAGIC)
     return false;
 
   // Reset readPages[] and writePages[] and the display

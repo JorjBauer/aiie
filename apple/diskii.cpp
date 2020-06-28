@@ -53,144 +53,144 @@ DiskII::~DiskII()
 
 bool DiskII::Serialize(int8_t fd)
 {
-  g_filemanager->writeByte(fd, DISKIIMAGIC);
-
-  g_filemanager->writeByte(fd, readWriteLatch);
-  g_filemanager->writeByte(fd, sequencer);
-  g_filemanager->writeByte(fd, dataRegister);
-  g_filemanager->writeByte(fd, writeMode);
-  g_filemanager->writeByte(fd, writeProt);
-  g_filemanager->writeByte(fd, selectedDisk);
+  uint8_t buf[23] = { DISKIIMAGIC,
+		      readWriteLatch,
+		      sequencer,
+		      dataRegister,
+		      writeMode,
+		      writeProt,
+		      selectedDisk };
+  
+  if (g_filemanager->write(fd, buf, 7) != 7) {
+    return false;
+  }
 
   for (int i=0; i<2; i++) {
-    g_filemanager->writeByte(fd, curHalfTrack[i]);
-    g_filemanager->writeByte(fd, curWozTrack[i]);
-    g_filemanager->writeByte(fd, curPhase[i]);
-    
-    g_filemanager->writeByte(fd,
-			     ((driveSpinupCycles[i] >> 56) & 0xFF));
-    g_filemanager->writeByte(fd,
-			     ((driveSpinupCycles[i] >> 48) & 0xFF));
-    g_filemanager->writeByte(fd,
-			     ((driveSpinupCycles[i] >> 40) & 0xFF));
-    g_filemanager->writeByte(fd,
-			     ((driveSpinupCycles[i] >> 32) & 0xFF));
-    g_filemanager->writeByte(fd,
-			     ((driveSpinupCycles[i] >> 24) & 0xFF));
-    g_filemanager->writeByte(fd,
-			     ((driveSpinupCycles[i] >> 16) & 0xFF));
-    g_filemanager->writeByte(fd,
-			     ((driveSpinupCycles[i] >>  8) & 0xFF));
-    g_filemanager->writeByte(fd,
-			     ((driveSpinupCycles[i]      ) & 0xFF));
-    
-    g_filemanager->writeByte(fd,
-			     ((deliveredDiskBits[i] >> 56) & 0xFF));
-    g_filemanager->writeByte(fd,
-			     ((deliveredDiskBits[i] >> 48) & 0xFF));
-    g_filemanager->writeByte(fd,
-			     ((deliveredDiskBits[i] >> 40) & 0xFF));
-    g_filemanager->writeByte(fd,
-			     ((deliveredDiskBits[i] >> 32) & 0xFF));
-    g_filemanager->writeByte(fd,
-			     ((deliveredDiskBits[i] >> 24) & 0xFF));
-    g_filemanager->writeByte(fd,
-			     ((deliveredDiskBits[i] >> 16) & 0xFF));
-    g_filemanager->writeByte(fd,
-			     ((deliveredDiskBits[i] >>  8) & 0xFF));
-    g_filemanager->writeByte(fd,
-			     ((deliveredDiskBits[i]      ) & 0xFF));
-    
-    g_filemanager->writeByte(fd, 
-			     (diskIsSpinningUntil[i] >> 24) & 0xFF);
-    g_filemanager->writeByte(fd, 
-			     (diskIsSpinningUntil[i] >> 16) & 0xFF);
-    g_filemanager->writeByte(fd, 
-			     (diskIsSpinningUntil[i] >>  8) & 0xFF);
-    g_filemanager->writeByte(fd, 
-			     (diskIsSpinningUntil[i]      ) & 0xFF);
+    uint8_t ptr = 0;
+    buf[ptr++] = curHalfTrack[i];
+    buf[ptr++] = curWozTrack[i];
+    buf[ptr++] = curPhase[i];
+    buf[ptr++] = ((driveSpinupCycles[i] >> 56) & 0xFF);
+    buf[ptr++] = ((driveSpinupCycles[i] >> 48) & 0xFF);
+    buf[ptr++] = ((driveSpinupCycles[i] >> 40) & 0xFF);
+    buf[ptr++] = ((driveSpinupCycles[i] >> 32) & 0xFF);
+    buf[ptr++] = ((driveSpinupCycles[i] >> 24) & 0xFF);
+    buf[ptr++] = ((driveSpinupCycles[i] >> 16) & 0xFF);
+    buf[ptr++] = ((driveSpinupCycles[i] >>  8) & 0xFF);
+    buf[ptr++] = ((driveSpinupCycles[i]      ) & 0xFF);
+    buf[ptr++] = ((deliveredDiskBits[i] >> 56) & 0xFF);
+    buf[ptr++] = ((deliveredDiskBits[i] >> 48) & 0xFF);
+    buf[ptr++] = ((deliveredDiskBits[i] >> 40) & 0xFF);
+    buf[ptr++] = ((deliveredDiskBits[i] >> 32) & 0xFF);
+    buf[ptr++] = ((deliveredDiskBits[i] >> 24) & 0xFF);
+    buf[ptr++] = ((deliveredDiskBits[i] >> 16) & 0xFF);
+    buf[ptr++] = ((deliveredDiskBits[i] >>  8) & 0xFF);
+    buf[ptr++] = ((deliveredDiskBits[i]      ) & 0xFF);
+    buf[ptr++] = (diskIsSpinningUntil[i] >> 24) & 0xFF;
+    buf[ptr++] = (diskIsSpinningUntil[i] >> 16) & 0xFF;
+    buf[ptr++] = (diskIsSpinningUntil[i] >>  8) & 0xFF;
+    buf[ptr++] = (diskIsSpinningUntil[i]      ) & 0xFF;
+    // Safety check: keeping the hard-coded 23 and comparing against ptr.
+    // If we change the 23, also need to change the size of buf[] above
+    if (g_filemanager->write(fd, buf, 23) != ptr) {
+      return false;
+    }
     
     if (disk[i]) {
       // Make sure we have flushed the disk images
       disk[i]->flush();
       flushAt[i] = 0; // and there's no need to re-flush them now
 
-      g_filemanager->writeByte(fd, 1);
+      buf[0] = 1;
+      if (g_filemanager->write(fd, buf, 1) != 1)
+	return false;
+
       // FIXME: this ONLY works for builds using the filemanager to read
       // the disk image, so it's broken until we port Woz to do that!
       const char *fn = disk[i]->diskName();
-      for (int j=0; j<strlen(fn); j++) {
-	g_filemanager->writeByte(fd, fn[j]);
-      }
-      g_filemanager->writeByte(fd, 0);
+      if (g_filemanager->write(fd, fn, strlen(fn)+1) != strlen(fn)+1)  // include null terminator
+	return false;
       if (!disk[i]->Serialize(fd))
 	return false;
     } else {
-      g_filemanager->writeByte(fd, 0);
+      buf[0] = 0;
+      if (g_filemanager->write(fd, buf, 0) != 1)
+	return false;
     }
   }
-  
-  g_filemanager->writeByte(fd, DISKIIMAGIC);
+
+  buf[0] = DISKIIMAGIC;
+  if (g_filemanager->write(fd, buf, 1) != 1)
+    return false;
 
   return true;
 }
 
 bool DiskII::Deserialize(int8_t fd)
 {
-  if (g_filemanager->readByte(fd) != DISKIIMAGIC) {
+  uint8_t buf[23];
+  if (g_filemanager->read(fd, buf, 7) != 7)
     return false;
-  }
-  
-  readWriteLatch = g_filemanager->readByte(fd);
-  sequencer = g_filemanager->readByte(fd);
-  dataRegister = g_filemanager->readByte(fd);
-  writeMode = g_filemanager->readByte(fd);
-  writeProt = g_filemanager->readByte(fd);
-  selectedDisk = g_filemanager->readByte(fd);
+  if (buf[0] != DISKIIMAGIC)
+    return false;
+
+  readWriteLatch = buf[1];
+  sequencer = buf[2];
+  dataRegister = buf[3];
+  writeMode = buf[4];
+  writeProt = buf[5];
+  selectedDisk = buf[6];
 
   for (int i=0; i<2; i++) {
-    curHalfTrack[i] = g_filemanager->readByte(fd);
-    curWozTrack[i] = g_filemanager->readByte(fd);
-    curPhase[i] = g_filemanager->readByte(fd);
+    uint8_t ptr = 0;
+    if (g_filemanager->read(fd, buf, 23) != 23)
+      return false;
 
-    driveSpinupCycles[i] = g_filemanager->readByte(fd);
-    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= g_filemanager->readByte(fd);
-    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= g_filemanager->readByte(fd);
-    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= g_filemanager->readByte(fd);
-    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= g_filemanager->readByte(fd);
-    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= g_filemanager->readByte(fd);
-    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= g_filemanager->readByte(fd);
-    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= g_filemanager->readByte(fd);
+    curHalfTrack[i] = buf[ptr++];
+    curWozTrack[i] = buf[ptr++];
+    curPhase[i] = buf[ptr++];
 
-    deliveredDiskBits[i] = g_filemanager->readByte(fd);
-    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= g_filemanager->readByte(fd);
-    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= g_filemanager->readByte(fd);
-    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= g_filemanager->readByte(fd);
-    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= g_filemanager->readByte(fd);
-    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= g_filemanager->readByte(fd);
-    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= g_filemanager->readByte(fd);
-    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= g_filemanager->readByte(fd);
+    driveSpinupCycles[i] = buf[ptr++];
+    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= buf[ptr++];
+    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= buf[ptr++];
+    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= buf[ptr++];
+    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= buf[ptr++];
+    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= buf[ptr++];
+    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= buf[ptr++];
+    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= buf[ptr++];
 
-    diskIsSpinningUntil[i] = g_filemanager->readByte(fd);
-    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= g_filemanager->readByte(fd);
-    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= g_filemanager->readByte(fd);
-    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= g_filemanager->readByte(fd);
+    deliveredDiskBits[i] = buf[ptr++];
+    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
+    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
+    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
+    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
+    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
+    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
+    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
+
+    diskIsSpinningUntil[i] = buf[ptr++];
+    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
+    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
+    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
     
     if (disk[i])
       delete disk[i];
-    if (g_filemanager->readByte(fd) == 1) {
+    if (g_filemanager->read(fd, buf, 1) != 1)
+      return false;
+    if (buf[0]) {
       disk[i] = new WozSerializer();
-      char buf[MAXPATH];
-      char c;
-      int ptr = 0;
-      while ( (c = g_filemanager->readByte(fd) != 0) ) {
-	buf[ptr++] = c;
+
+      ptr = 0;
+      while (1) {
+	if (g_filemanager->read(fd, &buf[ptr++], 1) != 1)
+	  return false;
+	if (buf[ptr-1] == 0)
+	  break;
       }
-      buf[ptr] = 0;
       if (buf[0]) {
 	// Important we don't read all the tracks, so we can also flush
 	// writes back to the fd...
-	disk[i]->readFile(buf, false, T_AUTO); // FIXME error checking    
+	disk[i]->readFile((char *)buf, false, T_AUTO); // FIXME error checking    
       } else {
 	// ERROR: there's a disk but we don't have the path to its image?
 	return false;
@@ -203,9 +203,10 @@ bool DiskII::Deserialize(int8_t fd)
     }
   }
 
-  if (g_filemanager->readByte(fd) != DISKIIMAGIC) {
+  if (g_filemanager->read(fd, buf, 1) != 1)
     return false;
-  }
+  if (buf[0] != DISKIIMAGIC)
+    return false;
 
   return true;
 }

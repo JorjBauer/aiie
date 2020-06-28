@@ -39,48 +39,45 @@ void VMRam::writeByte(uint32_t addr, uint8_t value)
 
 bool VMRam::Serialize(int8_t fd)
 {
-  g_filemanager->writeByte(fd, RAMMAGIC);
   uint32_t size = sizeof(preallocatedRam);
-  g_filemanager->writeByte(fd, (size >> 24) & 0xFF);
-  g_filemanager->writeByte(fd, (size >> 16) & 0xFF);
-  g_filemanager->writeByte(fd, (size >>  8) & 0xFF);
-  g_filemanager->writeByte(fd, (size      ) & 0xFF);
+  uint8_t buf[5] = { RAMMAGIC,
+		     (size >> 24) & 0xFF,
+		     (size >> 16) & 0xFF,
+		     (size >>  8) & 0xFF,
+		     (size      ) & 0xFF };
+  if (g_filemanager->write(fd, buf, 5) != 5)
+    return false;
 
-  for (uint32_t pos = 0; pos < sizeof(preallocatedRam); pos++) {
-    g_filemanager->writeByte(fd, preallocatedRam[pos]);
-  }
-
-  g_filemanager->writeByte(fd, RAMMAGIC);
+  if (g_filemanager->write(fd, preallocatedRam, sizeof(preallocatedRam)) != sizeof(preallocatedRam))
+    return false;
+  
+  if (g_filemanager->write(fd, buf, 1) != 1)
+    return false;
 
   return true;
 }
 
 bool VMRam::Deserialize(int8_t fd)
 {
-  if (g_filemanager->readByte(fd) != RAMMAGIC) {
+  uint8_t buf[5];
+  if (g_filemanager->read(fd, buf, 5) != 5)
     return false;
-  }
 
-  uint32_t size = 0;
-  size = g_filemanager->readByte(fd);
-  size <<= 8;
-  size |= g_filemanager->readByte(fd);
-  size <<= 8;
-  size |= g_filemanager->readByte(fd);
-  size <<= 8;
-  size |= g_filemanager->readByte(fd);
-
-  if (size != sizeof(preallocatedRam)) {
+  if (buf[0] != RAMMAGIC)
     return false;
-  }
+  
+  uint32_t size = (buf[1] << 24) | (buf[2] << 16) | (buf[3] << 8) | buf[4];
 
-  for (uint32_t pos = 0; pos < sizeof(preallocatedRam); pos++) {
-    preallocatedRam[pos] = g_filemanager->readByte(fd);
-  }
-
-  if (g_filemanager->readByte(fd) != RAMMAGIC) {
+  if (size != sizeof(preallocatedRam))
     return false;
-  }
+
+  if (g_filemanager->read(fd, preallocatedRam, size) != size)
+    return false;
+
+  if (g_filemanager->read(fd, buf, 1) != 1)
+    return false;
+  if (buf[0] != RAMMAGIC)
+    return false;
 
   return true;
 }

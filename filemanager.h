@@ -22,6 +22,8 @@ class FileManager {
  public:
   virtual ~FileManager() {};
 
+#define writeByte(fd,x) {static uint8_t c = x; write(outfd, &c, 1);}
+  
   virtual bool SerializeFile(int8_t outfd, int8_t fd) {
     writeByte(outfd, FMMAGIC);
     
@@ -61,13 +63,21 @@ class FileManager {
   }
 
   virtual int8_t DeserializeFile(int8_t infd) {
-    if (readByte(infd) != FMMAGIC)
+    uint8_t b;
+    if (read(infd, &b, 1) != 1)
+      return -1;
+    if (b != FMMAGIC)
       return -1;
     
-    if (readByte(infd) == 0) {
+    if (read(infd, &b, 1) != 1)
+      return -1;
+    
+    if (b == 0) {
       // No file was cached. Verify footer and we're done without error
-      
-      if (readByte(infd) != FMMAGIC) {
+
+      if (read(infd, &b, 1) != 1)
+	return -1;
+      if (b != FMMAGIC) {
 	// FIXME: no way to raise this error.
 	return -1;
       }
@@ -76,25 +86,36 @@ class FileManager {
     }
     
     char buf[MAXPATH];
-    int8_t l = readByte(infd);
-    for (int i=0; i<l; i++) {
-      buf[i] = readByte(infd);
+    if (read(infd, &b, 1) != 1)
+      return -1;    
+
+    int8_t len = b;
+    for (int i=0; i<len; i++) {
+      if (read(infd, &buf[i], 1) != 1)
+	return false;
     }
-    buf[l] = '\0';
+    buf[len] = '\0';
     
     int8_t ret = openFile(buf);
     if (ret == -1)
       return ret;
     
-    fileSeekPositions[ret] = readByte(infd);
-    fileSeekPositions[ret] <<= 8;
-    fileSeekPositions[ret] = readByte(infd);
-    fileSeekPositions[ret] <<= 8;
-    fileSeekPositions[ret] = readByte(infd);
-    fileSeekPositions[ret] <<= 8;
-    fileSeekPositions[ret] = readByte(infd);
-    
-    if (readByte(infd) != FMMAGIC)
+    if (read(infd, &b, 1) != 1)
+      return -1;    
+    fileSeekPositions[ret] <<= 8; fileSeekPositions[ret] |= b;
+    if (read(infd, &b, 1) != 1)
+      return -1;    
+    fileSeekPositions[ret] <<= 8; fileSeekPositions[ret] |= b;
+    if (read(infd, &b, 1) != 1)
+      return -1;    
+    fileSeekPositions[ret] <<= 8; fileSeekPositions[ret] |= b;
+    if (read(infd, &b, 1) != 1)
+      return -1;    
+    fileSeekPositions[ret] <<= 8; fileSeekPositions[ret] |= b;
+
+    if (read(infd, &b, 1) != 1)
+      return -1;    
+    if (b != FMMAGIC)
       return -1;
     
     return ret;
@@ -106,11 +127,6 @@ class FileManager {
   virtual const char *fileName(int8_t fd) = 0;
 
   virtual int8_t readDir(const char *where, const char *suffix, char *outputFN, int8_t startIdx, uint16_t maxlen) = 0;
-
-  virtual uint8_t readByteAt(int8_t fd, uint32_t pos) = 0;
-  virtual bool writeByteAt(int8_t fd, uint8_t v, uint32_t pos) = 0;
-  virtual uint8_t readByte(int8_t fd) = 0;
-  virtual bool writeByte(int8_t fd, uint8_t v) = 0;
 
   virtual void getRootPath(char *toWhere, int8_t maxLen) = 0;
 
@@ -130,5 +146,7 @@ class FileManager {
   char cachedNames[MAXFILES][MAXPATH];
 
 };
+
+#undef writeByte
 
 #endif

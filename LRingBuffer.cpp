@@ -20,60 +20,50 @@ LRingBuffer::~LRingBuffer()
 
 bool LRingBuffer::Serialize(int8_t fd)
 {
-  g_filemanager->writeByte(fd, RINGBUFFERMAGIC);
+  uint8_t buf[9] = { RINGBUFFERMAGIC,
+		     (max >> 8) & 0xFF,
+		     (max     ) & 0xFF,
+		     (ptr >> 8) & 0xFF,
+		     (ptr     ) & 0xFF,
+		     (fill >> 8) & 0xFF,
+		     (fill     ) & 0xFF,
+		     (cursor >> 8) & 0xFF,
+		     (cursor     ) & 0xFF };
+  if (g_filemanager->write(fd, buf, 9) != 9)
+    return false;
 
-  g_filemanager->writeByte(fd, (max >> 8) & 0xFF);
-  g_filemanager->writeByte(fd, (max     ) & 0xFF);
+  if (g_filemanager->write(fd, buffer, max) != max)
+    return false;
 
-  g_filemanager->writeByte(fd, (ptr >> 8) & 0xFF);
-  g_filemanager->writeByte(fd, (ptr     ) & 0xFF);
-
-  g_filemanager->writeByte(fd, (fill >> 8) & 0xFF);
-  g_filemanager->writeByte(fd, (fill     ) & 0xFF);
-
-  g_filemanager->writeByte(fd, (cursor >> 8) & 0xFF);
-  g_filemanager->writeByte(fd, (cursor     ) & 0xFF);
-
-  for (uint16_t i=0; i<max; i++) {
-    g_filemanager->writeByte(fd, buffer[i]);
-  }
-
-  g_filemanager->writeByte(fd, RINGBUFFERMAGIC);
+  if (g_filemanager->write(fd, buf, 1) != 1)
+    return false;
   
   return true;
 }
 
 bool LRingBuffer::Deserialize(int8_t fd)
 {
-  if (g_filemanager->readByte(fd) != RINGBUFFERMAGIC)
+  uint8_t buf[9];
+  if (g_filemanager->read(fd, buf, 9) != 9)
+    return false;
+  if (buf[0] != RINGBUFFERMAGIC)
     return false;
 
-  max = g_filemanager->readByte(fd);
-  max <<= 8;
-  max |= g_filemanager->readByte(fd);
-
-  ptr = g_filemanager->readByte(fd);
-  ptr <<= 8;
-  ptr |= g_filemanager->readByte(fd);
-
-  fill = g_filemanager->readByte(fd);
-  fill <<= 8;
-  fill |= g_filemanager->readByte(fd);
-
-  cursor = g_filemanager->readByte(fd);
-  cursor <<= 8;
-  cursor |= g_filemanager->readByte(fd);
+  max = (buf[1] << 8) | buf[2];
+  ptr = (buf[3] << 8) | buf[4];
+  fill = (buf[5] << 8) | buf[6];
+  cursor = (buf[7] << 8) | buf[8];
 
   if (buffer)
     free(buffer);
 
   buffer = (uint8_t *)malloc(max);
-  
-  for (uint16_t i=0; i<max; i++) {
-    buffer[i] = g_filemanager->readByte(fd);
-  }
 
-  if (g_filemanager->readByte(fd) != RINGBUFFERMAGIC)
+  if (g_filemanager->read(fd, buffer, max) != max)
+    return false;
+
+  if (g_filemanager->read(fd, buf, 1) != 1 ||
+      buf[0] != RINGBUFFERMAGIC)
     return false;
 
   return true;

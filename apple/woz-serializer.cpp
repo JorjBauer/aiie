@@ -19,57 +19,50 @@ bool WozSerializer::Serialize(int8_t fd)
 {
   // If we're being asked to serialize, make sure we've flushed any data first
   flush();
-  
-  g_filemanager->writeByte(fd, WOZMAGIC);
 
-  // We need the internal state about data but not much else
-  g_filemanager->writeByte(fd,
-			   (trackPointer >> 24) & 0xFF);
-  g_filemanager->writeByte(fd,
-			   (trackPointer >> 16) & 0xFF);
-  g_filemanager->writeByte(fd,
-			   (trackPointer >>  8) & 0xFF);
-  g_filemanager->writeByte(fd,
-			   (trackPointer      ) & 0xFF);
+  uint8_t buf[13] = { WOZMAGIC,
+		      (trackPointer >> 24) & 0xFF,
+		      (trackPointer >> 16) & 0xFF,
+		      (trackPointer >>  8) & 0xFF,
+		      (trackPointer      ) & 0xFF,
+		      (trackBitCounter >> 24) & 0xFF,
+		      (trackBitCounter >> 16) & 0xFF,
+		      (trackBitCounter >>  8) & 0xFF,
+		      (trackBitCounter      ) & 0xFF,
+		      trackByte,
+		      trackBitIdx,
+		      trackLoopCounter,
+		      WOZMAGIC };
+  if (g_filemanager->write(fd, buf, 13) != 13)
+    return false;
   
-  g_filemanager->writeByte(fd,
-			   (trackBitCounter >> 24) & 0xFF);
-  g_filemanager->writeByte(fd,
-			   (trackBitCounter >> 16) & 0xFF);
-  g_filemanager->writeByte(fd,
-			   (trackBitCounter >>  8) & 0xFF);
-  g_filemanager->writeByte(fd,
-			   (trackBitCounter      ) & 0xFF);
-
-  g_filemanager->writeByte(fd, trackByte);
-  g_filemanager->writeByte(fd, trackBitIdx);
-  g_filemanager->writeByte(fd, trackLoopCounter);
-  
-  g_filemanager->writeByte(fd, WOZMAGIC);
   return true;
 }
 
 bool WozSerializer::Deserialize(int8_t fd)
 {
   // Before deserializing, the caller has to re-load the right disk image!
-  if (g_filemanager->readByte(fd) != WOZMAGIC)
+  uint8_t buf[13];
+  if (g_filemanager->read(fd, buf, 13) != 13)
+    return false;
+
+  if (buf[0] != WOZMAGIC)
     return false;
   
-  trackPointer = g_filemanager->readByte(fd);
-  trackPointer <<= 8; trackPointer |= g_filemanager->readByte(fd);
-  trackPointer <<= 8; trackPointer |= g_filemanager->readByte(fd);
-  trackPointer <<= 8; trackPointer |= g_filemanager->readByte(fd);
+  trackPointer = buf[1];
+  trackPointer <<= 8; trackPointer |= buf[2];
+  trackPointer <<= 8; trackPointer |= buf[3];
+  trackPointer <<= 8; trackPointer |= buf[4];
 
-  trackBitCounter = g_filemanager->readByte(fd);
-  trackBitCounter <<= 8; trackBitCounter  |= g_filemanager->readByte(fd);
-  trackBitCounter <<= 8; trackBitCounter  |= g_filemanager->readByte(fd);
-  trackBitCounter <<= 8; trackBitCounter  |= g_filemanager->readByte(fd);
-  
-  trackByte = g_filemanager->readByte(fd);
-  trackBitIdx = g_filemanager->readByte(fd);
-  trackLoopCounter = g_filemanager->readByte(fd);
-  
-  if (g_filemanager->readByte(fd) != WOZMAGIC)
+  trackBitCounter = buf[5];
+  trackBitCounter <<= 8; trackBitCounter |= buf[6];
+  trackBitCounter <<= 8; trackBitCounter |= buf[7];
+  trackBitCounter <<= 8; trackBitCounter |= buf[8];
+
+  trackByte = buf[9];
+  trackBitIdx = buf[10];
+  trackLoopCounter = buf[11];
+  if (buf[12] != WOZMAGIC)
     return false;
   
   return true;

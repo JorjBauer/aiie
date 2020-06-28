@@ -318,23 +318,22 @@ Cpu::~Cpu()
 
 bool Cpu::Serialize(int8_t fh)
 {
-  g_filemanager->writeByte(fh, CPUMAGIC);
+  uint8_t buf[13] = { CPUMAGIC,
+		      (pc >> 8) & 0xFF,
+		      (pc     ) & 0xFF,
+		      sp,
+		      a,
+		      x,
+		      y,
+		      flags,
+		      (cycles >> 24) & 0xFF,
+		      (cycles >> 16) & 0xFF,
+		      (cycles >>  8) & 0xFF,
+		      (cycles      ) & 0xFF,
+		      irqPending ? 1 : 0 };
 
-  g_filemanager->writeByte(fh, (pc >> 8) & 0xFF);
-  g_filemanager->writeByte(fh, (pc     ) & 0xFF);
-
-  g_filemanager->writeByte(fh, sp);
-  g_filemanager->writeByte(fh, a);
-  g_filemanager->writeByte(fh, x);
-  g_filemanager->writeByte(fh, y);
-  g_filemanager->writeByte(fh, flags);
-
-  g_filemanager->writeByte(fh, (cycles >> 24) & 0xFF);
-  g_filemanager->writeByte(fh, (cycles >> 16) & 0xFF);
-  g_filemanager->writeByte(fh, (cycles >>  8) & 0xFF);
-  g_filemanager->writeByte(fh, (cycles      ) & 0xFF);
-
-  g_filemanager->writeByte(fh, irqPending ? 1 : 0);
+  if (g_filemanager->write(fh, buf, 13) != 13)
+    return false;
 
   if (!mmu->Serialize(fh)) {
 #ifndef TEENSYDUINO
@@ -345,35 +344,29 @@ bool Cpu::Serialize(int8_t fh)
     return false;
   }
 
-  g_filemanager->writeByte(fh, CPUMAGIC);
+  if (g_filemanager->write(fh, buf, 1) != 1) 
+    return false;
 
-  return true; // FIXME: no error checking on writes
+  return true;
 }
 
 bool Cpu::Deserialize(int8_t fh)
 {
-  if (g_filemanager->readByte(fh) != CPUMAGIC)
+  uint8_t buf[13];
+  if (g_filemanager->read(fh, buf, 13) != 13)
     return false;
+  if (buf[0] != CPUMAGIC)
+    return false;
+  pc = (buf[1] << 8) | buf[2];
+  sp = buf[3];
+  a = buf[4];
+  x = buf[5];
+  y = buf[6];
+  flags = buf[7];
 
-  pc = g_filemanager->readByte(fh);
-  pc <<= 8;
-  pc |= g_filemanager->readByte(fh);
+  cycles = (buf[8] << 24) | (buf[9] << 16) | (buf[10] << 8) | buf[11];
 
-  sp = g_filemanager->readByte(fh);
-  a = g_filemanager->readByte(fh);
-  x = g_filemanager->readByte(fh);
-  y = g_filemanager->readByte(fh);
-  flags = g_filemanager->readByte(fh);
-
-  cycles = g_filemanager->readByte(fh);
-  cycles <<= 8;
-  cycles |=  g_filemanager->readByte(fh);
-  cycles <<= 8;
-  cycles |=  g_filemanager->readByte(fh);
-  cycles <<= 8;
-  cycles |=  g_filemanager->readByte(fh);
-
-  irqPending = g_filemanager->readByte(fh) ? true : false;
+  irqPending = buf[12];
 
   if (!mmu->Deserialize(fh)) {
 #ifndef TEENSYDUINO
@@ -382,7 +375,9 @@ bool Cpu::Deserialize(int8_t fh)
     return false;
   }
 
-  if (g_filemanager->readByte(fh) != CPUMAGIC)
+  if (g_filemanager->read(fh, buf, 1) != 1)
+    return false;
+  if (buf[0] != CPUMAGIC)
     return false;
 
 #ifndef TEENSYDUINO

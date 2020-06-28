@@ -9,7 +9,7 @@
 #include "globals.h"
 
 #include <errno.h>
-const char *suspendHdr = "Sus1";
+const char *suspendHdr = "Sus2";
 
 AppleVM::AppleVM()
 {
@@ -48,19 +48,18 @@ void AppleVM::Suspend(const char *fn)
   }
 
   /* Header */
-  for (int i=0; i<strlen(suspendHdr); i++) {
-    g_filemanager->writeByte(fh, suspendHdr[i]);
-  }
+  if (g_filemanager->write(fh, suspendHdr, strlen(suspendHdr)) != strlen(suspendHdr))
+    return;
 
   /* Tell all of the peripherals to suspend */
   if (g_cpu->Serialize(fh) &&
       disk6->Serialize(fh) &&
       hd32->Serialize(fh)
       ) {
-#ifndef TEENSYDUINO
-    printf("All serialized successfully\n");
-#else
+#ifdef TEENSYDUINO
     Serial.println("All serialized successfully");
+#else
+    printf("All serialized successfully\n");
 #endif
   }
 
@@ -86,8 +85,10 @@ void AppleVM::Resume(const char *fn)
   }
 
   /* Header */
+  uint8_t c;
   for (int i=0; i<strlen(suspendHdr); i++) {
-    if (g_filemanager->readByte(fh) != suspendHdr[i]) {
+    if (g_filemanager->read(fh, &c, 1) != 1 ||
+	c != suspendHdr[i]) {
       /* Failed to read correct header; abort */
       g_filemanager->closeFile(fh);
       return;

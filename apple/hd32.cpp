@@ -212,9 +212,9 @@ uint8_t HD32::readNextByteFromSelectedDrive()
   // FIXME: assumes file is open & cursor is valid
 
   uint8_t v;
-
-  v = g_filemanager->readByteAt(fd[driveSelected], cursor[driveSelected]);
   // FIXME: error handling
+  g_filemanager->lseek(fd[driveSelected], cursor[driveSelected], SEEK_SET);
+  g_filemanager->read(fd[driveSelected], &v, 1);
 
   cursor[driveSelected]++;
   
@@ -224,17 +224,20 @@ uint8_t HD32::readNextByteFromSelectedDrive()
 bool HD32::writeBlockToSelectedDrive()
 {
   // FIXME: assumes file is open & cursor is valid
-  // FIXME: need a better filemanager interface that holds the file open
+  
+  // FIXME: is there a better static 512-char buf somewhere we can reuse instead of allocing new? (The teensy is low on ram.)
+  uint8_t buf[512];
 
   for (uint16_t i=0; i<512; i++) {
-    uint8_t b = mmu->read(memBlock[driveSelected] + i);
-    if (!g_filemanager->writeByteAt(fd[driveSelected], b, diskBlock[driveSelected] * 512 + i)) {
-      // FIXME
+    buf[i] = mmu->read(memBlock[driveSelected] + i);
+  }
+  if (g_filemanager->lseek(fd[driveSelected], diskBlock[driveSelected]*512, SEEK_SET) == -1 ||
+      g_filemanager->write(fd[driveSelected], buf, 512) != 512) {
+    // FIXME
 #ifndef TEENSYDUINO
-      printf("ERROR: failed to write to hd file? errno %d\n", errno);
+    printf("ERROR: failed to write to hd file? errno %d\n", errno);
 #endif
-      return false;
-    }
+    return false;
   }
   
   return true;
