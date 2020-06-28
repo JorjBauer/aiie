@@ -69,11 +69,6 @@ void TeensyFileManager::closeFile(int8_t fd)
   cachedNames[fd][0] = '\0';
 }
 
-void TeensyFileManager::truncate(int8_t fd)
-{
-  /* Not used in the code anywhere, yet, and unimplemented here... */
-}
-
 const char *TeensyFileManager::fileName(int8_t fd)
 {
   if (fd < 0 || fd >= numCached)
@@ -153,118 +148,6 @@ int8_t TeensyFileManager::readDir(const char *where, const char *suffix, char *o
   }
 
   /* NOTREACHED */
-}
-
-void TeensyFileManager::seekBlock(int8_t fd, uint16_t block, bool isNib)
-{
-  if (fd < 0 || fd >= numCached)
-    return;
-
-  fileSeekPositions[fd] = block * (isNib ? 416 : 256);
-}
-
-
-bool TeensyFileManager::readTrack(int8_t fd, uint8_t *toWhere, bool isNib)
-{
-  if (fd < 0 || fd >= numCached)
-    return false;
-
-  if (cachedNames[fd][0] == 0)
-    return false;
-
-  // open, seek, read, close.
-  File f = sd.open(cachedNames[fd], FILE_READ);
-  if (!f) {
-    Serial.println("failed to open");
-    return false;
-  }
-
-  if (!f.seek(fileSeekPositions[fd])) {
-    Serial.println("readTrack: seek failed");
-    f.close();
-    return false;
-  }
-
-  int nRead = f.read(toWhere, isNib ? 0x1a00 : (256 * 16));
-  f.close();
-  return (nRead == (isNib ? 0x1a00 : (256 * 16)));
-}
-
-bool TeensyFileManager::readBlock(int8_t fd, uint8_t *toWhere, bool isNib)
-{
-  // open, seek, read, close.
-  if (fd < 0 || fd >= numCached)
-    return false;
-
-  if (cachedNames[fd][0] == 0)
-    return false;
-
-  // open, seek, read, close.
-  File f = sd.open(cachedNames[fd], FILE_READ);
-  if (!f) {
-    Serial.println("failed to open");
-    return false;
-  }
-
-  if (!f.seek(fileSeekPositions[fd])) {
-    Serial.println("readBlock: seek failed");
-    f.close();
-    return false;
-  }
-
-  int nRead = f.read(toWhere, isNib ? 416 : 256);
-  f.close();
-  return (nRead == (isNib ? 416 : 256));
-}
-
-bool TeensyFileManager::writeBlock(int8_t fd, uint8_t *fromWhere, bool isNib)
-{
-  // open, seek, write, close.
-  if (fd < 0 || fd >= numCached)
-    return false;
-
-  if (cachedNames[fd][0] == 0)
-    return false;
-
-  // can't write just a single block of a nibblized track
-  if (isNib)
-    return false;
-
-  // open, seek, write, close.
-  File f = sd.open(cachedNames[fd], FILE_WRITE);
-  if (!f ||
-      !f.seek(fileSeekPositions[fd])) {
-    f.close();
-    return false;
-  }
-
-  int nWritten = f.write(fromWhere, 256);
-  f.close();
-  return (nWritten == 256);
-}
-
-bool TeensyFileManager::writeTrack(int8_t fd, uint8_t *fromWhere, bool isNib)
-{
-  // open, seek, write, close.
-  if (fd < 0 || fd >= numCached)
-    return false;
-
-  if (cachedNames[fd][0] == 0)
-    return false;
-
-  // open, seek, write, close.
-  File f = sd.open(cachedNames[fd], FILE_WRITE);
-  if (!f)
-    return false;
-
-  if (!f.seek(fileSeekPositions[fd])) {
-    f.close();
-    return false;
-  }
-
-  int nWritten = f.write(fromWhere, isNib ? 0x1a00 : (256*16));
-  f.close();
-  return (nWritten == (isNib ? 0x1a00 : (256*16)));
 }
 
 bool TeensyFileManager::_prepCache(int8_t fd)
@@ -426,4 +309,76 @@ void TeensyFileManager::seekToEnd(int8_t fd)
 
   f.close();
 }
+
+int TeensyFileManager::write(int8_t fd, const void *buf, int nbyte)
+{
+  // open, seek, write, close.
+  if (fd < 0 || fd >= numCached) {
+    Serial.println("failed write - invalid fd");
+    return -1;
+  }
+
+  if (cachedNames[fd][0] == 0) {
+    Serial.println("failed write - no cache name");
+    return -1;
+  }
+
+  _prepCache(fd);
+
+  uint32_t pos = fileSeekPositions[fd];
+
+  if (!rawFile.seek(pos)) {
+    return -1;
+  }
+
+  if (rawFile.write(buf, nbyte) != nbyte) {
+    return -1;
+  }
+
+  fileSeekPositions[fd] += nbyte;
+  rawFile.close();
+  return nbyte;
+};
+
+int TeensyFileManager::read(int8_t fd, void *buf, int nbyte)
+{
+  // open, seek, read, close.
+  if (fd < 0 || fd >= numCached)
+    return -1;
+
+  if (cachedNames[fd][0] == 0)
+    return -1;
+
+  _prepCache(fd);
+
+  uint32_t pos = fileSeekPositions[fd];
+
+  if (!rawFile.seek(pos)) {
+    Serial.print("readByte: seek failed to byte ");
+    Serial.println(pos);
+    return -1;
+  }
+
+  if (rawFile.read(buf, nbyte) != nbyte)
+    return -1;
+
+  fileSeekPositions[fd] += nbyte;
+  rawFile.close();
+  
+  return nbyte;
+};
+
+int TeensyFileManager::lseek(int8_t fd, int offset, int whence)
+{
+  if (whence == SEEK_CUR && offset == 0) {
+    return fileSeekPositions[fd];
+  }
+  if (whence == SEEK_SET) {
+    if (!setSeekPosition(fd, offset))
+      return -1;
+    return offset;
+  }
+  // Other cases not supported yet                                                                                                      
+  return -1;
+};
 

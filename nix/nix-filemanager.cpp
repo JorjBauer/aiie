@@ -56,12 +56,6 @@ void NixFileManager::closeFile(int8_t fd)
   cachedNames[fd][0] = '\0';
 }
 
-void NixFileManager::truncate(int8_t fd)
-{
-  FILE *f = fopen(cachedNames[fd], "w+");
-  fclose(f);
-}
-
 const char *NixFileManager::fileName(int8_t fd)
 {
   if (fd < 0 || fd >= numCached)
@@ -157,127 +151,6 @@ int8_t NixFileManager::readDir(const char *where, const char *suffix, char *outp
   }
 
   return idx;
-}
-
-void NixFileManager::seekBlock(int8_t fd, uint16_t block, bool isNib)
-{
-  if (fd < 0 || fd >= numCached)
-    return;
-
-  if (isNib) {
-    fileSeekPositions[fd] = block * 416;
-  } else {
-    fileSeekPositions[fd] = block * 256;
-  }
-}
-
-
-bool NixFileManager::readTrack(int8_t fd, uint8_t *toWhere, bool isNib)
-{
-  if (fd < 0 || fd >= numCached)
-    return false;
-
-  if (cachedNames[fd][0] == 0)
-    return false;
-
-  // open, seek, read, close.
-  bool ret = false;
-  int ffd = open(cachedNames[fd], O_RDONLY);
-  if (ffd != -1) {
-    lseek(ffd, fileSeekPositions[fd], SEEK_SET);
-    if (isNib) {
-      ret = (read(ffd, toWhere, 0x1A00) == 0x1A00);
-    } else {
-      ret = (read(ffd, toWhere, 256 * 16) == 256 * 16);
-    }
-    close(ffd);
-  }
-
-  return ret;
-}
-
-bool NixFileManager::readBlock(int8_t fd, uint8_t *toWhere, bool isNib)
-{
-  // open, seek, read, close.
-  if (fd < 0 || fd >= numCached)
-    return false;
-
-  if (cachedNames[fd][0] == 0)
-    return false;
-
-  // open, seek, read, close.
-  bool ret = false;
-  int ffd = open(cachedNames[fd], O_RDONLY);
-  if (ffd != -1) {
-    lseek(ffd, fileSeekPositions[fd], SEEK_SET);
-    if (isNib) {
-      ret = (read(ffd, toWhere, 416) == 416);
-    } else {
-      ret = (read(ffd, toWhere, 256) == 256);
-    }
-    close(ffd);
-  }
-
-  return ret;
-}
-
-bool NixFileManager::writeBlock(int8_t fd, uint8_t *fromWhere, bool isNib)
-{
-  // open, seek, write, close.
-  if (fd < 0 || fd >= numCached)
-    return false;
-
-  if (cachedNames[fd][0] == 0)
-    return false;
-
-  // don't know how to do this without seeking through the nibblized
-  // track data, so just give up for now
-  if (isNib)
-    return false;
-
-  // open, seek, write, close.
-  int ffd = open(cachedNames[fd], O_WRONLY);
-  if (ffd != -1) {
-    if (lseek(ffd, fileSeekPositions[fd], SEEK_SET) != fileSeekPositions[fd]) {
-      printf("ERROR: failed to seek to %lu\n", fileSeekPositions[fd]);
-      return false;
-    }
-    if (write(ffd, fromWhere, 256) != 256) {
-      printf("ERROR: failed to write 256 bytes\n");
-      return false;
-    }
-    close(ffd);
-  }
-  return true;
-}
-
-bool NixFileManager::writeTrack(int8_t fd, uint8_t *fromWhere, bool isNib)
-{
-  // open, seek, write, close.
-  if (fd < 0 || fd >= numCached)
-    return false;
-
-  if (cachedNames[fd][0] == 0)
-    return false;
-
-  // open, seek, write, close.
-  int ffd = open(cachedNames[fd], O_WRONLY);
-  if (ffd != -1) {
-    if (lseek(ffd, fileSeekPositions[fd], SEEK_SET) != fileSeekPositions[fd]) {
-      printf("ERROR: failed to seek to %lu\n", fileSeekPositions[fd]);
-      return false;
-    }
-    int16_t wrsize = 256 * 16;
-    if (isNib)
-      wrsize = 0x1A00;
-
-    if (write(ffd, fromWhere, wrsize) != wrsize) {
-      printf("ERROR: failed to write bytes\n");
-      return false;
-    }
-    close(ffd);
-  }
-  return true;
 }
 
 uint8_t NixFileManager::readByteAt(int8_t fd, uint32_t pos)
@@ -421,3 +294,36 @@ void NixFileManager::seekToEnd(int8_t fd)
     fclose(f);
   }
 }
+
+int NixFileManager::write(int8_t fd, const void *buf, int nbyte)
+{
+  uint8_t *p = (uint8_t *)buf;
+  for (int i=0; i<nbyte; i++) {
+    if (!writeByte(fd, p[i]))
+      return -1;
+  }
+  return nbyte;
+};
+
+int NixFileManager::read(int8_t fd, void *buf, int nbyte)
+{
+  uint8_t *p = (uint8_t *)buf;
+  for (int i=0; i<nbyte; i++) {
+    p[i] = readByte(fd); // FIXME: no error handling                          
+  }
+  return nbyte;
+};
+
+int NixFileManager::lseek(int8_t fd, int offset, int whence)
+{
+  if (whence == SEEK_CUR && offset == 0) {
+    return fileSeekPositions[fd];
+  }
+  if (whence == SEEK_SET) {
+    if (!setSeekPosition(fd, offset))
+      return -1;
+    return offset;
+  }
+  // Other cases not supported yet                                            
+  return -1;
+};

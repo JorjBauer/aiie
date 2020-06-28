@@ -40,13 +40,11 @@ static   time_t getTeensy3Time() {  return Teensy3Clock.get(); }
 void setup()
 {
   Serial.begin(230400);
-
-  /* while (!Serial) {
-    ; // wait for serial port to connect. Needed for Leonardo only
-  }
-  Serial.println("hi");
-  */
-  delay(100); // let the serial port connect if it's gonna
+  /*
+  while (!Serial) {
+    yield();
+  }*/
+  delay(100); // let the power settle
 
   enableFaultHandler();
 

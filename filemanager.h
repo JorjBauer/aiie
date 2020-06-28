@@ -103,16 +103,9 @@ class FileManager {
   virtual int8_t openFile(const char *name) = 0;
   virtual void closeFile(int8_t fd) = 0;
 
-  virtual void truncate(int8_t fd) = 0;
-
   virtual const char *fileName(int8_t fd) = 0;
 
   virtual int8_t readDir(const char *where, const char *suffix, char *outputFN, int8_t startIdx, uint16_t maxlen) = 0;
-  virtual void seekBlock(int8_t fd, uint16_t block, bool isNib = false) = 0;
-  virtual bool readTrack(int8_t fd, uint8_t *toWhere, bool isNib = false) = 0;
-  virtual bool readBlock(int8_t fd, uint8_t *toWhere, bool isNib = false) = 0;
-  virtual bool writeBlock(int8_t fd, uint8_t *fromWhere, bool isNib = false) = 0;
-  virtual bool writeTrack(int8_t fd, uint8_t *fromWhere, bool isNib = false) = 0;
 
   virtual uint8_t readByteAt(int8_t fd, uint32_t pos) = 0;
   virtual bool writeByteAt(int8_t fd, uint8_t v, uint32_t pos) = 0;
@@ -128,34 +121,10 @@ class FileManager {
   virtual bool setSeekPosition(int8_t fd, uint32_t pos) = 0;
   virtual void seekToEnd(int8_t fd) = 0;
 
-  int write(int8_t fd, const void *buf, int nbyte) {
-    uint8_t *p = (uint8_t *)buf;
-    for (int i=0; i<nbyte; i++) {
-      if (!writeByte(fd, p[i]))
-	return -1;
-    }
-    return nbyte;
-  };
-  int read(int8_t fd, void *buf, int nbyte) {
-    uint8_t *p = (uint8_t *)buf;
-    for (int i=0; i<nbyte; i++) {
-      p[i] = readByte(fd); // FIXME: no error handling
-    }
-    return nbyte;
-  };
-  int seek(int8_t fd, int offset, int whence) {
-    if (whence == SEEK_CUR && offset == 0) {
-      return fileSeekPositions[fd];
-    }
-    if (whence == SEEK_SET) {
-      if (!setSeekPosition(fd, offset))
-	return -1;
-      return offset;
-    }
-    // Other cases not supported yet
-    return -1;
-  };
-
+  virtual int write(int8_t fd, const void *buf, int nbyte) = 0;
+  virtual int read(int8_t fd, void *buf, int nbyte) = 0;
+  virtual int lseek(int8_t fd, int offset, int whence) = 0;
+  
  protected:
   unsigned long fileSeekPositions[MAXFILES];
   char cachedNames[MAXFILES][MAXPATH];
