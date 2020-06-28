@@ -34,7 +34,6 @@ class DiskII : public Slot {
   void ejectDisk(int8_t driveNum);
 
   const char *DiskName(int8_t num);
-  void flushTrack(int8_t track, int8_t sel);
 
   void maintenance(uint32_t cycles);
 
@@ -72,6 +71,8 @@ class DiskII : public Slot {
   volatile uint32_t diskIsSpinningUntil[2];
 
   volatile int8_t selectedDisk;
+
+  volatile uint32_t flushAt[2];
 };
 
 #endif

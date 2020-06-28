@@ -22,6 +22,9 @@
 // how many CPU cycles do we wait to spin down the disk drive? 1023000 == 1 second
 #define SPINDOWNDELAY (1023000)
 
+// 10 second delay before flushing
+#define FLUSHDELAY (1023000 * 10)
+
 DiskII::DiskII(AppleMMU *mmu)
 {
   this->mmu = mmu;
@@ -40,6 +43,7 @@ DiskII::DiskII(AppleMMU *mmu)
 
   disk[0] = disk[1] = NULL;
   diskIsSpinningUntil[0] = diskIsSpinningUntil[1] = 0;
+  flushAt[0] = flushAt[1] = 0;
   selectedDisk = 0;
 }
 
@@ -107,6 +111,10 @@ bool DiskII::Serialize(int8_t fd)
 			     (diskIsSpinningUntil[i]      ) & 0xFF);
     
     if (disk[i]) {
+      // Make sure we have flushed the disk images
+      disk[i]->flush();
+      flushAt[i] = 0; // and there's no need to re-flush them now
+
       g_filemanager->writeByte(fd, 1);
       // FIXME: this ONLY works for builds using the filemanager to read
       // the disk image, so it's broken until we port Woz to do that!
@@ -180,11 +188,9 @@ bool DiskII::Deserialize(int8_t fd)
       }
       buf[ptr] = 0;
       if (buf[0]) {
-#ifdef TEENSYDUINO
+	// Important we don't read all the tracks, so we can also flush
+	// writes back to the fd...
 	disk[i]->readFile(buf, false, T_AUTO); // FIXME error checking    
-#else
-	disk[i]->readFile(buf, true, T_AUTO); // FIXME error checking     
-#endif
       } else {
 	// ERROR: there's a disk but we don't have the path to its image?
 	return false;
@@ -226,6 +232,12 @@ void DiskII::driveOff()
 
   // The drive-is-on-indicator is turned off later, when the disk
   // actually spins down.
+
+  if (disk[selectedDisk]) {
+    flushAt[selectedDisk] = g_cpu->cycles + FLUSHDELAY;
+    if (flushAt[selectedDisk] == 0)
+      flushAt[selectedDisk] = 1; // fudge magic number; 0 is "don't flush"
+  }
 }
 
 void DiskII::driveOn()
@@ -289,7 +301,7 @@ uint8_t DiskII::readSwitches(uint8_t s)
       //      printf("%u: read data\n", g_cpu->cycles - lastC);
       //      lastC = g_cpu->cycles;
       if (!(sequencer & 0x80)) {
-	printf("SEQ RESET EARLY [1]\n");
+	//	printf("SEQ RESET EARLY [1]\n");
       }
       sequencer = 0;
     }
@@ -305,7 +317,7 @@ uint8_t DiskII::readSwitches(uint8_t s)
 	readWriteLatch &= 0x7F;
     }
     if (!(sequencer & 0x80)) {
-      printf("SEQ RESET EARLY [2]\n");
+      //      printf("SEQ RESET EARLY [2]\n");
     }
     sequencer = 0;
     break;
@@ -364,14 +376,13 @@ void DiskII::writeSwitches(uint8_t s, uint8_t v)
   case 0x0C: // shift one read or write byte
     if (readOrWriteByte() & 0x80) {
       if (!(sequencer & 0x80)) {
-	printf("SEQ RESET EARLY [3]\n");
+	//	printf("SEQ RESET EARLY [3]\n");
       }
       sequencer = 0;
     }
     break;
 
   case 0x0D: // drive write
-    // FIXME
     break;
 
   case 0x0E: // set read mode
@@ -447,8 +458,6 @@ void DiskII::setPhase(uint8_t phase)
   }
 
   if (curHalfTrack[selectedDisk] != prevHalfTrack) {
-    // We're changing track - flush the old track back to disk
-    // FIXME flush
     curWozTrack[selectedDisk] = disk[selectedDisk]->dataTrackNumberForQuarterTrack(curHalfTrack[selectedDisk]*2);
   }
 }
@@ -492,11 +501,8 @@ void DiskII::insertDisk(int8_t driveNum, const char *filename, bool drawIt)
   ejectDisk(driveNum);
 
   disk[driveNum] = new WozSerializer();
-#ifdef TEENSYDUINO
+  // intentionally 'false' (see above call to readFile)
   disk[driveNum]->readFile(filename, false, T_AUTO); // FIXME error checking
-#else
-  disk[driveNum]->readFile(filename, true, T_AUTO); // FIXME error checking
-#endif
 
   curWozTrack[driveNum] = disk[driveNum]->dataTrackNumberForQuarterTrack(curHalfTrack[driveNum]*2);
 
@@ -507,6 +513,8 @@ void DiskII::insertDisk(int8_t driveNum, const char *filename, bool drawIt)
 void DiskII::ejectDisk(int8_t driveNum)
 {
   if (disk[driveNum]) {
+    disk[driveNum]->flush();
+    flushAt[driveNum] = 0;
     delete disk[driveNum];
     disk[driveNum] = NULL;
     g_ui->drawOnOffUIElement(UIeDisk1_state + driveNum, true);
@@ -530,9 +538,12 @@ void DiskII::select(int8_t which)
 	diskIsSpinningUntil[selectedDisk] = 2; // fudge magic numbers; 0 is "off" and -1 is "forever".
     }
 
-    // Flush the cache of the disk that's no longer selected
-    if (disk[selectedDisk])
-      disk[selectedDisk]->flush();
+    // Queue flushing the cache of the disk that's no longer selected
+    if (disk[selectedDisk]) {
+      flushAt[selectedDisk] = g_cpu->cycles + FLUSHDELAY;
+      if (flushAt[selectedDisk] == 0)
+	flushAt[selectedDisk] = 1; // fudge magic number; 0 is "don't flush"
+    }
     
     // set the selected disk drive
     selectedDisk = which;
@@ -569,7 +580,7 @@ uint8_t DiskII::readOrWriteByte()
 
     // Handle rollover, which is a mess.
     if (driveSpinupCycles[selectedDisk] > g_cpu->cycles) {
-      printf("Cycle rollover\n");
+      //      printf("Cycle rollover\n");
       driveSpinupCycles[selectedDisk] = g_cpu->cycles-1; // FIXME: is the -1 correct? What if we were @ 0?
 #ifndef TEENSYDUINO
       exit(2); // for debugging, FIXME ***
@@ -642,8 +653,7 @@ uint8_t DiskII::readOrWriteByte()
 const char *DiskII::DiskName(int8_t num)
 {
   if (disk[num]) {
-    // *** need to get name from disk image FIXME
-    return "[inserted]";
+    return disk[num]->diskName();
   }
 
   // Nothing inserted in that drive
@@ -663,17 +673,6 @@ void DiskII::loadROM(uint8_t *toWhere)
 #endif
 }
 
-void DiskII::flushTrack(int8_t track, int8_t sel)
-{
-  // safety check: if we're write-protected, then how did we get here?
-  if (writeProt) {
-    g_display->debugMsg("DII: Write Protected");
-    return;
-  }
-
-  // FIXME: *** needs implementing
-}
-
 void DiskII::maintenance(uint32_t cycle)
 {
   // Handle spin-down for the drive. Drives stay on for a second after
@@ -684,13 +683,16 @@ void DiskII::maintenance(uint32_t cycle)
       // Stop the given disk drive spinning
       diskIsSpinningUntil[i] = 0;
       // FIXME: consume any disk bits that need to be consumed, and spin it down
-
-      if (disk[i]) {
-	// ensure any changes are written to our disk image
-	disk[i]->flush();
-      }
-
       g_ui->drawOnOffUIElement(UIeDisk1_activity + i, false); // FIXME: queue for later drawing?
     }
+
+    if (flushAt[i] &&
+	g_cpu->cycles > flushAt[i]) {
+      if (disk[i]) {
+	disk[i]->flush();
+      }
+      flushAt[i] = 0;
+    }
+
   }
 }
