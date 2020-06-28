@@ -297,21 +297,63 @@ void NixFileManager::seekToEnd(int8_t fd)
 
 int NixFileManager::write(int8_t fd, const void *buf, int nbyte)
 {
-  uint8_t *p = (uint8_t *)buf;
-  for (int i=0; i<nbyte; i++) {
-    if (!writeByte(fd, p[i]))
+  if (fd < 0 || fd >= numCached)
+    return -1;
+
+  if (cachedNames[fd][0] == 0)
+    return -1;
+
+  uint32_t pos = fileSeekPositions[fd];
+
+  // open, seek, write, close.
+  bool ret = false;
+  int ffd = open(cachedNames[fd], O_WRONLY|O_CREAT, 0644);
+  if (ffd != -1) {
+    if (lseek(ffd, pos, SEEK_SET) == -1) {
+      close(ffd);
       return -1;
+    }
+    ret = write(ffd, buf, nbyte);
+    if (ret != nbyte) {
+      printf("error writing: %d\n", errno);
+    }
+    close(ffd);
+  } else {
+    printf("Failed to open '%s' for writing: %d\n", 
+	   cachedNames[fd], errno);
   }
-  return nbyte;
+  fileSeekPositions[fd]+=nbyte;
+  return ret;
 };
 
 int NixFileManager::read(int8_t fd, void *buf, int nbyte)
 {
-  uint8_t *p = (uint8_t *)buf;
-  for (int i=0; i<nbyte; i++) {
-    p[i] = readByte(fd); // FIXME: no error handling                          
+  if (fd < 0 || fd >= numCached)
+    return -1; // FIXME: error handling?
+
+  if (cachedNames[fd][0] == 0)
+    return -1; // FIXME: error handling?
+
+  uint32_t pos = fileSeekPositions[fd];
+
+  // open, seek, read, close.
+  bool ret = false;
+  int ffd = open(cachedNames[fd], O_RDONLY);
+  if (ffd != -1) {
+    if (lseek(ffd, pos, SEEK_SET) == -1) {
+      close(ffd);
+      return -1;
+    }
+    ret = read(ffd, buf, nbyte);
+    close(ffd);
   }
-  return nbyte;
+  fileSeekPositions[fd]+=nbyte;
+
+  if (ret != nbyte) {
+    printf("ERROR reading from pos %d: %d\n", pos, errno);
+  }
+
+  return ret;
 };
 
 int NixFileManager::lseek(int8_t fd, int offset, int whence)
