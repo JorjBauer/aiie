@@ -226,14 +226,16 @@ void DiskII::Reset()
 
 void DiskII::driveOff()
 {
-  diskIsSpinningUntil[selectedDisk] = g_cpu->cycles + SPINDOWNDELAY; // 1 second lag
-  if (diskIsSpinningUntil[selectedDisk] == -1 ||
-      diskIsSpinningUntil[selectedDisk] == 0)
-    diskIsSpinningUntil[selectedDisk] = 2; // fudge magic numbers; 0 is "off" and -1 is "forever".
+  if (diskIsSpinningUntil[selectedDisk] == -1) {
+    diskIsSpinningUntil[selectedDisk] = g_cpu->cycles + SPINDOWNDELAY; // 1 second lag
+    if (diskIsSpinningUntil[selectedDisk] == -1 ||
+	diskIsSpinningUntil[selectedDisk] == 0)
+      diskIsSpinningUntil[selectedDisk] = 2; // fudge magic numbers; 0 is "off" and -1 is "forever".
 
-  // The drive-is-on-indicator is turned off later, when the disk
-  // actually spins down.
-
+    // The drive-is-on-indicator is turned off later, when the disk
+    // actually spins down.
+  }
+  
   if (disk[selectedDisk]) {
     flushAt[selectedDisk] = g_cpu->cycles + FLUSHDELAY;
     if (flushAt[selectedDisk] == 0)
@@ -531,14 +533,19 @@ void DiskII::select(int8_t which)
     if (diskIsSpinningUntil[selectedDisk] == -1) {
       // FIXME: I'm not sure what the right behavior is here (read
       // UTA2E and see if the state diagrams show the right
-      // behavior). For now, I'm setting the spindown of the
-      // now-deselected disk.
-      diskIsSpinningUntil[selectedDisk] = g_cpu->cycles + SPINDOWNDELAY;
-      if (diskIsSpinningUntil[selectedDisk] == -1 ||
-	  diskIsSpinningUntil[selectedDisk] == 0)
-	diskIsSpinningUntil[selectedDisk] = 2; // fudge magic numbers; 0 is "off" and -1 is "forever".
-    }
+      // behavior). This spins it down immediately based on something
+      // I read about the duoDisk not having both motors on
+      // simultaneously.
+      diskIsSpinningUntil[selectedDisk] = 0;
+      // FIXME: consume any disk bits that need to be consumed, and
+      // spin it down
+      g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false); // FIXME: queue for later drawing?
 
+      // Spin up the other one though
+      diskIsSpinningUntil[which] = -1;
+      g_ui->drawOnOffUIElement(UIeDisk1_activity + which, false); // FIXME: queue for later drawing?
+    }
+    
     // Queue flushing the cache of the disk that's no longer selected
     if (disk[selectedDisk]) {
       flushAt[selectedDisk] = g_cpu->cycles + FLUSHDELAY;
@@ -548,6 +555,9 @@ void DiskII::select(int8_t which)
     
     // set the selected disk drive
     selectedDisk = which;
+
+    // FIXME: does this reset the sequencer?
+    sequencer = 0;
   }
 
   // Update the current woz track for the given disk drive
