@@ -51,9 +51,9 @@ void writePrefs();
 void sigint_handler(int n)
 {
   // If we want control-C to reset the machine, then set this here...
-  //  send_rst = 1;
+  send_rst = 1;
 
-  ((AppleVM*)g_vm)->disk6->disk[0]->dumpInfo();
+  //  ((AppleVM*)g_vm)->disk6->disk[0]->dumpInfo();
 }
 
 void nonblock(int state)
