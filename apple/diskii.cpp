@@ -470,8 +470,50 @@ bool DiskII::isWriteProtected()
   return (writeProt ? 0xFF : 0x00);
 }
 
+int64_t DiskII::calcExpectedBits()
+{
+  // If the disk isn't spinning, then it can't be expected to deliver data
+  if (!diskIsSpinningUntil[selectedDisk])
+    return 0;
+
+  // Handle potential messy counter rollover
+  if (driveSpinupCycles[selectedDisk] > g_cpu->cycles) {
+    driveSpinupCycles[selectedDisk] = g_cpu->cycles-1;
+    if (driveSpinupCycles[selectedDisk] == 0) // avoid sitting on 0
+      driveSpinupCycles[selectedDisk]++;
+  }
+
+  uint32_t cyclesPassed = g_cpu->cycles - driveSpinupCycles[selectedDisk];
+  // This constant defines how fast the disk drive "spins".
+  // 4.0 is good for DOS 3.3 writes, and reads as 205ms in
+  //   Copy 2+'s drive speed verifier.
+  // 3.99: 204.5ms
+  // 3.90: 199.9ms
+  // 3.91: 200.5ms
+  // 3.51: 176ms, and is too fast for DOS to write properly.
+  uint64_t expectedDiskBits = (float)cyclesPassed / 3.90;
+
+  return expectedDiskBits - deliveredDiskBits[selectedDisk];
+}
+
 void DiskII::setWriteMode(bool enable)
 {
+  if (enable) {
+    // At this point we need to update the track pointer so we know
+    // where we're going to start writing bits.
+
+    int64_t db = calcExpectedBits();
+    if (db > 0) {
+      // make sure the disk is at the right point for our program counter's time
+      // before we start writing data.
+      deliveredDiskBits[selectedDisk] += db;
+      while (db) {
+	sequencer <<= 1;
+	sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
+	db--;
+      }
+    }
+  }
   writeMode = enable;
 }
 
@@ -574,85 +616,86 @@ uint8_t DiskII::readOrWriteByte()
     return 0xFF;
   }
 
-  uint32_t curCycles = g_cpu->cycles;
-
-  // FIXME: for writes, we need to check s/t like ... if (diskIsSpinningUntil[selectedDisk] >= curCycles) { return } ...
-
-  if (writeMode && !writeProt) {
-    // It's a write request. Inject 'readWriteLatch'.
-    disk[selectedDisk]->writeNextWozByte(curWozTrack[selectedDisk], readWriteLatch);
+  int32_t bitsToDeliver;
+  
+  if (diskIsSpinningUntil[selectedDisk] < g_cpu->cycles) {
+    // Uum, disk isn't spinning?
     goto done;
   }
 
-  if (diskIsSpinningUntil[selectedDisk] >= curCycles) {
+  bitsToDeliver = calcExpectedBits();
+  
+  if (writeMode && !writeProt) {
+    // It's a write request.
 
-    // Figure out how many cycles we missed since the last disk read,
-    // and pop the right number of bits off the woz track.
+    // Write requests from DOS 3.3 start with 40 self-sync bytes
+    // (cf. Beneath Apple DOS, p.3-8 and 3-9). These 0XFF bytes are
+    // written in a 40-cycle loop, where a bit is written every 4
+    // cycles; it intentionally lets 2 0-bits slip in there to
+    // provide the self-sync pattern.
+    //
+    // So the timing here is important. Figure out how many bits
+    // should have been laid down to the track, and those are 0s.
 
-    // Handle rollover, which is a mess.
-    if (driveSpinupCycles[selectedDisk] > g_cpu->cycles) {
-      //      printf("Cycle rollover\n");
-      driveSpinupCycles[selectedDisk] = g_cpu->cycles-1; // FIXME: is the -1 correct? What if we were @ 0?
-#ifndef TEENSYDUINO
-      exit(2); // for debugging, FIXME ***
-#endif
+    int64_t expectedBits = calcExpectedBits();
+    while (expectedBits > 0) {
+      disk[selectedDisk]->writeNextWozBit(curWozTrack[selectedDisk], 0);
+      expectedBits--;
+      deliveredDiskBits[selectedDisk]++;
     }
 
-    uint32_t cyclesPassed = g_cpu->cycles - driveSpinupCycles[selectedDisk];
-    // FIXME: this is a bit of a magic constant, which makes the drive
-    // test in Copy2+ at 179.4ms per revolution (334.4rpm). I'd like to
-    // understand that better and get to to the proper 200ms (300rpm).
-    uint64_t expectedDiskBits = (float) cyclesPassed / 3.51;
-    int64_t bitsToDeliver = expectedDiskBits - deliveredDiskBits[selectedDisk];
+    disk[selectedDisk]->writeNextWozByte(curWozTrack[selectedDisk], readWriteLatch);
+    deliveredDiskBits[selectedDisk] += 8;
+    goto done;
+  }
 
-    if (bitsToDeliver > 0) {
-      // We're expected to deliver some bits to the Disk II sequencer.
-      // Instead of piecemeal delivering a small number of bits (which we
-      // could do, but it's kinda busywork) - instead, we'll do one of two
-      // possible things.
-      //
-      // The first: if we're expecting a small number of bits to be delivered,
-      // then we'll grab the next byte from the nibble stream and return it.
-      // This itself has three possible cases -
-      //   (a) we should be delivering less than a full byte, but we're
-      //       actually going to deliver a full byte. bitsToDeliver will
-      //       become negative, because we're delivering these too early.
-      //       The next call will probably see that it has nothing to deliver
-      //       and, as long as the disk image we're using doesn't have a
-      //       really fine tolerance on the delivery rate of the bits,
-      //       it will all come out in the wash.
-      //   (b) we should be delivering exactly a byte, and we're doing the
-      //       absolute right thing.
-      //   (c) we are more than 1 byte, but less than 2 bytes, behind. If
-      //       this is the case, we're probably making up for a timing
-      //       problem in this code - where the bits would now have been
-      //       lost. By returning the first byte that we found, we're hoping
-      //       that the next call will be closer to on time, and we will
-      //       eventually catch back up to the stream. Hopefully this makes
-      //       the stream a little more resilient - and the error isn't
-      //       so far off that the reader notices something is weird on the
-      //       timing. (Standard RWTS doesn't, but some copy protection
-      //       might.)
-      if (bitsToDeliver < 16) {
-	while (bitsToDeliver > -16 && ((sequencer & 0x80) == 0)) {
-	  sequencer <<= 1;
-	  sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
-	  bitsToDeliver--;
-	  deliveredDiskBits[selectedDisk]++;
-	}
-	goto done;
-      }
-
-      // If we reach here, we're throwing away a bunch of missed data.
-      // This might be normal (where the machine wasn't listening for the data),
-      // or it might be exceptional (something wrong with the tuning of data
-      // delivery, based on the magic constant in expectedDiskBits above)...
-      deliveredDiskBits[selectedDisk] += bitsToDeliver;
-      while (bitsToDeliver) {
+  if (bitsToDeliver > 0) {
+    // We're expected to deliver some bits to the Disk II sequencer.
+    // Instead of piecemeal delivering a small number of bits (which we
+    // could do, but it's kinda busywork) - instead, we'll do one of two
+    // possible things.
+    //
+    // The first: if we're expecting a small number of bits to be delivered,
+    // then we'll grab the next byte from the nibble stream and return it.
+    // This itself has three possible cases -
+    //   (a) we should be delivering less than a full byte, but we're
+    //       actually going to deliver a full byte. bitsToDeliver will
+    //       become negative, because we're delivering these too early.
+    //       The next call will probably see that it has nothing to deliver
+    //       and, as long as the disk image we're using doesn't have a
+    //       really fine tolerance on the delivery rate of the bits,
+    //       it will all come out in the wash.
+    //   (b) we should be delivering exactly a byte, and we're doing the
+    //       absolute right thing.
+    //   (c) we are more than 1 byte, but less than 2 bytes, behind. If
+    //       this is the case, we're probably making up for a timing
+    //       problem in this code - where the bits would now have been
+    //       lost. By returning the first byte that we found, we're hoping
+    //       that the next call will be closer to on time, and we will
+    //       eventually catch back up to the stream. Hopefully this makes
+    //       the stream a little more resilient - and the error isn't
+    //       so far off that the reader notices something is weird on the
+    //       timing. (Standard RWTS doesn't, but some copy protection
+    //       might.)
+    if (bitsToDeliver < 16) {
+      while (bitsToDeliver > -16 && ((sequencer & 0x80) == 0)) {
 	sequencer <<= 1;
 	sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
 	bitsToDeliver--;
+	deliveredDiskBits[selectedDisk]++;
       }
+      goto done;
+    }
+    
+    // If we reach here, we're throwing away a bunch of missed data.
+    // This might be normal (where the machine wasn't listening for the data),
+    // or it might be exceptional (something wrong with the tuning of data
+    // delivery, based on the magic constant in expectedDiskBits above)...
+    deliveredDiskBits[selectedDisk] += bitsToDeliver;
+    while (bitsToDeliver) {
+      sequencer <<= 1;
+      sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
+      bitsToDeliver--;
     }
   }
 

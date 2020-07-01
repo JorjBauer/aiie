@@ -51,6 +51,8 @@ class DiskII : public Slot {
 #ifndef TEENSYDUINO
   void convertDskToNib(const char *outFN);
 #endif
+  
+  int64_t calcExpectedBits();
 
  public:
   // debugging

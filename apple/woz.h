@@ -59,6 +59,8 @@ class Woz {
   
   bool flush();
 
+  void debug();
+  
   //protected:
   // Interface for AiiE
   bool writeNextWozBit(uint8_t datatrack, uint8_t bit);
@@ -68,6 +70,9 @@ class Woz {
   bool skipByte(uint8_t datatrack);
 
  private:
+  void loadTrackByte(uint8_t datatrack);
+  void advanceBitStream(uint8_t datatrack);
+  
   bool readWozFile(const char *filename, bool preloadTracks);
   bool readDskFile(const char *filename, bool preloadTracks, uint8_t subtype);
   bool readNibFile(const char *filename, bool preloadTracks);
@@ -81,6 +86,10 @@ class Woz {
   bool writeDskFile(int fd, uint8_t subtype);
   bool writeNibFile(const char *filename);
   bool writeNibFile(int fd);
+  
+  bool writeWozTrack(int fd, uint8_t trackToWrite, uint8_t imageType);
+  bool writeDskTrack(int fd, uint8_t trackToWrite, uint8_t imageType);
+  bool writeNibTrack(int fd, uint8_t trackToWrite, uint8_t imageType);
 
   uint8_t fakeBit();
 
@@ -109,7 +118,7 @@ class Woz {
   uint8_t dumpflags;
 
   bool autoFlushTrackData;
-  bool trackDirty;
+  int8_t dataTrackDirty; // -1 means "none"
   
   uint8_t quarterTrackMap[40*4];
   diskInfo di;
@@ -120,6 +129,7 @@ protected:
   int fd;
   
   uint32_t trackPointer;
+  uint32_t lastReadPointer;
   uint32_t trackBitCounter;
   uint8_t trackByte;
   uint8_t trackBitIdx;

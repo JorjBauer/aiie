@@ -39,7 +39,7 @@ Woz::Woz(bool verbose, uint8_t dumpflags)
   metaData = NULL;
   this->verbose = verbose;
   this->dumpflags = dumpflags;
-  trackDirty = false;
+  dataTrackDirty = -1;
 
   memset(&quarterTrackMap, 255, sizeof(quarterTrackMap));
   memset(&di, 0, sizeof(diskInfo));
@@ -74,36 +74,25 @@ bool Woz::writeNextWozBit(uint8_t datatrack, uint8_t bit)
     return true;
   }
 
-  if (!tracks[datatrack].trackData) {
-    fprintf(stderr, "ERROR: tried to writeNextWozBit to a data track that's not loaded, and we can't possibly tell which QT that should be\n");
-    return false;
-  }
-  
-  if (trackBitCounter >= tracks[datatrack].bitCount) {
-    printf("WRITE counter reset [%u > %u]\n", trackBitCounter, tracks[datatrack].bitCount);
-    trackPointer = 0;
-    trackBitIdx = 0x80;
-    trackBitCounter = 0;
-  }
-  
+  // trackByte is undefined if trackBitIdx == 0x80; otherwise, it
+  // contains tracks[datatrack].trackData[trackPointer]. Make sure
+  // to keep this up to date b/c we might try to read the next bit.
   if (trackBitIdx == 0x80) {
-    trackByte = tracks[datatrack].trackData[trackPointer++];
+    loadTrackByte(datatrack);
   }
-  
+
+  // Modify trackByte based on the bit write
   if (bit)
     trackByte |= trackBitIdx;
   else
     trackByte &= ~trackBitIdx;
+
+  // Update the datatrack with the current trackByte
+  tracks[datatrack].trackData[lastReadPointer] = trackByte;
+
+  advanceBitStream(datatrack);
   
-  tracks[datatrack].trackData[trackPointer-1] = trackByte;
-  trackBitCounter++;
-  
-  trackDirty = true;
-  
-  trackBitIdx >>= 1;
-  if (!trackBitIdx) {
-    trackBitIdx = 0x80;
-  }
+  dataTrackDirty = datatrack;
   
   return true;
 }
@@ -122,27 +111,49 @@ bool Woz::writeNextWozByte(uint8_t datatrack, uint8_t b)
     fprintf(stderr, "ERROR: tried to write to a track that's not loaded, and it's not possible to tell what QT was meant\n");
     return false;
   }
-  
+
   // We could be byte-aligned, but it's not guaranteed, so this
   // handles it bitwise.
-#if 0
-  printf("track %d write byte 0x%.2X @ ptr[%d] bitidx==0x%.2X ctr=%d\n", datatrack, b, trackPointer, trackBitIdx, trackBitCounter);
-
-  // Debugging: aligning to bytes so I can see the effective bitstream
-  if (trackBitIdx != 0x80) {
-    while (trackBitIdx) {
-      trackBitCounter++;
-      trackBitIdx >>= 1;
-    }
-    trackBitIdx = 0x80;
-  }
-  // end debugging
-#endif
-  
   for (uint8_t i=0; i<8; i++) {
     writeNextWozBit(datatrack, b & (1 << (7-i)) ? 1 : 0);
   }
   return true;
+}
+
+void Woz::loadTrackByte(uint8_t datatrack)
+{
+  // need another byte out of the track stream
+  if (tracks[datatrack].trackData) {
+    lastReadPointer = trackPointer;
+    trackByte = tracks[datatrack].trackData[trackPointer];
+  } else {
+    loadMissingTrackFromImage(datatrack);
+    if (tracks[datatrack].trackData) {
+      loadTrackByte(datatrack);
+      return;
+    }
+    trackPointer = 0;
+    trackLoopCounter++;
+  }
+}
+void Woz::advanceBitStream(uint8_t datatrack)
+{
+  trackBitCounter++;
+  
+  trackBitIdx >>= 1;
+  if (!trackBitIdx) {
+    trackBitIdx = 0x80;
+    trackPointer++;
+  }
+
+  // This could have " || trackPointer >= tracks[datatrack].bitCount/8" but
+  // it should be totally redundant
+  if (trackBitCounter >= tracks[datatrack].bitCount) {
+    trackPointer = 0;
+    trackBitIdx = 0x80;
+    trackBitCounter = 0;
+    trackLoopCounter++;
+  }
 }
 
 uint8_t Woz::getNextWozBit(uint8_t datatrack)
@@ -151,32 +162,13 @@ uint8_t Woz::getNextWozBit(uint8_t datatrack)
     return 0;
   }
   
-  if (!tracks[datatrack].trackData) {
-    // fprintf(stderr, "ERROR: getNextWozBit was called without the track being cached, and it can't possibly know which QT to load it from\n");
-    return 0;
+  if (trackBitIdx == 0x80) {
+    loadTrackByte(datatrack);
   }
 
-  if (trackBitIdx == 0x80) {
-    // need another byte out of the track stream
-    if (tracks[datatrack].trackData) {
-      trackByte = tracks[datatrack].trackData[trackPointer++];
-      if (trackPointer >= tracks[datatrack].bitCount / 8) {
-	trackPointer = 0;
-	trackLoopCounter++;
-      }
-    } else {
-	trackPointer = 0;
-	trackLoopCounter++;
-    }
-  }
-  
   uint8_t ret = (trackByte & trackBitIdx) ? 1 : 0;
 
-  trackBitIdx >>= 1;
-  if (!trackBitIdx) {
-    trackBitIdx = 0x80;
-  }
-
+  advanceBitStream(datatrack);
   return ret;
 }
 
@@ -200,6 +192,9 @@ bool Woz::skipByte(uint8_t datatrack)
 {
   //   head_window = 0; // FIXME kludgy, but okay if we don't need just one bit after this
   trackPointer++;
+  lastReadPointer=trackPointer;
+  trackBitIdx = 0x80;
+
   if (trackPointer >= tracks[datatrack].bitCount / 8) {
     trackPointer = 0;
     trackLoopCounter++;
@@ -318,7 +313,7 @@ bool Woz::writeFile(const char *filename, uint8_t forceType)
     // Try to determine type from the file extension
     const char *p = strrchr(filename, '.');
     if (!p) {
-      printf("Unable to determine file type of '%s'\n", filename);
+      fprintf(stderr, "Unable to determine file type of '%s'\n", filename);
       return false;
     }
     if (strcasecmp(p, ".woz") == 0) {
@@ -331,7 +326,7 @@ bool Woz::writeFile(const char *filename, uint8_t forceType)
     } else if (strcasecmp(p, ".nib") == 0) {
       forceType = T_NIB;
     } else {
-      printf("Unable to determine file type of '%s'\n", filename);
+      fprintf(stderr, "Unable to determine file type of '%s'\n", filename);
       return false;
     }
   }
@@ -345,7 +340,7 @@ bool Woz::writeFile(const char *filename, uint8_t forceType)
   case T_NIB:
     return writeNibFile(filename);
   default:
-    printf("Unknown disk type; unable to write\n");
+    fprintf(stderr, "Unknown disk type; unable to write\n");
     return false;
   }
 }
@@ -477,6 +472,19 @@ bool Woz::writeWozFile(int fdout, uint8_t subtype)
   return retval;
 }
 
+bool Woz::writeWozTrack(int fdout, uint8_t trackToWrite, uint8_t imageType)
+{
+  // FIXME: when we separate WOZ1 and WOZ2, return false here if it's WOZ1
+  // (since we're only writing WOZ2 images)
+  if (imageType != T_WOZ)
+    return false;
+
+  printf("writeWozTrack not implemented yet\n");
+  // FIXME: not implemented
+  return false;
+}
+
+
 bool Woz::writeDskFile(const char *filename, uint8_t subtype)
 {
   int fdout = open(filename, O_CREAT|O_TRUNC|O_WRONLY, S_IRUSR|S_IWUSR);
@@ -509,10 +517,33 @@ bool Woz::writeDskFile(int fdout, uint8_t subtype)
       exit(1);
     }
   }
-  close(fdout);
   return true;
 }
 
+// FIXME: should this be a physical track?
+bool Woz::writeDskTrack(int fdout, uint8_t trackToWrite, uint8_t imageType)
+{
+  if (imageType != T_DSK && imageType != T_PO) {
+    return false;
+  }
+  uint8_t sectorData[256*16];
+  if (lseek(fdout, 256*16*trackToWrite, SEEK_SET) != 256*16*trackToWrite) {
+    perror("lseek");
+    return false;
+  }
+  if (!decodeWozTrackToDsk(trackToWrite, imageType, sectorData)) {
+    printf("failed to decode to dsk\n");
+    return false;
+  }
+
+  if (write(fdout, sectorData, 256*16) != 256*16) {
+    printf("write failed\n");
+    return false;
+  }
+  
+  return true;
+}
+  
 bool Woz::writeNibFile(const char *filename)
 {
   int fdout = open(filename, O_CREAT|O_TRUNC|O_WRONLY, S_IRUSR|S_IWUSR);
@@ -544,7 +575,25 @@ bool Woz::writeNibFile(int fdout)
       exit(1);
     }
   }
-  close(fdout);
+  return true;
+}
+
+// FIXME: should this be a physical track?
+bool Woz::writeNibTrack(int fdout, uint8_t trackToWrite, uint8_t imageType)
+{
+  if (imageType != T_NIB)
+    return false;
+  
+  if (lseek(fdout, NIBTRACKSIZE * trackToWrite, SEEK_SET) !=
+      NIBTRACKSIZE * trackToWrite)
+    return false;
+
+  nibSector nibData[16];
+  if (!decodeWozTrackToNib(trackToWrite, nibData))
+    return false;
+  if (write(fdout, nibData, NIBTRACKSIZE) != NIBTRACKSIZE)
+    return false;
+
   return true;
 }
 
@@ -577,7 +626,7 @@ void Woz::_initInfo()
   }
 }
 
-// Only used if we didn't preload a data track; the load we perfrom
+// Only used if we didn't preload a data track; the load we perform
 // differs based on the image type we originally read from
 bool Woz::loadMissingTrackFromImage(uint8_t datatrack)
 {
@@ -616,7 +665,7 @@ bool Woz::loadMissingTrackFromImage(uint8_t datatrack)
     lseek(fd, 256*16*phystrack, SEEK_SET);
 
     if (read(fd, sectorData, 256*16) != 256*16) {
-      fprintf(stderr, "Failed to read sector\n");
+      fprintf(stderr, "Failed to read track\n");
       return false;
     }
 
@@ -671,7 +720,7 @@ bool Woz::readDskFile(const char *filename, bool preloadTracks, uint8_t subtype)
   if (fd != -1) close(fd);
   fd = open(filename, O_RDWR, S_IRUSR|S_IWUSR);
   if (fd == -1) {
-    perror("Unable to open input file");
+     perror("Unable to open input file");
     goto done;
   }
 
@@ -725,13 +774,13 @@ bool Woz::readNibFile(const char *filename, bool preloadTracks)
     for (int phystrack=0; phystrack<35; phystrack++) {
       uint32_t bytesRead = read(fd, nibData, NIBTRACKSIZE);
       if (bytesRead != NIBTRACKSIZE) {
-	printf("Failed to read NIB data; got %d bytes, wanted %d\n", bytesRead, NIBTRACKSIZE);
+	fprintf(stderr, "Failed to read NIB data; got %d bytes, wanted %d\n", bytesRead, NIBTRACKSIZE);
 	return false;
       }
       uint8_t datatrack = quarterTrackMap[phystrack * 4];
       tracks[datatrack].trackData = (uint8_t *)calloc(NIBTRACKSIZE, 1);
       if (!tracks[datatrack].trackData) {
-	printf("Failed to malloc track data\n");
+	fprintf(stderr, "Failed to malloc track data\n");
 	return false;
       }
       
@@ -769,7 +818,7 @@ bool Woz::readWozFile(const char *filename, bool preloadTracks)
       printf("WOZ%c disk image\n", (h & 0xFF000000)>>24);
     }
   } else {
-    printf("Unknown disk image type; can't continue\n");
+    fprintf(stderr, "Unknown disk image type; can't continue\n");
     if (preloadTracks && fd != -1)
       close(fd);
     return false;
@@ -777,13 +826,13 @@ bool Woz::readWozFile(const char *filename, bool preloadTracks)
 
   uint32_t tmp;
   if (!read32(fd, &tmp)) {
-    printf("Read failure\n");
+    fprintf(stderr, "Read failure\n");
     if (preloadTracks && fd != -1)
       close(fd);
     return false;
   }
   if (tmp != 0x0A0D0AFF) {
-    printf("WOZ header failure; exiting\n");
+    fprintf(stderr, "WOZ header failure; exiting\n");
     if (preloadTracks && fd != -1)
       close(fd);
     return false;
@@ -1151,7 +1200,7 @@ bool Woz::readNibSectorData(uint8_t phystrack, uint8_t sector, nibSector *sector
   if (!tracks[dataTrack].trackData) {
     // Load the cached track for this phys Nib track.
     if (!loadMissingTrackFromImage(dataTrack)) {
-      fprintf(stderr, "Failed to read track %d\n", dataTrack);
+      fprintf(stderr, "Failed to load track data for track %d\n", dataTrack);
       return false;
     }
   }
@@ -1189,6 +1238,7 @@ bool Woz::readNibSectorData(uint8_t phystrack, uint8_t sector, nibSector *sector
 	  sectorData->sectorEpilog[2] == 0xeb) {
 	// Header is integral. See if it's our sector:
 	uint8_t sectorNum = de44(sectorData->sector44);
+	printf("Denib: found track/sector %d/%d\n", de44(sectorData->track44), sectorNum);
 	if (sectorNum != sector) {
 	  continue;
 	}
@@ -1223,6 +1273,16 @@ bool Woz::readNibSectorData(uint8_t phystrack, uint8_t sector, nibSector *sector
     }
   }
 
+  /* Debugging: dump the track, b/c we failed to find a sector */
+  printf("Broken NIB track:\n");
+  printf("@d=(");
+  for (int i=0; i<tracks[dataTrack].bitCount / 8; i+=16) {
+    for (int j=0; j < 16 && j+i < tracks[dataTrack].bitCount/8; j++) {
+      printf("0x%.2X, ", tracks[dataTrack].trackData[i+j]);
+    }
+    printf("\n");
+  }
+  printf(")\n");
   return false;
 }
 
@@ -1349,6 +1409,8 @@ bool Woz::decodeWozTrackToNib(uint8_t phystrack, nibSector sectorData[16])
 {
   for (int sector=0; sector<16; sector++) {
     if (!readNibSectorData(phystrack, sector, (nibSector *)(&sectorData[sector]))) {
+      printf("Failed to read nib sector data for track %d sector %d\n",
+	     phystrack, sector);
       return false;
     }
   }
@@ -1360,11 +1422,16 @@ bool Woz::decodeWozTrackToDsk(uint8_t phystrack, uint8_t subtype, uint8_t sector
 {
   // First read it to a NIB; then convert the NIB to a DSK.
   nibSector nibData[16];
-  if (!decodeWozTrackToNib(phystrack, nibData))
+  if (!decodeWozTrackToNib(phystrack, nibData)) {
+    printf("failed to decode to Nib\n");
     return false;
+  }    
 
-  if (denibblizeTrack((const uint8_t *)nibData, sectorData, subtype, phystrack) != errorNone)
+  nibErr ret = denibblizeTrack((const uint8_t *)nibData, sectorData, subtype, phystrack);
+  if (ret != errorNone) {
+    printf("Failed to denibblize track: %d\n", ret);
     return false;
+  }
 
   return true;
 }
@@ -1602,24 +1669,33 @@ uint8_t Woz::dataTrackNumberForQuarterTrack(uint16_t qt)
 
 bool Woz::flush()
 {
-  if (trackDirty) {
-    printf("FLUSH!\n");
-    trackDirty = false;
-    // From the imageType, call the appropriate function to write.
+  // This has to flush just one track to the file. If it tried to do more,
+  // it would wind up trying to preload the tracks that aren't loaded; and
+  // that would notice that the current track is dirty, so it would call
+  // flush() again; and then we'd be looping infinitely.
+
+  // FIXME: this assumes we have an open fd, which means we didn't preload
+  // the whole image
+  
+  if (dataTrackDirty != -1) {
+    printf("FLUSH track %d\n", dataTrackDirty);
+    // From the imageType, call the appropriate function to write a track
     switch (imageType) {
     case T_WOZ:
-      return writeWozFile(fd, imageType);
+      return writeWozTrack(fd, dataTrackDirty, imageType);
     case T_DSK:
     case T_PO:
-      return writeDskFile(fd, imageType);
+      return writeDskTrack(fd, dataTrackDirty, imageType);
     case T_NIB:
-      return writeNibFile(fd);
+      return writeNibTrack(fd, dataTrackDirty, imageType);
     default:
       fprintf(stderr, "Error: unknown imageType; can't flush\n");
       return false;
     }
+    //    fsync(fd); // FIXME should not be needed
   }
 
+  dataTrackDirty = -1;
   /* NOTREACHED */
   return false;
 }
