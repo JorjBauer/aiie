@@ -142,7 +142,7 @@ class FileManager {
   virtual int lseek(int8_t fd, int offset, int whence) = 0;
   
  protected:
-  unsigned long fileSeekPositions[MAXFILES];
+  volatile unsigned long fileSeekPositions[MAXFILES];
   char cachedNames[MAXFILES][MAXPATH];
 
 };
