@@ -174,7 +174,7 @@ bool BIOS::runUntilDone()
       if (((AppleVM *)g_vm)->DiskName(0)[0] != '\0') {
 	((AppleVM *)g_vm)->ejectDisk(0);
       } else {
-	if (SelectDiskImage("dsk,.po,nib")) {
+	if (SelectDiskImage("dsk,.po,nib,woz")) {
 	  ((AppleVM *)g_vm)->insertDisk(0, staticPathConcat(rootPath, fileDirectory[selectedFile]), false);
 	  goto done;
 	}
@@ -184,7 +184,7 @@ bool BIOS::runUntilDone()
       if (((AppleVM *)g_vm)->DiskName(1)[0] != '\0') {
 	((AppleVM *)g_vm)->ejectDisk(1);
       } else {
-	if (SelectDiskImage("dsk,.po,nib")) {
+	if (SelectDiskImage("dsk,.po,nib,woz")) {
 	  ((AppleVM *)g_vm)->insertDisk(1, staticPathConcat(rootPath, fileDirectory[selectedFile]), false);
 	  goto done;
 	}
