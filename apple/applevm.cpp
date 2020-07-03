@@ -23,8 +23,11 @@ AppleVM::AppleVM()
 
   keyboard = new AppleKeyboard((AppleMMU *)mmu);
 
+#ifndef TEENSYDUINO
+  // Disabled for the Teensy due to RAM constraints
   parallel = new ParallelCard();
   ((AppleMMU *)mmu)->setSlot(1, parallel);
+#endif
 
   hd32 = new HD32((AppleMMU *)mmu);
   ((AppleMMU *)mmu)->setSlot(7, hd32);
