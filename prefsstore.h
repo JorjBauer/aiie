@@ -8,6 +8,10 @@
 #define PREFSMAGIC 0x01831093
 #define PREFSVERSION 1
 
+#ifndef MAXPATH
+#define MAXPATH 255
+#endif
+
 // The Teensy 3.6 has 4096 bytes of flash. We want this to stay under
 // that size.
 typedef struct _prefs {
@@ -21,12 +25,12 @@ typedef struct _prefs {
   uint8_t priorityMode;
   uint8_t speed;
 
-  char reserved[255]; // 255 is the Teensy MAXPATH size
+  char reserved[MAXPATH]; // 255 is the Teensy MAXPATH size
 
-  char disk1[255];
-  char disk2[255];
-  char hd1[255];
-  char hd2[255];
+  char disk1[MAXPATH];
+  char disk2[MAXPATH];
+  char hd1[MAXPATH];
+  char hd2[MAXPATH];
 } prefs_t;
 
 class PrefsStore {
