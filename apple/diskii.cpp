@@ -461,7 +461,11 @@ void DiskII::setPhase(uint8_t phase)
   }
 
   if (curHalfTrack[selectedDisk] != prevHalfTrack) {
-    curWozTrack[selectedDisk] = disk[selectedDisk]->dataTrackNumberForQuarterTrack(curHalfTrack[selectedDisk]*2);
+    if (disk[selectedDisk]) {
+      curWozTrack[selectedDisk] = disk[selectedDisk]->dataTrackNumberForQuarterTrack(curHalfTrack[selectedDisk]*2);
+    } else {
+      curWozTrack[selectedDisk] = 0;
+    }
   }
 }
 
@@ -547,7 +551,11 @@ void DiskII::insertDisk(int8_t driveNum, const char *filename, bool drawIt)
 
   disk[driveNum] = new WozSerializer();
   // intentionally 'false' (see above call to readFile)
-  disk[driveNum]->readFile(filename, false, T_AUTO); // FIXME error checking
+  if (!disk[driveNum]->readFile(filename, false, T_AUTO)) {
+    delete disk[driveNum];
+    disk[driveNum] = NULL;
+    return;
+  }
 
   curWozTrack[driveNum] = disk[driveNum]->dataTrackNumberForQuarterTrack(curHalfTrack[driveNum]*2);
 
@@ -686,7 +694,7 @@ uint8_t DiskII::readOrWriteByte()
       }
       goto done;
     }
-    
+
     // If we reach here, we're throwing away a bunch of missed data.
     // This might be normal (where the machine wasn't listening for the data),
     // or it might be exceptional (something wrong with the tuning of data
