@@ -21,24 +21,17 @@ class VMRam {
   bool Test();
 
  private:
-  // We need 591 pages of 256 bytes for the //e. There's not 
-  // enough RAM in the Teensy 3.6 for both this (nearly 148k) 
-  // and the display's DMA (320*240*2 = 150k).
+  // We need 591 pages of 256 bytes for the //e.
   //
-  // We could put all of the //e RAM in an external SRAM -- but the 
-  // external SRAM access is necessarily slower than just reading the 
-  // built-in RAM. So this is a hybrid: we allocate some internal 
-  // SRAM from the Teensy, and will use it for the low addresses of 
-  // our VM space; and anything above that goes to the external SRAM.
+  // This previously used a split memory model where some of this was
+  // in internal ram and some was external - and while that's not true
+  // right now, it may be true again in the future.
   //
-  // Changing this invalidates the save files, so don't just change it 
-  // willy-nilly :)
-  //
-  // Zero-page should be in internal RAM (it's changed very often). Some 
-  // other pages that are read or written often should probably go in
-  // here too. The order of the pages (in apple/applemmu.cpp) defines
-  // what order the pages are referenced in the VMRam object; the lowest
-  // wind up in internal RAM.
+  // If we go that way: zero-page should be in internal RAM (it's
+  // changed very often). Some other pages that are read or written
+  // often should probably go in here too. The order of the pages (in
+  // apple/applemmu.cpp) defines what order the pages are referenced
+  // in the VMRam object; the lowest should wind up in internal RAM.
 
   // Pages 0-3 are ZP; we want those in RAM.
   // Pages 4-7 are 0x200 - 0x3FF. We want those in RAM too (text pages).
