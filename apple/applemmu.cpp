@@ -60,15 +60,8 @@ Current write page table [512 bytes] in real ram
 
  */
 
-// All the pages. Because we don't have enough RAM for both the
-// display's DMA and the Apple's 148k (128k + ROM space), we're using
-// an external SRAM for some of this. Anything that's accessed very
-// often should be in the *low* pages, b/c those are in internal
-// Teensy RAM. When we run out of preallocated RAM (cf. vmram.h), we
-// fall over to an external 256kB SRAM (which is much slower).
-//
-// Zero page (and its alts) are the most used pages (the stack is in
-// page 1).
+// This has a split memory model so more often addressed pages can be
+// in internal memory, and an external memory can hold others.
 //
 // We want the video display pages in real RAM as much as possible,
 // since blits wind up touching so much of it. If we can keep that in
@@ -85,7 +78,7 @@ enum {
   MP_ZP  = 0,   // page 0/1 * 2 page variants = 4; 0..3
   MP_4 = 4, // 0x04 - 0x07 (text display pages) * 2 variants = 8; 4..11
   MP_20 = 12,   // 0x20 - 0x5F * 2 variants = 128; 12..139
-  // Pages that can go to external SRAM:
+  // Pages that can go to external RAM if needed:
   MP_2 = 140, // 0x02 - 0x03 * 2 variants = 4; 140..143
   MP_8 = 144, // 0x08 - 0x1F * 2 = 48; 144..191
   MP_60 = 192, // 0x60 - 0xBF * 2 = 192; 192..383
