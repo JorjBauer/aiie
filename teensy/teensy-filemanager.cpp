@@ -3,20 +3,18 @@
 #include <SdFat.h>
 #include "teensy-filemanager.h"
 #include <string.h> // strcpy
+#include <TeensyThreads.h>
 
-
-// FIXME: globals are yucky.
-SdFatSdio sd;
-File file;
-
-int8_t rawFd;
-File rawFile;
+Threads::Mutex fslock;
 
 TeensyFileManager::TeensyFileManager()
 {
   numCached = 0;
 
-  enabled = sd.begin();
+  // FIXME: used to have 'enabled = sd.begin()' here, but we weren't
+  // using the enabled flag, so I've removed it to save the RAM for
+  // now; but eventually we need better error handling here
+  sd.begin();
 }
 
 TeensyFileManager::~TeensyFileManager()
@@ -25,9 +23,9 @@ TeensyFileManager::~TeensyFileManager()
 
 int8_t TeensyFileManager::openFile(const char *name)
 {
-  if (rawFd != -1) {
-    rawFile.close();
-    rawFd = -1;
+  if (cacheFd != -1) {
+    cacheFile.close();
+    cacheFd = -1;
   }
 
   // See if there's a hole to re-use...
@@ -56,9 +54,11 @@ int8_t TeensyFileManager::openFile(const char *name)
 
 void TeensyFileManager::closeFile(int8_t fd)
 {
-  if (rawFd != -1) {
-    rawFile.close();
-    rawFd = -1;
+  if (cacheFd != -1) {
+    fslock.lock();
+    cacheFile.close();
+    fslock.unlock();
+    cacheFd = -1;
   }
 
   // invalid fd provided?
@@ -152,31 +152,27 @@ int8_t TeensyFileManager::readDir(const char *where, const char *suffix, char *o
 
 bool TeensyFileManager::_prepCache(int8_t fd)
 {
-  if (rawFd == -1 ||
-      rawFd != fd) {
+  if (cacheFd == -1 ||
+      cacheFd != fd) {
 
     // Not our cached file, or we have no cached file
-    if (rawFd != -1) {
+    if (cacheFd != -1) {
       // Close the old one if we had one
-      Serial.print("closing old cache file ");
-      Serial.println(rawFd);
-      rawFile.close();
-      rawFd = -1;
+      fslock.lock();
+      cacheFile.close();
+      fslock.unlock();
+      cacheFd = -1;
     }
 
-    Serial.println("opening new cache file");
     // Open the new one
-    rawFile = sd.open(cachedNames[fd], O_RDWR | O_CREAT);
-    if (!rawFile) {
-      Serial.print("_prepCache: failed to open ");
-      Serial.println(cachedNames[fd]);
+    fslock.lock();
+    cacheFile = sd.open(cachedNames[fd], O_RDWR | O_CREAT);
+    if (!cacheFile.isOpen()) {
+      fslock.unlock();
       return false;
     }
-    rawFd = fd; // cache is live
-    Serial.print("New cache file is ");
-    Serial.println(fd);
-  } else {
-    //    Serial.println("reopning same cache");
+    fslock.unlock();
+    cacheFd = fd; // cache is live
   }
 
   return true; // FIXME error handling
@@ -203,14 +199,12 @@ bool TeensyFileManager::setSeekPosition(int8_t fd, uint32_t pos)
 
 void TeensyFileManager::seekToEnd(int8_t fd)
 {
-  File f = sd.open(cachedNames[fd], FILE_READ);
-  if (!f) {
-    Serial.println("failed to open");
+  FatFile f = sd.open(cachedNames[fd], FILE_READ);
+  if (!f.isOpen()) {
     return;
   }
 
   fileSeekPositions[fd] = f.fileSize();
-
   f.close();
 }
 
@@ -218,12 +212,10 @@ int TeensyFileManager::write(int8_t fd, const void *buf, int nbyte)
 {
   // open, seek, write, close.
   if (fd < 0 || fd >= numCached) {
-    Serial.println("failed write - invalid fd");
     return -1;
   }
 
   if (cachedNames[fd][0] == 0) {
-    Serial.println("failed write - no cache name");
     return -1;
   }
 
@@ -231,44 +223,50 @@ int TeensyFileManager::write(int8_t fd, const void *buf, int nbyte)
 
   uint32_t pos = fileSeekPositions[fd];
 
-  if (!rawFile.seek(pos)) {
+  fslock.lock();
+  if (!cacheFile.seekSet(pos)) {
+    fslock.unlock();
     return -1;
   }
 
-  if (rawFile.write(buf, nbyte) != nbyte) {
+  if (cacheFile.write(buf, nbyte) != nbyte) {
+    fslock.unlock();
     return -1;
   }
 
   fileSeekPositions[fd] += nbyte;
-  rawFile.close();
+  cacheFile.close();
+  fslock.unlock();
   return nbyte;
 };
 
 int TeensyFileManager::read(int8_t fd, void *buf, int nbyte)
 {
   // open, seek, read, close.
-  if (fd < 0 || fd >= numCached)
+  if (fd < 0 || fd >= numCached) {
     return -1;
+  }
 
-  if (cachedNames[fd][0] == 0)
+  if (cachedNames[fd][0] == 0) {
     return -1;
+  }
 
   _prepCache(fd);
 
   uint32_t pos = fileSeekPositions[fd];
-
-  if (!rawFile.seek(pos)) {
-    Serial.print("readByte: seek failed to byte ");
-    Serial.println(pos);
+  fslock.lock();
+  if (!cacheFile.seekSet(pos)) {
+    fslock.unlock();
     return -1;
   }
-
-  if (rawFile.read(buf, nbyte) != nbyte)
-    return -1;
-
   fileSeekPositions[fd] += nbyte;
-  rawFile.close();
+
+  if (cacheFile.read(buf, nbyte) != nbyte) {
+    fslock.unlock();
+    return -1;
+  }
   
+  fslock.unlock();
   return nbyte;
 };
 
