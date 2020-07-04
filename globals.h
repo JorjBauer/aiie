@@ -31,7 +31,8 @@ enum {
   D_SHOWPC      = 4,
   D_SHOWCYCLES  = 5,
   D_SHOWBATTERY = 6,
-  D_SHOWTIME    = 7
+  D_SHOWTIME    = 7,
+  D_SHOWDSK     = 8
 };
 
 extern FileManager *g_filemanager;
