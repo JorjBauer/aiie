@@ -1,5 +1,6 @@
 #ifdef TEENSYDUINO
 #include <Arduino.h>
+#include "teensy-println.h"
 #endif
 
 #include "vmram.h"
@@ -9,7 +10,7 @@
 #ifndef TEENSYDUINO
 #include <assert.h>
 #else
-#define assert(x) { if (!(x)) {Serial.print("assertion failed at "); Serial.println(__LINE__); delay(10000);} }
+#define assert(x) { if (!(x)) {print("assertion failed at "); println(__LINE__); delay(10000);} }
 //#define assert(x) { }
 #endif
 
@@ -41,10 +42,10 @@ bool VMRam::Serialize(int8_t fd)
 {
   uint32_t size = sizeof(preallocatedRam);
   uint8_t buf[5] = { RAMMAGIC,
-		     (size >> 24) & 0xFF,
-		     (size >> 16) & 0xFF,
-		     (size >>  8) & 0xFF,
-		     (size      ) & 0xFF };
+		     (uint8_t)((size >> 24) & 0xFF),
+		     (uint8_t)((size >> 16) & 0xFF),
+		     (uint8_t)((size >>  8) & 0xFF),
+		     (uint8_t)((size      ) & 0xFF) };
   if (g_filemanager->write(fd, buf, 5) != 5)
     return false;
 
