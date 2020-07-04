@@ -499,7 +499,12 @@ bool Woz::writeWozTrack(int fdout, uint8_t trackToWrite, uint8_t imageType)
 
   uint32_t count = tracks[trackToWrite].blockCount * 512;
 
-  if (lseek(fd, tracks[trackToWrite].startingBlock*512, SEEK_SET) != tracks[trackToWrite].startingBlock*512) {
+  // If we didn't read this from a WOZ image, we can't trust the
+  // tracks[x].startingBlock. Since we're writing to a WOZ2 image,
+  // we can just recalculate it as (STARTBLOCK + trackToWrite*13)
+  // instead of using tracks[trackToWrite].startingBlock.
+
+  if (lseek(fd, (STARTBLOCK + trackToWrite*13)*512, SEEK_SET) != (STARTBLOCK + trackToWrite*13)*512) {
     perror("Failed to seek to start of block");
     return false;
   }
@@ -691,14 +696,14 @@ bool Woz::loadMissingTrackFromImage(uint8_t datatrack)
     uint8_t phystrack = datatrack; // used for clarity of which kind of track we mean, below
     
     static uint8_t sectorData[256*16];
-
+    
     lseek(fd, 256*16*phystrack, SEEK_SET);
-
+    
     if (read(fd, sectorData, 256*16) != 256*16) {
       fprintf(stderr, "Failed to read track\n");
       return false;
     }
-
+    
 #ifdef STATICALLOC
     tracks[datatrack].trackData = singleCachedTrack;
     memset(singleCachedTrack, 0, sizeof(singleCachedTrack));
@@ -709,11 +714,11 @@ bool Woz::loadMissingTrackFromImage(uint8_t datatrack)
       return false;
     }
 #endif    
-    tracks[datatrack].startingBlock = STARTBLOCK + 13*phystrack;
+    tracks[datatrack].startingBlock = STARTBLOCK + 13*phystrack; // make it look like it came from a WOZ2 image
     tracks[datatrack].blockCount = 13;
     uint32_t sizeInBits = nibblizeTrack(tracks[datatrack].trackData, sectorData, imageType, phystrack);
     tracks[datatrack].bitCount = sizeInBits; // ... reality.
-
+    
     return true;
   }
   else if (imageType == T_NIB) {
@@ -736,9 +741,9 @@ bool Woz::loadMissingTrackFromImage(uint8_t datatrack)
 #endif
     lseek(fd, NIBTRACKSIZE * phystrack, SEEK_SET);
     read(fd, tracks[datatrack].trackData, NIBTRACKSIZE);
-      // FIXME: no error checking
+    // FIXME: no error checking
     
-    tracks[datatrack].startingBlock = STARTBLOCK + 13*phystrack;
+    tracks[datatrack].startingBlock = STARTBLOCK + 13*phystrack; // make it look like it came from a WOZ2 image
     tracks[datatrack].blockCount = 13;
     tracks[datatrack].bitCount = NIBTRACKSIZE*8;
     
@@ -788,7 +793,7 @@ bool Woz::readDskFile(const char *filename, bool preloadTracks, uint8_t subtype)
 	goto done;
       }
 #endif
-      tracks[datatrack].startingBlock = STARTBLOCK + 13*datatrack;
+      tracks[datatrack].startingBlock = STARTBLOCK + 13*datatrack; // make it look like it came from a WOZ2 image
       tracks[datatrack].blockCount = 13;
       uint32_t sizeInBits = nibblizeTrack(tracks[datatrack].trackData, sectorData, subtype, phystrack);
       tracks[datatrack].bitCount = sizeInBits; // ... reality.
@@ -839,7 +844,7 @@ bool Woz::readNibFile(const char *filename, bool preloadTracks)
       }
 #endif 
       memcpy(tracks[datatrack].trackData, nibData, NIBTRACKSIZE);
-      tracks[datatrack].startingBlock = STARTBLOCK + 13*phystrack;
+      tracks[datatrack].startingBlock = STARTBLOCK + 13*phystrack; // make it look like it came from a WOZ2 image
       tracks[datatrack].blockCount = 13;
       tracks[datatrack].bitCount = NIBTRACKSIZE*8;
     }
@@ -1275,7 +1280,7 @@ bool Woz::readNibSectorData(uint8_t phystrack, uint8_t sector, nibSector *sector
   }
 
   memset(sectorData->gap1, 0xFF, sizeof(sectorData->gap1));
-  memset(sectorData->gap2, 0xFF, sizeof(sectorData->gap1));
+  memset(sectorData->gap2, 0xFF, sizeof(sectorData->gap2));
 
   // Allow two loops through the track data looking for the sector prolog
   uint32_t endCount = tracks[dataTrack].blockCount*512*2;
