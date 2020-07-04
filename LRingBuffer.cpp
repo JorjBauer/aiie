@@ -21,14 +21,14 @@ LRingBuffer::~LRingBuffer()
 bool LRingBuffer::Serialize(int8_t fd)
 {
   uint8_t buf[9] = { RINGBUFFERMAGIC,
-		     (max >> 8) & 0xFF,
-		     (max     ) & 0xFF,
-		     (ptr >> 8) & 0xFF,
-		     (ptr     ) & 0xFF,
-		     (fill >> 8) & 0xFF,
-		     (fill     ) & 0xFF,
-		     (cursor >> 8) & 0xFF,
-		     (cursor     ) & 0xFF };
+		     (uint8_t)((max >> 8) & 0xFF),
+		     (uint8_t)((max     ) & 0xFF),
+		     (uint8_t)((ptr >> 8) & 0xFF),
+		     (uint8_t)((ptr     ) & 0xFF),
+		     (uint8_t)((fill >> 8) & 0xFF),
+		     (uint8_t)((fill     ) & 0xFF),
+		     (uint8_t)((cursor >> 8) & 0xFF),
+		     (uint8_t)((cursor     ) & 0xFF) };
   if (g_filemanager->write(fd, buf, 9) != 9)
     return false;
 
