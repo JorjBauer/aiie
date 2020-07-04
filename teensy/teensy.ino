@@ -1,8 +1,7 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <TimeLib.h>
-#include <TeensyThreads.h>
-
+#include <TimerOne.h>
 #include "bios.h"
 #include "cpu.h"
 #include "applevm.h"
@@ -26,8 +25,6 @@ uint32_t nextInstructionMicros;
 uint32_t startMicros;
 
 BIOS bios;
-
-int cpuThreadId = 0;
 
 // How many microseconds per cycle
 #define SPEEDCTL ((float)1000000/(float)g_speed)
@@ -137,9 +134,9 @@ void setup()
 
   println("free-running");
 
-  threads.setDefaultTimeSlice(1);
-  threads.setSliceMicros(500);
-  cpuThreadId = threads.addThread(runCPU);
+  Timer1.initialize(3);
+  Timer1.attachInterrupt(runCPU);
+  Timer1.start();
 }
 
 // FIXME: move these memory-related functions elsewhere...
@@ -170,7 +167,7 @@ int heapSize(){
 
 void biosInterrupt()
 {
-  threads.suspend(cpuThreadId);
+  Timer1.stop();
 
   // wait for the interrupt button to be released
   while (digitalRead(RESETPIN) == LOW)
@@ -201,7 +198,7 @@ void biosInterrupt()
   // Poll the keyboard before we start, so we can do selftest on startup
   g_keyboard->maintainKeyboard();
 
-  threads.restart(cpuThreadId);
+  Timer1.start();
 }
 
 //bool debugState = false;
@@ -210,32 +207,33 @@ void biosInterrupt()
 
 void runCPU()
 {
-  while (1) {
-    // Debugging: to watch when the speaker is triggered...
-    //  static bool debugState = false;
-    //  debugState = !debugState;
-    //  digitalWrite(56, debugState);
+  g_inInterrupt = true;
+  // Debugging: to watch when the speaker is triggered...
+  //  static bool debugState = false;
+  //  debugState = !debugState;
+  //  digitalWrite(56, debugState);
+   
+  // Relatively critical timing: CPU needs to run ahead at least 4
+  // cycles, b/c we're calling this interrupt (runCPU, that is) just
+  // about 1/3 as fast as we should; and the speaker is updated
+  // directly from within it, so it needs to be real-ish time.
+  if (micros() > nextInstructionMicros) {
+    // Debugging: to watch when the CPU is triggered...
+    //    static bool debugState = false;
+    //    debugState = !debugState;
+    //    digitalWrite(56, debugState);
     
-    // Relatively critical timing: CPU needs to run ahead at least 4
-    // cycles, b/c we're calling this interrupt (runCPU, that is) just
-    // about 1/3 as fast as we should; and the speaker is updated
-    // directly from within it, so it needs to be real-ish time.
-    if (micros() > nextInstructionMicros) {
-      // Debugging: to watch when the CPU is triggered...
-      //    static bool debugState = false;
-      //    debugState = !debugState;
-      //    digitalWrite(56, debugState);
-      
-      uint8_t executed = g_cpu->Run(24);
-      
-      // The CPU of the Apple //e ran at 1.023 MHz. Adjust when we think
-      // the next instruction should run based on how long the execution
-      // was ((1000/1023) * numberOfCycles) - which is about 97.8%.
-      nextInstructionMicros = startMicros + ((double)g_cpu->cycles * (double)SPEEDCTL);
-      
-      ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
-    }
+    uint8_t executed = g_cpu->Run(24);
+
+    // The CPU of the Apple //e ran at 1.023 MHz. Adjust when we think
+    // the next instruction should run based on how long the execution
+    // was ((1000/1023) * numberOfCycles) - which is about 97.8%.
+    nextInstructionMicros = startMicros + ((double)g_cpu->cycles * (double)SPEEDCTL);
+
+    ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
   }
+
+  g_inInterrupt = false;
 }
 
 void loop()
@@ -262,7 +260,14 @@ void loop()
   //     display update, OR
   //   - lock display updates so the CPU can update the memory, but we
   //     keep drawing what was going to be displayed
+  // 
+  // The Timer1.stop()/start() is bad. Using it, the display doesn't
+  // tear; but the audio is also broken. Taking it out, audio is good
+  // but the display tears. So there's a global - g_prioritizeDisplay - 
+  // which lets the user pick which they want.
 
+  if (g_prioritizeDisplay)
+    Timer1.stop();
   g_ui->blit();
   g_vm->vmdisplay->lockDisplay();
   if (g_vm->vmdisplay->needsRedraw()) {
@@ -271,6 +276,8 @@ void loop()
     g_display->blit(what);
   }
   g_vm->vmdisplay->unlockDisplay();
+  if (g_prioritizeDisplay)
+    Timer1.start();
   
   static unsigned long nextBattCheck = millis() + 30;// debugging
   static int batteryLevel = 0; // static for debugging code! When done
@@ -377,6 +384,7 @@ void readPrefs()
     g_volume = p.volume;
     g_displayType = p.displayType;
     g_debugMode = p.debug;
+    g_prioritizeDisplay = p.priorityMode;
     g_speed = (p.speed * (1023000/2)); // steps of half normal speed
     if (g_speed < (1023000/2))
       g_speed = (1023000/2);
@@ -413,13 +421,14 @@ void writePrefs()
   p.volume = g_volume;
   p.displayType = g_displayType;
   p.debug = g_debugMode;
+  p.priorityMode = g_prioritizeDisplay;
   p.speed = g_speed / (1023000/2);
   strcpy(p.disk1, ((AppleVM *)g_vm)->DiskName(0));
   strcpy(p.disk2, ((AppleVM *)g_vm)->DiskName(1));
   strcpy(p.hd1, ((AppleVM *)g_vm)->HDName(0));
   strcpy(p.hd2, ((AppleVM *)g_vm)->HDName(1));
 
-  threads.suspend(cpuThreadId);
+  Timer1.stop();
   bool ret = np.writePrefs(&p);
-  threads.restart(cpuThreadId);
+  Timer1.start();
 }
