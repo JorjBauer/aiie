@@ -91,9 +91,18 @@ bool getAddress(const char *buf, unsigned int *addrOut)
 #define HEXCHAR(x) ((x>='0'&&x<='9')?x-'0':(x>='a'&&x<='f')?x-'a'+10:(x>='A'&&x<='F')?x-'A'+10:(x=='i' || x=='I')?1:(x=='o' || x=='O')?0:0)
 #define FROMHEXP(p) ((HEXCHAR(*p) << 4) | HEXCHAR(*(p+1)))
 
+bool steppingOut = false;
+
 void Debugger::step()
 {
   static char buf[256];
+
+  // FIXME: add more than just RTS(0x60) here
+  if (steppingOut &&
+      g_vm->getMMU()->read(g_cpu->pc) != 0x60) {
+    return;
+  }
+  steppingOut = false;
 
   if (cd != -1) {
     // Print the status back out the socket
@@ -147,6 +156,11 @@ void Debugger::step()
       printf("Closing debugging socket\n");
       close(cd); cd=-1;
       break;
+      
+    case 'S':
+      steppingOut = true;
+      break;
+      
     case 'b': // Set breakpoint
       GETLN;
       if (getAddress(buf, &val)) {
@@ -182,6 +196,22 @@ void Debugger::step()
 	    }
 	    printf("\n");
 	  }
+	}
+      }
+      break;
+
+    case '*': // read 1 byte of memory. Use '* 0x<address>'
+      {
+	GETLN;
+	if (getAddress(buf, &val)) {
+	  sprintf(buf, "Memory location 0x%X: ", val);
+	  write(cd, buf, strlen(buf));
+	  val = g_vm->getMMU()->read(val);
+	  sprintf(buf, "0x%.2X\012\015", val);
+	  write(cd, buf, strlen(buf));
+	} else {
+	  sprintf(buf, "Invalid read\012\015");
+	  write(cd, buf, strlen(buf));
 	}
       }
       break;
