@@ -165,7 +165,7 @@ bool BIOS::runUntilDone()
       break;
     case ACT_DEBUG:
       g_debugMode++;
-      g_debugMode %= 8; // FIXME: abstract max #
+      g_debugMode %= 9; // FIXME: abstract max #
       break;
     case ACT_PRIMODE:
       g_prioritizeDisplay = !g_prioritizeDisplay;
@@ -435,6 +435,9 @@ void BIOS::DrawVMMenu()
 	  break;
 	case D_SHOWTIME:
 	  sprintf(buf, templateString, "Show time");
+	  break;
+	case D_SHOWDSK:
+	  sprintf(buf, templateString, "Show Disk");
 	  break;
 	}
       }
