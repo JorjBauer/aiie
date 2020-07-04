@@ -123,6 +123,7 @@ class Woz {
   uint8_t quarterTrackMap[40*4];
   diskInfo di;
   trackInfo tracks[160];
+  uint8_t singleCachedTrack[0x1A00];
 
   // cursor for track enumeration
 protected:

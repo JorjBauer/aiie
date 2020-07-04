@@ -14,6 +14,7 @@ extern    uint32_t FreeRamEstimate();
 
 #ifdef TEENSYDUINO
 #define SKIPCHECKSUM
+#define STATICALLOC
 #endif
 
 #define PREP_SECTION(fd, t) {      \
@@ -51,6 +52,9 @@ Woz::Woz(bool verbose, uint8_t dumpflags)
   memset(&di, 0, sizeof(diskInfo));
   memset(&tracks, 0, sizeof(tracks));
   randPtr = 0;
+#ifdef TEENSYDUINO
+  this->verbose = 1;
+#endif
 }
 
 Woz::~Woz()
@@ -59,13 +63,19 @@ Woz::~Woz()
     close(fd);
     fd = -1;
   }
-  
+
+#ifdef STATICALLOC
+  for (int i=0; i<160; i++) {
+    tracks[i].trackData = NULL;
+  }
+#else
   for (int i=0; i<160; i++) {
     if (tracks[i].trackData) {
       free(tracks[i].trackData);
       tracks[i].trackData = NULL;
     }
   }
+#endif
   if (metaData) {
     free(metaData);
     metaData = NULL;
@@ -651,15 +661,19 @@ bool Woz::loadMissingTrackFromImage(uint8_t datatrack)
   // autoFlushTrackData==true (trying to limit memory use)
   if (autoFlushTrackData == true) {
     flush();
-    
+#ifdef STATICALLOC
+    for (int i=0; i<160; i++) {
+      tracks[i].trackData = NULL;
+    }
+#else
     for (int i=0; i<160; i++) {
       if (tracks[i].trackData) {
         free(tracks[i].trackData);
         tracks[i].trackData = NULL;
       }
     }
+#endif
   }
-
   // Based on the source image type, load the data track we're looking for
   if (imageType == T_WOZ) {
     // If the source was WOZ, just load the datatrack directly
@@ -685,11 +699,16 @@ bool Woz::loadMissingTrackFromImage(uint8_t datatrack)
       return false;
     }
 
+#ifdef STATICALLOC
+    tracks[datatrack].trackData = singleCachedTrack;
+    memset(singleCachedTrack, 0, sizeof(singleCachedTrack));
+#else
     tracks[datatrack].trackData = (uint8_t *)calloc(NIBTRACKSIZE, 1);
     if (!tracks[datatrack].trackData) {
       fprintf(stderr, "Failed to malloc track data\n");
       return false;
     }
+#endif    
     tracks[datatrack].startingBlock = STARTBLOCK + 13*phystrack;
     tracks[datatrack].blockCount = 13;
     uint32_t sizeInBits = nibblizeTrack(tracks[datatrack].trackData, sectorData, imageType, phystrack);
@@ -706,11 +725,15 @@ bool Woz::loadMissingTrackFromImage(uint8_t datatrack)
     // If the source was a NIB file, then the datatrack is directly
     // mapped 1:1 to the physical track
     uint8_t phystrack = datatrack; // used for clarity of which kind of track we mean, below
+#ifdef STATICALLOC
+    tracks[datatrack].trackData = singleCachedTrack;
+    memset(singleCachedTrack, 0, sizeof(singleCachedTrack));
+#else
     tracks[datatrack].trackData = (uint8_t *)calloc(NIBTRACKSIZE, 1);
     if (!tracks[datatrack].trackData) {
       return false;
     }
-
+#endif
     lseek(fd, NIBTRACKSIZE * phystrack, SEEK_SET);
     read(fd, tracks[datatrack].trackData, NIBTRACKSIZE);
       // FIXME: no error checking
@@ -728,6 +751,10 @@ bool Woz::loadMissingTrackFromImage(uint8_t datatrack)
 
 bool Woz::readDskFile(const char *filename, bool preloadTracks, uint8_t subtype)
 {
+#ifdef STATICALLOC
+  preloadTracks = false;
+#endif
+  
   bool retval = false;
   autoFlushTrackData = !preloadTracks;
   imageType = subtype;
@@ -751,11 +778,16 @@ bool Woz::readDskFile(const char *filename, bool preloadTracks, uint8_t subtype)
 	goto done;
       }
       uint8_t datatrack = quarterTrackMap[phystrack*4];
+#ifdef STATICALLOC
+      tracks[datatrack].trackData = singleCachedTrack;
+      memset(singleCachedTrack, 0, sizeof(singleCachedTrack));
+#else
       tracks[datatrack].trackData = (uint8_t *)calloc(NIBTRACKSIZE, 1);
       if (!tracks[datatrack].trackData) {
 	fprintf(stderr, "Failed to malloc track data\n");
 	goto done;
       }
+#endif
       tracks[datatrack].startingBlock = STARTBLOCK + 13*datatrack;
       tracks[datatrack].blockCount = 13;
       uint32_t sizeInBits = nibblizeTrack(tracks[datatrack].trackData, sectorData, subtype, phystrack);
@@ -771,6 +803,9 @@ bool Woz::readDskFile(const char *filename, bool preloadTracks, uint8_t subtype)
 
 bool Woz::readNibFile(const char *filename, bool preloadTracks)
 {
+#ifdef STATICALLOC
+  preloadTracks = false;
+#endif
   autoFlushTrackData = !preloadTracks;
   imageType = T_NIB;
 
@@ -793,12 +828,16 @@ bool Woz::readNibFile(const char *filename, bool preloadTracks)
 	return false;
       }
       uint8_t datatrack = quarterTrackMap[phystrack * 4];
+#ifdef STATICALLOC
+      tracks[datatrack].trackData = singleCachedTrack;
+      memset(singleCachedTrack, 0, sizeof(singleCachedTrack));
+#else
       tracks[datatrack].trackData = (uint8_t *)calloc(NIBTRACKSIZE, 1);
       if (!tracks[datatrack].trackData) {
 	fprintf(stderr, "Failed to malloc track data\n");
 	return false;
       }
-      
+#endif 
       memcpy(tracks[datatrack].trackData, nibData, NIBTRACKSIZE);
       tracks[datatrack].startingBlock = STARTBLOCK + 13*phystrack;
       tracks[datatrack].blockCount = 13;
@@ -815,6 +854,9 @@ bool Woz::readNibFile(const char *filename, bool preloadTracks)
 
 bool Woz::readWozFile(const char *filename, bool preloadTracks)
 {
+#ifdef STATICALLOC
+  preloadTracks = false;
+#endif
   imageType = T_WOZ;
   autoFlushTrackData = !preloadTracks;
 
@@ -967,6 +1009,9 @@ bool Woz::readWozFile(const char *filename, bool preloadTracks)
 
 bool Woz::readFile(const char *filename, bool preloadTracks, uint8_t forceType)
 {
+#ifdef STATICALLOC
+  preloadTracks = false;
+#endif
   if (forceType == T_AUTO) {
     // Try to determine type from the file extension
     const char *p = strrchr(filename, '.');
@@ -1056,7 +1101,7 @@ bool Woz::parseTMAPChunk(uint32_t chunkSize)
       return false;
     chunkSize--;
   }
-  if (verbose){
+  if (verbose && 0){
     printf("Read quarter-track map:\n");
     for (int i=0; i<140; i+=4) {
       printf("%2d     %3d => %3d     %3d => %3d     %3d => %3d     %3d => %3d\n",
@@ -1169,16 +1214,23 @@ bool Woz::readWozDataTrack(uint8_t datatrack)
   if (tracks[datatrack].trackData) {
     return true; // We've already read this track's data; don't re-read it
   }
+#ifdef STATICALLOC
+  tracks[datatrack].trackData = singleCachedTrack;
+  memset(singleCachedTrack, 0, sizeof(singleCachedTrack));
+  if (count > sizeof(singleCachedTrack)) {
+    fprintf(stderr, "Want to alloc buffer than size of singleCachedTrack! About to overrun memory");
+  }
+#else
   tracks[datatrack].trackData = (uint8_t *)calloc(count, 1);
   if (!tracks[datatrack].trackData) {
     perror("Failed to alloc buf to read track magnetic data");
 
     return false;
   }
-
+#endif
   if (di.version == 1) {
     if (verbose) {
-      printf("Reading datatrack %d starting at byte 0x%X\n",
+      printf("Reading datatrack[1] %d starting at byte 0x%X\n",
 	     datatrack,
 	     tracks[datatrack].startingByte);
     }
@@ -1188,7 +1240,7 @@ bool Woz::readWozDataTrack(uint8_t datatrack)
     }
   } else {
     if (verbose) {
-      printf("Reading datatrack %d starting at byte 0x%X\n",
+      printf("Reading datatrack[2] %d starting at byte 0x%X\n",
 	     datatrack,
 	     bitsStartBlock*512);
     }
@@ -1198,6 +1250,7 @@ bool Woz::readWozDataTrack(uint8_t datatrack)
     }
   }
   uint32_t didRead = read(fd, tracks[datatrack].trackData, count);
+
   if (didRead != count) {
     printf("Failed to read all track data for track [read %d, wanted %d]\n", didRead, count);
     return false;
