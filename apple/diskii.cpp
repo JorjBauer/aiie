@@ -129,7 +129,7 @@ bool DiskII::Serialize(int8_t fd)
 
 bool DiskII::Deserialize(int8_t fd)
 {
-  uint8_t buf[23];
+  uint8_t buf[MAXPATH];
   if (g_filemanager->read(fd, buf, 7) != 7)
     return false;
   if (buf[0] != DISKIIMAGIC)
@@ -182,6 +182,7 @@ bool DiskII::Deserialize(int8_t fd)
       disk[i] = new WozSerializer();
 
       ptr = 0;
+      // FIXME: MAXPATH check!
       while (1) {
 	if (g_filemanager->read(fd, &buf[ptr++], 1) != 1)
 	  return false;
@@ -496,6 +497,10 @@ int64_t DiskII::calcExpectedBits()
   // 3.90: 199.9ms
   // 3.91: 200.5ms
   // 3.51: 176ms, and is too fast for DOS to write properly.
+  //
+  // As-is, this won't read NIB files for some reason I haven't
+  // fully understood; but if you slow the disk down to /5.0,
+  // then they load?
   uint64_t expectedDiskBits = (float)cyclesPassed / 3.90;
 
   return expectedDiskBits - deliveredDiskBits[selectedDisk];
