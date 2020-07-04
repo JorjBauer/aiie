@@ -300,10 +300,10 @@ void Fx80::addCharacter(uint8_t c)
     c += 128;
   }
 
-  uint8_t width = Fx80Font[c * 19];
+  /*uint8_t width =*/ Fx80Font[c * 19];
   // FIXME: is 12 right for non-proportional mode?
-  if (!proportionalMode)
-    width = 12;
+  /*  if (!proportionalMode)
+      width = 12;*/
 
   // Each row for this char has two bytes of bits, left-to-right, high
   // bit leftmost.
