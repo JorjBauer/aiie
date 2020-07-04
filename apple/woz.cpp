@@ -52,9 +52,6 @@ Woz::Woz(bool verbose, uint8_t dumpflags)
   memset(&di, 0, sizeof(diskInfo));
   memset(&tracks, 0, sizeof(tracks));
   randPtr = 0;
-#ifdef TEENSYDUINO
-  this->verbose = 1;
-#endif
 }
 
 Woz::~Woz()
