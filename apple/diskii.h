@@ -37,6 +37,9 @@ class DiskII : public Slot {
 
   void maintenance(uint32_t cycles);
 
+  uint8_t selectedDrive();
+  uint8_t headPosition(uint8_t drive);
+  
  private:
   void setPhase(uint8_t phase);
 
@@ -57,7 +60,7 @@ class DiskII : public Slot {
  public:
   // debugging
   WozSerializer *disk[2];
- private:
+private:
   volatile int8_t curHalfTrack[2];
   volatile uint8_t curWozTrack[2];
   volatile int8_t curPhase[2];

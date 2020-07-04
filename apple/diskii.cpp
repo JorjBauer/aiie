@@ -759,3 +759,15 @@ void DiskII::maintenance(uint32_t cycle)
 
   }
 }
+
+uint8_t DiskII::selectedDrive()
+{
+  return selectedDisk;
+}
+
+uint8_t DiskII::headPosition(uint8_t drive)
+{
+  return curHalfTrack[drive];
+}
+
+
