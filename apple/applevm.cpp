@@ -8,6 +8,10 @@
 
 #include "globals.h"
 
+#ifdef TEENSYDUINO
+#include "teensy-println.h"
+#endif
+
 #include <errno.h>
 const char *suspendHdr = "Sus2";
 
@@ -60,7 +64,7 @@ void AppleVM::Suspend(const char *fn)
       hd32->Serialize(fh)
       ) {
 #ifdef TEENSYDUINO
-    Serial.println("All serialized successfully");
+    println("All serialized successfully");
 #else
     printf("All serialized successfully\n");
 #endif
@@ -78,8 +82,8 @@ void AppleVM::Resume(const char *fn)
   if (fh == -1) {
     // Unable to open; skip resume
 #ifdef TEENSYDUINO
-    Serial.print("Unable to open resume file ");
-    Serial.println(fn);
+    print("Unable to open resume file ");
+    println(fn);
 #else
     printf("Unable to open resume file\n");
 #endif
@@ -104,7 +108,7 @@ void AppleVM::Resume(const char *fn)
       hd32->Deserialize(fh)
       ) {
 #ifdef TEENSYDUINO
-    Serial.println("Deserialization successful");
+    println("Deserialization successful");
 #else
     printf("All deserialized successfully\n");
 #endif

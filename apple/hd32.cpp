@@ -11,6 +11,7 @@
 
 #ifdef TEENSYDUINO
 #include <Arduino.h>
+#include "teensy-println.h"
 #else
 #include <unistd.h>
 #include <fcntl.h>
@@ -197,7 +198,7 @@ void HD32::writeSwitches(uint8_t s, uint8_t v)
 void HD32::loadROM(uint8_t *toWhere)
 {
 #ifdef TEENSYDUINO
-  Serial.println("loading HD32 rom");
+  println("loading HD32 rom");
   for (uint16_t i=0; i<=0xFF; i++) {
     toWhere[i] = pgm_read_byte(&romData[i]);
   }

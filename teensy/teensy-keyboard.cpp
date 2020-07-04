@@ -2,6 +2,7 @@
 #include "teensy-keyboard.h"
 #include <Keypad.h>
 #include "LRingBuffer.h"
+#include "teensy-println.h"
 
 const byte ROWS = 5;
 const byte COLS = 13;
@@ -191,8 +192,8 @@ bool TeensyKeyboard::kbhit()
   }
 
   // For debugging: also allow USB serial to act as a keyboard
-  if (Serial.available()) {
-    buffer.addByte(Serial.read());
+  if (serialavailable()) {
+    buffer.addByte(serialgetch());
   }
 
   return buffer.hasData();
@@ -230,8 +231,8 @@ void TeensyKeyboard::maintainKeyboard()
   }
 
   // For debugging: also allow USB serial to act as a keyboard
-  if (Serial.available()) {
-    int c = Serial.read();
+  if (serialavailable()) {
+    int c = serialgetch();
     vmkeyboard->keyDepressed(c);
     vmkeyboard->keyReleased(c);
   }

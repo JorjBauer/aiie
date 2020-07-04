@@ -9,6 +9,10 @@
 
 #include "globals.h"
 
+#ifdef TEENSYDUINO
+#include "teensy-println.h"
+#endif
+
 // define DEBUGSTEPS to show disassembly of each instruction as it's processed
 //#define DEBUGSTEPS
 #ifdef DEBUGSTEPS
@@ -326,11 +330,11 @@ bool Cpu::Serialize(int8_t fh)
 		      x,
 		      y,
 		      flags,
-		      (cycles >> 24) & 0xFF,
-		      (cycles >> 16) & 0xFF,
-		      (cycles >>  8) & 0xFF,
-		      (cycles      ) & 0xFF,
-		      irqPending ? 1 : 0 };
+		      (uint8_t)((cycles >> 24) & 0xFF),
+		      (uint8_t)((cycles >> 16) & 0xFF),
+		      (uint8_t)((cycles >>  8) & 0xFF),
+		      (uint8_t)((cycles      ) & 0xFF),
+		      irqPending ? (uint8_t)1 : (uint8_t)0 };
 
   if (g_filemanager->write(fh, buf, 13) != 13)
     return false;
@@ -339,7 +343,7 @@ bool Cpu::Serialize(int8_t fh)
 #ifndef TEENSYDUINO
     printf("MMU serialization failed\n");
 #else
-    Serial.println("MMU serialization failed");
+    println("MMU serialization failed");
 #endif
     return false;
   }

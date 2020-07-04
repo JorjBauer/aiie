@@ -2,6 +2,7 @@
 
 #ifdef TEENSYDUINO
 #include <Arduino.h>
+#include "teensy-println.h"
 #else
 #include <unistd.h>
 #include <fcntl.h>
@@ -725,7 +726,7 @@ const char *DiskII::DiskName(int8_t num)
 void DiskII::loadROM(uint8_t *toWhere)
 {
 #ifdef TEENSYDUINO
-  Serial.println("loading DiskII rom");
+  println("loading DiskII rom");
   for (uint16_t i=0; i<=0xFF; i++) {
     toWhere[i] = pgm_read_byte(&romData[i]);
   }
