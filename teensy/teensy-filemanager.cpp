@@ -4,6 +4,7 @@
 #include "teensy-filemanager.h"
 #include <string.h> // strcpy
 #include <TeensyThreads.h>
+#include "teensy-println.h"
 
 Threads::Mutex fslock;
 
@@ -23,6 +24,8 @@ TeensyFileManager::~TeensyFileManager()
 
 int8_t TeensyFileManager::openFile(const char *name)
 {
+  Threads::Scope locker(fslock);
+  
   if (cacheFd != -1) {
     cacheFile.close();
     cacheFd = -1;
@@ -54,10 +57,9 @@ int8_t TeensyFileManager::openFile(const char *name)
 
 void TeensyFileManager::closeFile(int8_t fd)
 {
+  Threads::Scope locker(fslock);
   if (cacheFd != -1) {
-    fslock.lock();
     cacheFile.close();
-    fslock.unlock();
     cacheFd = -1;
   }
 
@@ -80,6 +82,7 @@ const char *TeensyFileManager::fileName(int8_t fd)
 // suffix may be comma-separated
 int8_t TeensyFileManager::readDir(const char *where, const char *suffix, char *outputFN, int8_t startIdx, uint16_t maxlen)
 {
+  Threads::Scope locker(fslock);
   //  ... open, read, save next name, close, return name. Horribly
   //  inefficient but hopefully won't break the sd layer. And if it
   //  works then we can make this more efficient later.
@@ -158,20 +161,15 @@ bool TeensyFileManager::_prepCache(int8_t fd)
     // Not our cached file, or we have no cached file
     if (cacheFd != -1) {
       // Close the old one if we had one
-      fslock.lock();
       cacheFile.close();
-      fslock.unlock();
       cacheFd = -1;
     }
 
     // Open the new one
-    fslock.lock();
     cacheFile = sd.open(cachedNames[fd], O_RDWR | O_CREAT);
     if (!cacheFile.isOpen()) {
-      fslock.unlock();
       return false;
     }
-    fslock.unlock();
     cacheFd = fd; // cache is live
   }
 
@@ -184,6 +182,7 @@ void TeensyFileManager::getRootPath(char *toWhere, int8_t maxLen)
   //  strncpy(toWhere, "/A2DISKS/", maxLen);
 }
 
+// FIXME: this should be private
 bool TeensyFileManager::setSeekPosition(int8_t fd, uint32_t pos)
 {
   seekToEnd(fd);
@@ -196,7 +195,7 @@ bool TeensyFileManager::setSeekPosition(int8_t fd, uint32_t pos)
   return true;
 }
 
-
+// FIXME: this should be private
 void TeensyFileManager::seekToEnd(int8_t fd)
 {
   FatFile f = sd.open(cachedNames[fd], FILE_READ);
@@ -210,6 +209,7 @@ void TeensyFileManager::seekToEnd(int8_t fd)
 
 int TeensyFileManager::write(int8_t fd, const void *buf, int nbyte)
 {
+  Threads::Scope locker(fslock);
   // open, seek, write, close.
   if (fd < 0 || fd >= numCached) {
     return -1;
@@ -223,25 +223,22 @@ int TeensyFileManager::write(int8_t fd, const void *buf, int nbyte)
 
   uint32_t pos = fileSeekPositions[fd];
 
-  fslock.lock();
   if (!cacheFile.seekSet(pos)) {
-    fslock.unlock();
     return -1;
   }
 
   if (cacheFile.write(buf, nbyte) != nbyte) {
-    fslock.unlock();
     return -1;
   }
 
   fileSeekPositions[fd] += nbyte;
   cacheFile.close();
-  fslock.unlock();
   return nbyte;
 };
 
 int TeensyFileManager::read(int8_t fd, void *buf, int nbyte)
 {
+  Threads::Scope locker(fslock);
   // open, seek, read, close.
   if (fd < 0 || fd >= numCached) {
     return -1;
@@ -254,24 +251,21 @@ int TeensyFileManager::read(int8_t fd, void *buf, int nbyte)
   _prepCache(fd);
 
   uint32_t pos = fileSeekPositions[fd];
-  fslock.lock();
   if (!cacheFile.seekSet(pos)) {
-    fslock.unlock();
     return -1;
   }
   fileSeekPositions[fd] += nbyte;
 
   if (cacheFile.read(buf, nbyte) != nbyte) {
-    fslock.unlock();
     return -1;
   }
   
-  fslock.unlock();
   return nbyte;
 };
 
 int TeensyFileManager::lseek(int8_t fd, int offset, int whence)
 {
+  Threads::Scope locker(fslock);
   if (whence == SEEK_CUR && offset == 0) {
     return fileSeekPositions[fd];
   }
