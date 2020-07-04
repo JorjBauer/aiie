@@ -13,6 +13,7 @@
 #include "teensy-filemanager.h"
 #include "appleui.h"
 #include "teensy-prefs.h"
+#include "teensy-println.h"
 
 #define RESETPIN 39
 #define BATTERYPIN 32
@@ -55,9 +56,9 @@ void setup()
   setSyncProvider(getTeensy3Time);
   delay(100); // don't know if we need this
   if (timeStatus() == timeSet) {
-    Serial.println("RTC set from Teensy");
+    println("RTC set from Teensy");
   } else {
-    Serial.println("Error while setting RTC");
+    println("Error while setting RTC");
   }
 
   pinMode(RESETPIN, INPUT);
@@ -71,54 +72,54 @@ void setup()
   pinMode(SPEAKERPIN, OUTPUT); // analog speaker output, used as digital volume control
   pinMode(BATTERYPIN, INPUT);
 
-  Serial.println("creating virtual hardware");
+  println("creating virtual hardware");
   g_speaker = new TeensySpeaker(SPEAKERPIN);
 
-  Serial.println(" fm");
+  println(" fm");
   // First create the filemanager - the interface to the host file system.
   g_filemanager = new TeensyFileManager();
 
   // Construct the interface to the host display. This will need the
   // VM's video buffer in order to draw the VM, but we don't have that
   // yet. 
-  Serial.println(" display");
+  println(" display");
   g_display = new TeensyDisplay();
 
-  Serial.println(" UI");
+  println(" UI");
   g_ui = new AppleUI();
 
   // Next create the virtual CPU. This needs the VM's MMU in order to
   // run, but we don't have that yet.
-  Serial.println(" cpu");
+  println(" cpu");
   g_cpu = new Cpu();
 
   // Create the virtual machine. This may read from g_filemanager to
   // get ROMs if necessary.  (The actual Apple VM we've built has them
   // compiled in, though.) It will create its virutal hardware (MMU,
   // video driver, floppy, paddles, whatever).
-  Serial.println(" vm");
+  println(" vm");
   g_vm = new AppleVM();
 
   // Now that the VM exists and it has created an MMU, we tell the CPU
   // how to access memory through the MMU.
-  Serial.println(" [setMMU]");
+  println(" [setMMU]");
   g_cpu->SetMMU(g_vm->getMMU());
 
   // And the physical keyboard needs hooks in to the virtual keyboard...
-  Serial.println(" keyboard");
+  println(" keyboard");
   g_keyboard = new TeensyKeyboard(g_vm->getKeyboard());
 
-  Serial.println(" paddles");
+  println(" paddles");
   g_paddles = new TeensyPaddles(A23, A24, 1, 1);
 
   // Now that all the virtual hardware is glued together, reset the VM
-  Serial.println("Resetting VM");
+  println("Resetting VM");
   g_vm->Reset();
 
   g_display->redraw();
 //  g_display->blit();
 
-  Serial.println("Reading prefs");
+  println("Reading prefs");
   readPrefs(); // read from eeprom and set anything we need setting
 
   startMicros = nextInstructionMicros = micros();
@@ -132,9 +133,9 @@ void setup()
   //  pinMode(57, OUTPUT);
 
   Serial.print("Free RAM: ");
-  Serial.println(FreeRamEstimate());
+  println(FreeRamEstimate());
 
-  Serial.println("free-running");
+  println("free-running");
 
   threads.setDefaultTimeSlice(1);
   threads.setSliceMicros(500);
@@ -301,7 +302,7 @@ void loop()
      */
 #if 0
     Serial.print("battery: ");
-    Serial.println(batteryLevel);
+    println(batteryLevel);
 #endif
     
     if (batteryLevel < 146)
@@ -355,6 +356,15 @@ void doDebugging()
   case D_SHOWTIME:
     sprintf(buf, "%.2d:%.2d:%.2d", hour(), minute(), second());
     g_display->debugMsg(buf);
+    break;
+  case D_SHOWDSK:
+    {
+      uint8_t sd = ((AppleVM *)g_vm)->disk6->selectedDrive();
+      sprintf(buf, "s %d t %d",
+	      sd,
+	      ((AppleVM *)g_vm)->disk6->headPosition(sd));
+      g_display->debugMsg(buf);
+    }
     break;
   }
 }
