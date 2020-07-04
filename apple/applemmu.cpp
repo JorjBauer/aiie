@@ -156,8 +156,8 @@ AppleMMU::~AppleMMU()
 bool AppleMMU::Serialize(int8_t fd)
 {
   uint8_t buf[13] = { MMUMAGIC,
-		      (switches >> 8) & 0xFF,
-		      (switches     ) & 0xFF,
+		      (uint8_t)((switches >> 8) & 0xFF),
+		      (uint8_t)((switches     ) & 0xFF),
 		      auxRamRead ? 1 : 0,
 		      auxRamWrite ? 1 : 0,
 		      bank2 ? 1 : 0,
