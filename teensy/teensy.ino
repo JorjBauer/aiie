@@ -14,6 +14,10 @@
 #include "teensy-prefs.h"
 #include "teensy-println.h"
 
+#if F_CPU < 240000000
+#pragma AiiE warning: performance will improve if you overclock the Teensy to 240MHz (F_CPU=240MHz) or 256MHz (F_CPU=256MHz)
+#endif
+
 #define RESETPIN 39
 #define BATTERYPIN 32
 #define SPEAKERPIN A21
