@@ -118,12 +118,13 @@ int8_t TeensyFileManager::readDir(const char *where, const char *suffix, char *o
 	// multiple suffixes to check - all must be 3 chars long, FIXME
 	bool matchesAny = false;
 	const char *p = suffix;
-	while (*p && strlen(p)) {
+	while (p && *p && strlen(p)) {
 	  if (!strncasecmp(fsuff, p, 3)) {
 	    matchesAny = true;
 	    break;
 	  }
-	  p = strstr(p, ",")+1;
+	  p = strstr(p, ",");
+	  if (p) p++;
 	}
 	if (!matchesAny) {
 	  e.close();

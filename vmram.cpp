@@ -1,6 +1,7 @@
 #ifdef TEENSYDUINO
 #include <Arduino.h>
 #include "teensy-println.h"
+EXTMEM uint8_t preallocatedRam[591*256];                                    
 #endif
 
 #include "vmram.h"

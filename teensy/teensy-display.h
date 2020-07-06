@@ -3,15 +3,8 @@
 
 #include <Arduino.h>
 #include <ILI9341_t3.h>
+
 #include "physicaldisplay.h"
-
-#define TEENSY_DHEIGHT 192
-#define TEENSY_DWIDTH 280
-// run length of one row of pixels
-#define TEENSY_DRUN (TEENSY_DWIDTH/2)
-
-#define regtype volatile uint8_t
-#define regsize uint8_t
 
 class UTFT;
 class BIOS;
@@ -27,7 +20,7 @@ class TeensyDisplay : public PhysicalDisplay {
   virtual void redraw();
 
   virtual void clrScr();
-  virtual void flush() {};
+  virtual void flush();
 
   virtual void drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c);
   virtual void drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str);
@@ -46,8 +39,6 @@ class TeensyDisplay : public PhysicalDisplay {
   bool needsRedraw;
   bool driveIndicator[2];
   bool driveIndicatorDirty;
-
-  uint8_t videoBuffer[TEENSY_DHEIGHT * TEENSY_DWIDTH / 2];
 };
 
 #endif

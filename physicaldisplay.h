@@ -18,7 +18,7 @@ class PhysicalDisplay {
 
   virtual void drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c) = 0;
   virtual void drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str) = 0;
-  virtual void debugMsg(const char *msg) {   strncpy(overlayMessage, msg, sizeof(overlayMessage)); }
+  virtual void debugMsg(const char *msg) {   strncpy(overlayMessage, msg, sizeof(overlayMessage));overlayMessage[strlen(overlayMessage)] = 0; }
 
   virtual void drawPixel(uint16_t x, uint16_t y, uint16_t color) = 0;
   virtual void drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b) = 0;

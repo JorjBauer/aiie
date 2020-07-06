@@ -1,8 +1,11 @@
 #include <ctype.h> // isgraph
+#include <DMAChannel.h>
+
 #include "teensy-display.h"
 
 #include "bios-font.h"
 #include "appleui.h"
+#include <SPI.h>
 
 #define _clock 65000000
 
@@ -13,13 +16,27 @@
 #define PIN_MISO 12
 #define PIN_SCK 13
 
-#define disp_x_size 239
-#define disp_y_size 319
+// Inside the 320x240 display, the Apple display is 280x192.
+// (That's half the "correct" width, b/c of double-hi-res.)
+#define apple_display_w 280
+#define apple_display_h 192
+
+// Inset inside the apple2 "frame" where we draw the display
+// remember these are "starts at pixel number" values, where 0 is the first.
+#define HOFFSET 18
+#define VOFFSET 13
 
 #include "globals.h"
 #include "applevm.h"
 
+DMAMEM uint16_t dmaBuffer[240][320]; // 240 rows, 320 columns
+
+#define RGBto565(r,g,b) (((r & 0x3E00) << 2) | ((g & 0x3F00) >>3) | ((b & 0x3E00) >> 9))
+
 ILI9341_t3 tft = ILI9341_t3(PIN_CS, PIN_DC, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
+
+DMAChannel dmatx;
+DMASetting dmaSetting;
 
 // RGB map of each of the lowres colors
 const uint16_t loresPixelColors[16] = { 0x0000, // 0 black
@@ -78,18 +95,40 @@ const uint16_t loresPixelColorsWhite[16] = { 0x0000,
 
 TeensyDisplay::TeensyDisplay()
 {
-  memset(videoBuffer, 0, sizeof(videoBuffer));
+  memset(dmaBuffer, 0x80, sizeof(dmaBuffer));
 
   tft.begin();
   tft.setRotation(3);
   tft.setClock(_clock);
 
-  // Could set up an automatic DMA transfer here; cf.
+  // Set up automatic DMA transfers. cf.
   // https://forum.pjrc.com/threads/25778-Could-there-be-something-like-an-ISR-template-function/page4
+#if 0
+  dmaSetting.TCD->CSR = 0;
+  dmaSetting.TCD->SADDR = dmaBuffer;
+  dmaSetting.TCD->SOFF = 2; // 2 bytes per pixel
+  dmaSetting.TCD->ATTR_SRC = 1;
+  dmaSetting.TCD->NBYTES = 2;
+  dmaSetting.TCD->SLAST = -320*240*2;
+  dmaSetting.TCD->BITER = 320*240;
+  dmaSetting.TCD->CITER = 320*240;
+
+  dmaSetting.TCD->DADDR = &LPSPI4_TDR; // FIXME is this correct?
+  dmaSetting.TCD->DOFF = 0;
+  dmaSetting.TCD->ATTR_DST = 1;
+  dmaSetting.TCD->DLASTSGA = 0;
+  
+  // Make it loop on itself
+  dmaSetting.replaceSettingsOnCompletion(dmaSetting);
+  
+  dmatx.begin(false);
+  dmatx.triggerAtHardwareEvent(DMAMUX_SOURCE_LPSPI4_TX); // FIXME what's the right source ID
+  dmatx = &dmaSetting;
+#endif
   
   // LCD initialization complete
 
-  clrScr();
+  tft.fillScreen(ILI9341_BLACK);
 
   driveIndicator[0] = driveIndicator[1] = false;
   driveIndicatorDirty = true;
@@ -111,8 +150,7 @@ void TeensyDisplay::redraw()
 
 void TeensyDisplay::clrScr()
 {
-  // FIXME: only fill the area that's got our "terminal"
-  tft.fillScreen(ILI9341_BLACK);
+  memset(dmaBuffer, 0x00, sizeof(dmaBuffer));
 }
 
 void TeensyDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
@@ -132,47 +170,29 @@ void TeensyDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint
   drawPixel(x,y,color16);
 }
 
+void TeensyDisplay::flush()
+{
+  blit({0,0,191,279});
+}
+
 void TeensyDisplay::blit(AiieRect r)
 {
-  // remember these are "starts at pixel number" values, where 0 is the first.
-  #define HOFFSET 18
-  #define VOFFSET 13
+  // The goal here is for blitting to happen automatically in DMA transfers.
+
+  // Since that isn't the case yet, here's a manual blit of the whole
+  // screen (b/c the rect is kinda meaningless in the final "draw
+  // everything always" DMA mode)
+  tft.writeRect(0,0,320,240,(const uint16_t *)dmaBuffer);
   
-  uint8_t *vbufPtr;
-  for (uint8_t y=r.top; y<=r.bottom; y++) {
-    vbufPtr = &videoBuffer[y * TEENSY_DRUN + r.left];
-    for (uint16_t x=r.left; x<=r.right; x++) {
-      uint8_t colorIdx;
-      if (!(x & 0x01)) {
-	colorIdx = *vbufPtr >> 4;
-      } else {
-	// alpha the right-ish pixel over the left-ish pixel.
-	colorIdx = *vbufPtr & 0x0F;
+  // draw overlay, if any, occasionally
+  {
+    static uint32_t nextMessageTime = 0;
+    if (millis() >= nextMessageTime) {
+      if (overlayMessage[0]) {
+	drawString(M_SELECTDISABLED, 1, 240 - 16 - 12, overlayMessage);
       }
-      colorIdx <<= 1;
-
-      uint16_t c;
-      if (g_displayType == m_monochrome) {
-	c = loresPixelColorsGreen[colorIdx];
-      }
-      else if (g_displayType == m_blackAndWhite) {
-	c = loresPixelColorsWhite[colorIdx];
-      } else {
-	c = loresPixelColors[colorIdx];
-      }
-
-      drawPixel(x+HOFFSET,y+VOFFSET,c);
-
-      if (x & 0x01) {
-	// When we do the odd pixels, then move the pixel pointer to the next pixel
-	vbufPtr++;
-      }
+      nextMessageTime = millis() + 1000;
     }
-  }
-
-  // draw overlay, if any
-  if (overlayMessage[0]) {
-    drawString(M_SELECTDISABLED, 1, 240 - 16 - 12, overlayMessage);
   }
 }
 
@@ -212,9 +232,9 @@ void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
     uint8_t ch = pgm_read_byte(&BiosFont[temp]);
     for (int8_t x_off = 0; x_off <= xsize; x_off++) {
       if (ch & (1 << (7-x_off))) {
-	drawPixel(x+x_off, y+y_off, onPixel);
+	dmaBuffer[y+y_off][x+x_off] = onPixel;
       } else {
-	drawPixel(x+x_off, y+y_off, offPixel);
+	dmaBuffer[y+y_off][x+x_off] = offPixel;
       }
     }
     temp++;
@@ -242,27 +262,19 @@ void TeensyDisplay::drawImageOfSizeAt(const uint8_t *img,
       r = pgm_read_byte(&img[(y*sizex + x)*3 + 0]);
       g = pgm_read_byte(&img[(y*sizex + x)*3 + 1]);
       b = pgm_read_byte(&img[(y*sizex + x)*3 + 2]);
-      drawPixel(wherex+x, wherey+y, (((r&248)|g>>5) << 8) | ((g&28)<<3|b>>3));
+      dmaBuffer[y+wherey][x+wherex] = RGBto565(r,g,b);
     }
   }
 }
 
 // "DoubleWide" means "please double the X because I'm in low-res
 // width mode". But we only have half the horizontal width required on
-// the Teensy, so it's divided in half. And then we drop to 4-bit
-// colors, so it's divided in half again.
+// the Teensy, so it's divided in half.
 void TeensyDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
 {
-  uint8_t b = videoBuffer[y*TEENSY_DRUN+(x>>1)];
-
-  if (x & 1) {
-    // Low nybble
-    b = (b & 0xF0) | (color & 0x0F);
-  } else {
-    // High nybble
-    b = (color << 4) | (b & 0x0F);
-  }
-  videoBuffer[y*TEENSY_DRUN+(x>>1)] = b;
+  uint16_t color16;
+  color16 = loresPixelColors[(( color & 0x0F )     )];
+  dmaBuffer[y+VOFFSET][x+HOFFSET] = color16;
 }
 
 // This exists for 4bpp optimization. We could totally call
@@ -271,32 +283,31 @@ void TeensyDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
 void TeensyDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y, 
 					   uint8_t colorA, uint8_t colorB)
 {
-  videoBuffer[y*TEENSY_DRUN+(x>>1)] = (colorB << 4) | colorA;
+  // FIXME: Convert 4-bit colors to 16-bit colors?
+  dmaBuffer[y+VOFFSET][x+  HOFFSET] = loresPixelColors[colorB&0xF];
+  dmaBuffer[y+VOFFSET][x+1+HOFFSET] = loresPixelColors[colorA&0xF];
 }
 
 // This is the full 560-pixel-wide version -- and we only have 280
-// pixels wide. So we'll divide x by 2. And then at 4bpp, we divide by
-// 2 again.
-// On odd-numbered X pixels, we also alpha-blend -- "black" means "clear"
+// pixels in our buffer b/c the display is only 320 pixels wide
+// itself. So we'll divide x by 2. On odd-numbered X pixels, we also
+// alpha-blend -- "black" means "clear"
 void TeensyDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 {
-  if (x&1) {
-    x >>= 1; // divide by 2, then this is mostly cacheDoubleWidePixel. Except...
-    uint8_t b = videoBuffer[y*TEENSY_DRUN+(x>>1)];
-
-    if (x & 1) {
-      // Low nybble
-      if (color == c_black)
-	color = b & 0x0F;
-      b = (b & 0xF0) | (color & 0x0F);
-    } else {
-      // High nybble
-      if (color == c_black)
-	color = (b & 0xF0) >> 4;
-      b = (color << 4) | (b & 0x0F);
-    }
-    videoBuffer[y*TEENSY_DRUN+(x>>1)] = b;
+  if (/*x&*/1) {
+    // divide x by 2, then this is mostly cacheDoubleWidePixel. Except
+    // we also have to do the alpha blend so we can see both pixels.
+    
+    uint16_t *p = &dmaBuffer[y+VOFFSET][(x>>1)+HOFFSET];
+    uint16_t destColor = loresPixelColors[color];
+    
+    //    if (color == 0)
+    //      destColor = *p; // retain the even-numbered pixel's contents ("alpha blend")
+    // Otherwise the odd-numbered pixel's contents "win" as "last drawn"
+    // FIXME: do better blending of these two pixels.
+    
+    dmaBuffer[y+VOFFSET][(x>>1)+HOFFSET] = destColor;
   } else {
-    cacheDoubleWidePixel(x/2, y, color);
+    cacheDoubleWidePixel(x, y, color);
   }
 }

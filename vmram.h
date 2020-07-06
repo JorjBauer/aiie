@@ -36,7 +36,10 @@ class VMRam {
   // Pages 0-3 are ZP; we want those in RAM.
   // Pages 4-7 are 0x200 - 0x3FF. We want those in RAM too (text pages).
 
-  uint8_t preallocatedRam[591*256];
+  // Has to be static if we're using the EXTMEM sectioning, so it's now in vmram.cpp :/
+  //EXTMEM uint8_t preallocatedRam[591*256];
+
+
 };
 
 

@@ -38,13 +38,17 @@ static   time_t getTeensy3Time() {  return Teensy3Clock.get(); }
 void setup()
 {
   Serial.begin(230400);
-  /*
+#if 0
+  // Wait for USB serial connection before booting while debugging
   while (!Serial) {
     yield();
-  }*/
-  delay(100); // let the power settle
+  }
+#endif
+  delay(120); // let the power settle
 
-  enableFaultHandler();
+//  enableFaultHandler();
+  SCB_SHCSR |= SCB_SHCSR_BUSFAULTENA | SCB_SHCSR_USGFAULTENA | SCB_SHCSR_MEMFAULTENA;
+
 
   // set the Time library to use Teensy 3.0's RTC to keep time
   setSyncProvider(getTeensy3Time);
@@ -69,27 +73,45 @@ void setup()
   pinMode(BATTERYPIN, INPUT);
   */
 
+  Serial.print("Free RAM: ");
+  println(FreeRamEstimate());
+
   println("creating virtual hardware");
   g_speaker = new TeensySpeaker(SPEAKERPIN);
+
+  Serial.print("Free RAM: ");
+  println(FreeRamEstimate());
 
   println(" fm");
   // First create the filemanager - the interface to the host file system.
   g_filemanager = new TeensyFileManager();
 
+  Serial.print("Free RAM: ");
+  println(FreeRamEstimate());
+  
   // Construct the interface to the host display. This will need the
   // VM's video buffer in order to draw the VM, but we don't have that
   // yet. 
   println(" display");
   g_display = new TeensyDisplay();
 
+  Serial.print("Free RAM: ");
+  println(FreeRamEstimate());
+  
   println(" UI");
   g_ui = new AppleUI();
 
+  Serial.print("Free RAM: ");
+  println(FreeRamEstimate());
+  
   // Next create the virtual CPU. This needs the VM's MMU in order to
   // run, but we don't have that yet.
   println(" cpu");
   g_cpu = new Cpu();
 
+  Serial.print("Free RAM: ");
+  println(FreeRamEstimate());
+  
   // Create the virtual machine. This may read from g_filemanager to
   // get ROMs if necessary.  (The actual Apple VM we've built has them
   // compiled in, though.) It will create its virutal hardware (MMU,
@@ -97,18 +119,31 @@ void setup()
   println(" vm");
   g_vm = new AppleVM();
 
+  Serial.print("Free RAM: ");
+  println(FreeRamEstimate());
+  
   // Now that the VM exists and it has created an MMU, we tell the CPU
   // how to access memory through the MMU.
   println(" [setMMU]");
   g_cpu->SetMMU(g_vm->getMMU());
 
+  Serial.print("Free RAM: ");
+  println(FreeRamEstimate());
+  
+
   // And the physical keyboard needs hooks in to the virtual keyboard...
   println(" keyboard");
   g_keyboard = new TeensyKeyboard(g_vm->getKeyboard());
 
+  Serial.print("Free RAM: ");
+  println(FreeRamEstimate());
+  
   println(" paddles");
   g_paddles = new TeensyPaddles(A3, A4, 1, 1);
 
+  Serial.print("Free RAM: ");
+  println(FreeRamEstimate());
+  
   // Now that all the virtual hardware is glued together, reset the VM
   println("Resetting VM");
   g_vm->Reset();
@@ -122,8 +157,8 @@ void setup()
   startMicros = nextInstructionMicros = micros();
 
   // Debugging: insert a disk on startup...
-  //  ((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/UTIL/mock2dem.dsk", false);
-  //  ((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/JORJ/disk_s6d1.dsk", false);
+  //((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/UTIL/mock2dem.dsk", false);
+  //((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/JORJ/disk_s6d1.dsk", false);
   //  ((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/GAMES/ALIBABA.DSK", false);
 
   //  pinMode(56, OUTPUT);
@@ -271,10 +306,11 @@ void loop()
   g_ui->blit();
   g_vm->vmdisplay->lockDisplay();
   if (g_vm->vmdisplay->needsRedraw()) {
-    AiieRect what = g_vm->vmdisplay->getDirtyRect();
-    g_vm->vmdisplay->didRedraw();
-    g_display->blit(what);
+    //    AiieRect what = g_vm->vmdisplay->getDirtyRect();
+    //    g_vm->vmdisplay->didRedraw();
+    //    g_display->blit(what);
   }
+  g_display->blit({0,0,191,279});
   g_vm->vmdisplay->unlockDisplay();
   if (g_prioritizeDisplay)
     Timer1.start();
