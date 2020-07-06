@@ -323,8 +323,8 @@ Cpu::~Cpu()
 bool Cpu::Serialize(int8_t fh)
 {
   uint8_t buf[13] = { CPUMAGIC,
-		      (pc >> 8) & 0xFF,
-		      (pc     ) & 0xFF,
+		      (uint8_t)((pc >> 8) & 0xFF),
+		      (uint8_t)((pc     ) & 0xFF),
 		      sp,
 		      a,
 		      x,
