@@ -2,7 +2,9 @@
 #define __NIBUTIL_H
 
 #include <unistd.h>
+#ifndef TEENSYDUINO
 #include <fcntl.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>

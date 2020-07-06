@@ -23,7 +23,8 @@ void TeensySpeaker::toggle(uint32_t c)
   mixerValue >>= (16-g_volume);
   
   // FIXME: glad it's DAC0 and all, but... how does that relate to the pin passed in the constructor?
-  analogWriteDAC0(mixerValue);
+  // FIXME: really doesn't work for the Teensy 4 at all
+  //  analogWriteDAC0(mixerValue);
 }
 
 void TeensySpeaker::maintainSpeaker(uint32_t c, uint64_t runtimeInMicros)

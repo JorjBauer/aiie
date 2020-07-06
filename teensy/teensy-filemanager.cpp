@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <wchar.h>
-#include <SdFat.h>
 #include "teensy-filemanager.h"
 #include <string.h> // strcpy
 #include <TeensyThreads.h>
@@ -15,7 +14,7 @@ TeensyFileManager::TeensyFileManager()
   // FIXME: used to have 'enabled = sd.begin()' here, but we weren't
   // using the enabled flag, so I've removed it to save the RAM for
   // now; but eventually we need better error handling here
-  sd.begin();
+  SD.begin(BUILTIN_SDCARD);
 }
 
 TeensyFileManager::~TeensyFileManager()
@@ -94,7 +93,7 @@ int8_t TeensyFileManager::readDir(const char *where, const char *suffix, char *o
   }
 
   int8_t idxCount = 1;
-  File f = sd.open(where);
+  File f = SD.open(where, FILE_READ);
 
   while (1) {
     File e = f.openNextFile();
@@ -105,7 +104,8 @@ int8_t TeensyFileManager::readDir(const char *where, const char *suffix, char *o
     }
 
     // Skip MAC fork files
-    e.getName(outputFN, maxlen-1); // -1 for trailing '/' on directories
+    // FIXME: strncpy
+    strcpy(outputFN, e.name()); // and we need maxlen-1 for trailing '/' on directories
     if (outputFN[0] == '.') {
       e.close();
       continue;
@@ -166,8 +166,8 @@ bool TeensyFileManager::_prepCache(int8_t fd)
     }
 
     // Open the new one
-    cacheFile = sd.open(cachedNames[fd], O_RDWR | O_CREAT);
-    if (!cacheFile.isOpen()) {
+    cacheFile = SD.open(cachedNames[fd], FILE_WRITE);
+    if (!cacheFile) {
       return false;
     }
     cacheFd = fd; // cache is live
@@ -198,12 +198,12 @@ bool TeensyFileManager::setSeekPosition(int8_t fd, uint32_t pos)
 // FIXME: this should be private
 void TeensyFileManager::seekToEnd(int8_t fd)
 {
-  FatFile f = sd.open(cachedNames[fd], FILE_READ);
-  if (!f.isOpen()) {
+  File f = SD.open(cachedNames[fd], FILE_READ);
+  if (!f) {
     return;
   }
 
-  fileSeekPositions[fd] = f.fileSize();
+  fileSeekPositions[fd] = f.size();
   f.close();
 }
 
@@ -223,11 +223,11 @@ int TeensyFileManager::write(int8_t fd, const void *buf, int nbyte)
 
   uint32_t pos = fileSeekPositions[fd];
 
-  if (!cacheFile.seekSet(pos)) {
+  if (!cacheFile.seek(pos)) {
     return -1;
   }
 
-  if (cacheFile.write(buf, nbyte) != nbyte) {
+  if (cacheFile.write((const uint8_t *)buf, (size_t)nbyte) != (size_t)nbyte) {
     return -1;
   }
 
@@ -251,7 +251,7 @@ int TeensyFileManager::read(int8_t fd, void *buf, int nbyte)
   _prepCache(fd);
 
   uint32_t pos = fileSeekPositions[fd];
-  if (!cacheFile.seekSet(pos)) {
+  if (!cacheFile.seek(pos)) {
     return -1;
   }
   fileSeekPositions[fd] += nbyte;

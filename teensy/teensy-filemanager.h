@@ -3,7 +3,8 @@
 
 #include "filemanager.h"
 #include <stdint.h>
-#include <SdFat.h>
+#include <SD.h>
+#include <SPI.h>
 
 class TeensyFileManager : public FileManager {
  public:
@@ -30,11 +31,10 @@ class TeensyFileManager : public FileManager {
   bool _prepCache(int8_t fd);
 
  private:
-  volatile int8_t numCached;
+  int8_t numCached;
 
-  volatile SdFatSdio sd;
-  volatile int8_t cacheFd;
-  volatile FatFile cacheFile;
+  int8_t cacheFd;
+  File cacheFile;
 };
 
 #endif

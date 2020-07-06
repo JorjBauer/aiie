@@ -20,7 +20,7 @@
 
 #define RESETPIN 39
 #define BATTERYPIN 32
-#define SPEAKERPIN A21
+#define SPEAKERPIN 19 // FIXME this isn't right
 
 #include "globals.h"
 #include "teensy-crash.h"
@@ -34,13 +34,6 @@ BIOS bios;
 #define SPEEDCTL ((float)1000000/(float)g_speed)
 
 static   time_t getTeensy3Time() {  return Teensy3Clock.get(); }
-
-#define ESP_TXD 51
-#define ESP_CHPD 52
-#define ESP_RST 53
-#define ESP_RXD 40
-#define ESP_GPIO0 41
-#define ESP_GPIO2 42
 
 void setup()
 {
@@ -65,6 +58,8 @@ void setup()
   pinMode(RESETPIN, INPUT);
   digitalWrite(RESETPIN, HIGH);
 
+  println("FIXME: skipping analogReference, speaker, battery for Teensy 4");
+  /*
   analogReference(EXTERNAL); // 3.3v external, or 1.7v internal. We need 1.7 internal for the battery level, which means we're gonna have to do something about the paddles :/  
   analogReadRes(8); // We only need 8 bits of resolution (0-255) for battery & paddles
   analogReadAveraging(4); // ?? dunno if we need this or not.
@@ -72,6 +67,7 @@ void setup()
   
   pinMode(SPEAKERPIN, OUTPUT); // analog speaker output, used as digital volume control
   pinMode(BATTERYPIN, INPUT);
+  */
 
   println("creating virtual hardware");
   g_speaker = new TeensySpeaker(SPEAKERPIN);
@@ -111,7 +107,7 @@ void setup()
   g_keyboard = new TeensyKeyboard(g_vm->getKeyboard());
 
   println(" paddles");
-  g_paddles = new TeensyPaddles(A23, A24, 1, 1);
+  g_paddles = new TeensyPaddles(A3, A4, 1, 1);
 
   // Now that all the virtual hardware is glued together, reset the VM
   println("Resetting VM");
@@ -293,9 +289,12 @@ void loop()
 
     // This is a bit disruptive - but the external 3.3v will drop along with the battery level, so we should use the more stable (I hope) internal 1.7v.
     // The alternative is to build a more stable buck/boost regulator for reference...
+
+    println("FIXME: analogReference for Teensy 4.0 => batteryLevel");
+    /*
     analogReference(INTERNAL);
     batteryLevel = analogRead(BATTERYPIN);
-    analogReference(EXTERNAL);
+    analogReference(EXTERNAL);*/
 
     /* LiIon charge to a max of 4.2v; and we should not let them discharge below about 3.5v.
      *  With a resistor voltage divider of Z1=39k, Z2=10k we're looking at roughly 20.4% of 
