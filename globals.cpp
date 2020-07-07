@@ -17,3 +17,5 @@ volatile uint8_t g_debugMode = D_NONE;
 bool g_prioritizeDisplay = false;
 volatile bool g_biosInterrupt = false;
 uint32_t g_speed = 1023000; // Hz
+bool g_invertPaddleX = false;
+bool g_invertPaddleY = false;

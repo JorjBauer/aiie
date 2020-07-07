@@ -12,7 +12,8 @@ class PhysicalDisplay {
 
   virtual void flush() = 0; // flush any pending drawings
   virtual void redraw() = 0; // total redraw, assuming nothing
-  virtual void blit(AiieRect r) = 0;   // redraw just the VM display area
+  virtual void blit() = 0;             // blit everything to the display (including UI area)
+  virtual void blit(AiieRect r) = 0;   // blit a piece of the VM area to the display
 
   virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint8_t sizey, uint16_t wherex, uint8_t wherey) = 0;
 

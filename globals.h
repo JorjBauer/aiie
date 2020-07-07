@@ -52,5 +52,6 @@ extern volatile uint8_t g_debugMode;
 extern bool g_prioritizeDisplay;
 extern volatile bool g_biosInterrupt;
 extern uint32_t g_speed;
-
+extern bool g_invertPaddleX;
+extern bool g_invertPaddleY;
 #endif

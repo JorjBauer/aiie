@@ -7,6 +7,8 @@ class TeensyPaddles : public PhysicalPaddles {
   TeensyPaddles(uint8_t p0pin, uint8_t p1pin, bool p0rev, bool p1rev);
   virtual ~TeensyPaddles();
 
+  void setRev(bool p0rev, bool p1rev);
+
   virtual uint8_t paddle0();
   virtual uint8_t paddle1();
   virtual void startReading();

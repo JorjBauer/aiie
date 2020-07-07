@@ -20,7 +20,7 @@
 
 #define RESETPIN 39
 #define BATTERYPIN 32
-#define SPEAKERPIN 19 // FIXME this isn't right
+#define SPEAKERPIN A17 // aka digital 41
 
 #include "globals.h"
 #include "teensy-crash.h"
@@ -62,16 +62,11 @@ void setup()
   pinMode(RESETPIN, INPUT);
   digitalWrite(RESETPIN, HIGH);
 
-  println("FIXME: skipping analogReference, speaker, battery for Teensy 4");
-  /*
-  analogReference(EXTERNAL); // 3.3v external, or 1.7v internal. We need 1.7 internal for the battery level, which means we're gonna have to do something about the paddles :/  
   analogReadRes(8); // We only need 8 bits of resolution (0-255) for battery & paddles
   analogReadAveraging(4); // ?? dunno if we need this or not.
-  analogWriteResolution(12);
   
   pinMode(SPEAKERPIN, OUTPUT); // analog speaker output, used as digital volume control
   pinMode(BATTERYPIN, INPUT);
-  */
 
   Serial.print("Free RAM: ");
   println(FreeRamEstimate());
@@ -139,7 +134,7 @@ void setup()
   println(FreeRamEstimate());
   
   println(" paddles");
-  g_paddles = new TeensyPaddles(A3, A4, 1, 1);
+  g_paddles = new TeensyPaddles(A3, A4, g_invertPaddleX, g_invertPaddleY);
 
   Serial.print("Free RAM: ");
   println(FreeRamEstimate());
@@ -148,8 +143,7 @@ void setup()
   println("Resetting VM");
   g_vm->Reset();
 
-  g_display->redraw();
-//  g_display->blit();
+  g_display->redraw(); // Redraw the UI; don't blit to the physical device
 
   println("Reading prefs");
   readPrefs(); // read from eeprom and set anything we need setting
@@ -212,6 +206,10 @@ void biosInterrupt()
   if (bios.runUntilDone()) {
     // if it returned true, we have something to store persistently in EEPROM.
     writePrefs();
+    // Also might have changed the paddles state
+    TeensyPaddles *tmp = (TeensyPaddles *)g_paddles;
+    tmp->setRev(g_invertPaddleX, g_invertPaddleY);
+
   }
 
   // if we turned off debugMode, make sure to clear the debugMsg
@@ -227,8 +225,8 @@ void biosInterrupt()
   g_speaker->maintainSpeaker(-1, -1);
 
   // Force the display to redraw
-  g_display->redraw();
-  ((AppleDisplay*)(g_vm->vmdisplay))->modeChange();
+  g_display->redraw(); // Redraw the UI
+  ((AppleDisplay*)(g_vm->vmdisplay))->modeChange(); // force a full re-draw and blit
 
   // Poll the keyboard before we start, so we can do selftest on startup
   g_keyboard->maintainKeyboard();
@@ -285,35 +283,17 @@ void loop()
 
   doDebugging();
 
-  // Only redraw if the CPU is caught up; and then we'll suspend the
-  // CPU to draw a full frame.
-
-  // Note that this breaks audio, b/c it's real-time and requires the
-  // CPU running to change the audio line's value. So we need to EITHER
-  //
-  //   - delay the audio line by at least the time it takes for one
-  //     display update, OR
-  //   - lock display updates so the CPU can update the memory, but we
-  //     keep drawing what was going to be displayed
-  // 
-  // The Timer1.stop()/start() is bad. Using it, the display doesn't
-  // tear; but the audio is also broken. Taking it out, audio is good
-  // but the display tears. So there's a global - g_prioritizeDisplay - 
-  // which lets the user pick which they want.
-
-  if (g_prioritizeDisplay)
-    Timer1.stop();
   g_ui->blit();
   g_vm->vmdisplay->lockDisplay();
-  if (g_vm->vmdisplay->needsRedraw()) {
+  if (g_vm->vmdisplay->needsRedraw()) { // necessary for the VM to redraw
+    // Used to get the dirty rect and blit just that rect. Could still do,
+    // but instead, I'm just wildly wasting resources. MWAHAHAHA
     //    AiieRect what = g_vm->vmdisplay->getDirtyRect();
-    //    g_vm->vmdisplay->didRedraw();
+    g_vm->vmdisplay->didRedraw();
     //    g_display->blit(what);
   }
-  g_display->blit({0,0,191,279});
+  g_display->blit(); // Blit the whole thing, including UI area
   g_vm->vmdisplay->unlockDisplay();
-  if (g_prioritizeDisplay)
-    Timer1.start();
   
   static unsigned long nextBattCheck = millis() + 30;// debugging
   static int batteryLevel = 0; // static for debugging code! When done
@@ -442,6 +422,12 @@ void readPrefs()
       ((AppleVM *)g_vm)->insertHD(1, p.hd2);
     }
   }
+
+  g_invertPaddleX = p.invertPaddleX;
+  g_invertPaddleY = p.invertPaddleY;
+
+  // Update the paddles with the new inversion state
+  ((TeensyPaddles *)g_paddles)->setRev(g_invertPaddleX, g_invertPaddleY);
 }
 
 void writePrefs()
@@ -456,6 +442,9 @@ void writePrefs()
   p.magic = PREFSMAGIC;
   p.prefsSize = sizeof(prefs_t);
   p.version = PREFSVERSION;
+
+  p.invertPaddleX = g_invertPaddleX;
+  p.invertPaddleY = g_invertPaddleY;
 
   p.volume = g_volume;
   p.displayType = g_displayType;

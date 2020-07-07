@@ -91,6 +91,11 @@ void SDLDisplay::drawImageOfSizeAt(const uint8_t *img,
   }
 }
 
+void SDLDisplay::blit()
+{
+  // Whole-screen blit - unimplemented here
+}
+
 // Blit the videoBuffer to the display device, in the rect given
 void SDLDisplay::blit(AiieRect r)
 {

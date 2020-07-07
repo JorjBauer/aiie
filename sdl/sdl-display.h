@@ -17,6 +17,7 @@ class SDLDisplay : public PhysicalDisplay {
   SDLDisplay();
   virtual ~SDLDisplay();
 
+  virtual void blit();
   virtual void blit(AiieRect r);
   virtual void redraw();
 

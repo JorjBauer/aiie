@@ -7,7 +7,7 @@
 #include "appleui.h"
 #include <SPI.h>
 
-#define _clock 65000000
+#define _clock 50000000
 
 #define PIN_RST 8
 #define PIN_DC 9
@@ -175,7 +175,7 @@ void TeensyDisplay::flush()
   blit({0,0,191,279});
 }
 
-void TeensyDisplay::blit(AiieRect r)
+void TeensyDisplay::blit()
 {
   // The goal here is for blitting to happen automatically in DMA transfers.
 
@@ -194,6 +194,19 @@ void TeensyDisplay::blit(AiieRect r)
       nextMessageTime = millis() + 1000;
     }
   }
+}
+
+void TeensyDisplay::blit(AiieRect r)
+{
+  // It's probably faster to just blit the whole thing, rather than a piece,
+  // because of how it streams data easily when the buffer aligns properly.
+  tft.writeRect(0,0,320,240,(const uint16_t *)dmaBuffer);
+  
+  // ... but if we wanted to blit just part, we'd have to create a new
+  // subset of teh dmaBuffer that has the right row length to match
+  // the rect width we're blitting, and then do something like this:
+  //
+  //  tft.writeRect(r.left+HOFFSET,,r.top+VOFFSET,r.right-r.left+HOFFSET,r.bottom-r.top+VOFFSET,(const uint16_t *)some_subset_of_dmaBuffer);
 }
 
 void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)

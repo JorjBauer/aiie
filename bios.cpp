@@ -6,6 +6,9 @@
 #include "physicaldisplay.h"
 #include "cpu.h"
 
+#ifdef TEENSYDUINO
+#include "teensy-paddles.h"
+#endif
 
 enum {
   ACT_EXIT = 1,
@@ -23,8 +26,11 @@ enum {
   ACT_SUSPEND = 13,
   ACT_RESTORE = 14,
   ACT_PRIMODE = 15,
-  ACT_SPEED = 16,
-  ACT_ABOUT = 17,
+  ACT_PADX_INV = 16,
+  ACT_PADY_INV = 17,
+  ACT_PADDLES = 18,
+  ACT_SPEED = 19,
+  ACT_ABOUT = 20,
 };
 
 #define NUM_TITLES 4
@@ -36,7 +42,8 @@ const uint8_t aiieActions[] = { ACT_ABOUT };
 const uint8_t vmActions[] = { ACT_EXIT, ACT_RESET, ACT_COLDBOOT, ACT_MONITOR,
 			      ACT_DEBUG, ACT_SUSPEND, ACT_RESTORE };
 const uint8_t hardwareActions[] = { ACT_DISPLAYTYPE,  ACT_SPEED,
-				    ACT_PRIMODE, ACT_VOLPLUS, ACT_VOLMINUS };
+				    ACT_PRIMODE, ACT_PADX_INV, ACT_PADY_INV,
+				    ACT_PADDLES, ACT_VOLPLUS, ACT_VOLMINUS };
 const uint8_t diskActions[] = { ACT_DISK1, ACT_DISK2, 
 				ACT_HD1, ACT_HD2 };
 
@@ -210,6 +217,21 @@ bool BIOS::runUntilDone()
 	}
       }
       break;
+    case ACT_PADX_INV:
+      g_invertPaddleX = !g_invertPaddleX;
+#ifdef TEENSYDUINO
+      ((TeensyPaddles *)g_paddles)->setRev(g_invertPaddleX, g_invertPaddleY);
+#endif
+      break;
+    case ACT_PADY_INV:
+      g_invertPaddleY = !g_invertPaddleY;
+#ifdef TEENSYDUINO
+      ((TeensyPaddles *)g_paddles)->setRev(g_invertPaddleX, g_invertPaddleY);
+#endif
+      break;
+    case ACT_PADDLES:
+      ConfigurePaddles();
+      break;
     case ACT_VOLPLUS:
       g_volume ++;
       if (g_volume > 15) {
@@ -363,6 +385,9 @@ bool BIOS::isActionActive(int8_t action)
   case ACT_HD2:
   case ACT_SUSPEND:
   case ACT_RESTORE:
+  case ACT_PADX_INV:
+  case ACT_PADY_INV:
+  case ACT_PADDLES:
     return true;
 
   case ACT_VOLPLUS:
@@ -524,6 +549,21 @@ void BIOS::DrawHardwareMenu()
       else
 	strcpy(buf, "Prioritize audio over display");
       break;
+    case ACT_PADX_INV:
+      if (g_invertPaddleX)
+	strcpy(buf, "Paddle X inverted");
+      else
+	strcpy(buf, "Paddle X normal");
+      break;
+    case ACT_PADY_INV:
+      if (g_invertPaddleY)
+	strcpy(buf, "Paddle Y inverted");
+      else
+	strcpy(buf, "Paddle Y normal");
+      break;
+    case ACT_PADDLES:
+      strcpy(buf, "Configure paddles");
+      break;
     case ACT_VOLPLUS:
       strcpy(buf, "Volume +");
       break;
@@ -641,6 +681,39 @@ void BIOS::DrawMainMenu()
   g_display->flush();
 }
 
+void BIOS::ConfigurePaddles()
+{
+  while (1) {
+    bool needsUpdate = true;
+    uint8_t lastPaddleX = g_paddles->paddle0();
+    uint8_t lastPaddleY = g_paddles->paddle1();
+
+    if (g_paddles->paddle0() != lastPaddleX) {
+      lastPaddleX = g_paddles->paddle0();
+      needsUpdate = true;
+    }
+    if (g_paddles->paddle1() != lastPaddleY) {
+      lastPaddleY = g_paddles->paddle1();
+      needsUpdate = true;
+    }
+    
+    if (needsUpdate) {
+      char buf[50];
+      g_display->clrScr();
+      sprintf(buf, "Paddle X: %d    ", lastPaddleX);
+      g_display->drawString(M_NORMAL, 0, 12, buf);
+      sprintf(buf, "Paddle Y: %d    ", lastPaddleY);
+      g_display->drawString(M_NORMAL, 0, 42, buf);
+      g_display->drawString(M_NORMAL, 0, 92, "Exit with any key");
+      g_display->flush();
+  }
+
+    if (g_keyboard->kbhit()) {
+      g_keyboard->read(); // throw out keypress
+      return;
+    }
+  }
+}
 
 // return true if the user selects an image
 // sets selectedFile (index; -1 = "nope") and fileDirectory[][] (names of up to BIOS_MAXFILES files)

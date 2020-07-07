@@ -47,3 +47,9 @@ void TeensyPaddles::startReading()
   g_vm->triggerPaddleInCycles(0, 12 * paddle0());
   g_vm->triggerPaddleInCycles(1, 12 * paddle1());
 }
+
+void TeensyPaddles::setRev(bool p0rev, bool p1rev)
+{
+  this->p0rev = p0rev;
+  this->p1rev = p1rev;
+}

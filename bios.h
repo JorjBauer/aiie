@@ -39,6 +39,8 @@ class BIOS {
   void DrawDiskNames(uint8_t page, int8_t selection, const char *filter);
   uint8_t GatherFilenames(uint8_t pageOffset, const char *filter);
 
+  void ConfigurePaddles();
+
   void stripDirectory();
 
   void showAbout();
