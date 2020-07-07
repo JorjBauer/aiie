@@ -10,6 +10,7 @@
 #include "teensy-speaker.h"
 #include "teensy-paddles.h"
 #include "teensy-filemanager.h"
+#include "teensy-usb.h"
 #include "appleui.h"
 #include "teensy-prefs.h"
 #include "teensy-println.h"
@@ -34,6 +35,22 @@ BIOS bios;
 #define SPEEDCTL ((float)1000000/(float)g_speed)
 
 static   time_t getTeensy3Time() {  return Teensy3Clock.get(); }
+
+TeensyUSB usb;
+
+void onKeypress(int unicode)
+{
+  Serial.print("onKeypress:");
+  Serial.println(unicode);
+  //  vmkeyboard->keyDepressed(keypad.key[i].kchar);
+}
+
+void onKeyrelease(int unicode)
+{
+  Serial.print("onKeyrelease: ");
+  Serial.println(unicode);
+  //  vmkeyboard->keyReleased(keypad.key[i].kchar);
+}
 
 void setup()
 {
@@ -103,6 +120,11 @@ void setup()
   // run, but we don't have that yet.
   println(" cpu");
   g_cpu = new Cpu();
+
+  println(" usb");
+  usb.init();
+  usb.attachKeypress(onKeypress);
+  usb.attachKeyrelease(onKeyrelease);
 
   Serial.print("Free RAM: ");
   println(FreeRamEstimate());
@@ -277,6 +299,7 @@ void loop()
   } 
 
   g_keyboard->maintainKeyboard();
+  usb.maintain();
 
   //debugLCDState = !debugLCDState;
   //digitalWrite(57, debugLCDState);
