@@ -7,7 +7,7 @@
 #include "appleui.h"
 #include <SPI.h>
 
-#define _clock 65000000
+#define _clock 75000000
 
 #define PIN_RST 8
 #define PIN_DC 9
