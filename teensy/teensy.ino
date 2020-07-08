@@ -80,7 +80,7 @@ void onKeyrelease(int unicode)
 void setup()
 {
   Serial.begin(230400);
-#if 1
+#if 0
   // Wait for USB serial connection before booting while debugging
   while (!Serial) {
     yield();
