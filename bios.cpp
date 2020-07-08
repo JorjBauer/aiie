@@ -93,12 +93,12 @@ void BIOS::DrawMenuBar()
 
   for (int i=0; i<NUM_TITLES; i++) {
     for (int x=0; x<titleWidths[i] + 2*XPADDING; x++) {
-      g_display->drawPixel(xpos+x, 0, 0xFFFF);
-      g_display->drawPixel(xpos+x, 16, 0xFFFF);
+      g_display->drawUIPixel(xpos+x, 0, 0xFFFF);
+      g_display->drawUIPixel(xpos+x, 16, 0xFFFF);
     }
     for (int y=0; y<=16; y++) {
-      g_display->drawPixel(xpos, y, 0xFFFF);
-      g_display->drawPixel(xpos + titleWidths[i] + 2*XPADDING, y, 0xFFFF);
+      g_display->drawUIPixel(xpos, y, 0xFFFF);
+      g_display->drawUIPixel(xpos + titleWidths[i] + 2*XPADDING, y, 0xFFFF);
     }
 
     xpos += XPADDING;
@@ -577,7 +577,7 @@ void BIOS::DrawHardwareMenu()
   uint16_t volCutoff = 300.0 * (float)((float) g_volume / 15.0);
   for (uint8_t y=234; y<=235; y++) {
     for (uint16_t x = 0; x< 300; x++) {
-      g_display->drawPixel( x, y, x <= volCutoff ? 0xFFFF : 0x0010 );
+      g_display->drawUIPixel( x, y, x <= volCutoff ? 0xFFFF : 0x0010 );
     }
   }
 }
