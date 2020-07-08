@@ -20,8 +20,8 @@
 #endif
 
 #define RESETPIN 39
-#define BATTERYPIN 32
-#define SPEAKERPIN A17 // aka digital 41
+#define BATTERYPIN 38
+#define SPEAKERPIN A16 // aka digital 40
 
 #include "globals.h"
 #include "teensy-crash.h"
@@ -42,6 +42,14 @@ void onKeypress(int unicode)
 {
   Serial.print("onKeypress:");
   Serial.println(unicode);
+  uint8_t modifiers = usb.getModifiers();
+  Serial.print("Modifiers: ");
+  Serial.println(modifiers, HEX);
+  if (unicode == 0) {
+    unicode = usb.getOemKey();
+    Serial.print("oemKey: ");
+    Serial.println(unicode);
+  }
   //  vmkeyboard->keyDepressed(keypad.key[i].kchar);
 }
 
@@ -49,6 +57,14 @@ void onKeyrelease(int unicode)
 {
   Serial.print("onKeyrelease: ");
   Serial.println(unicode);
+  uint8_t modifiers = usb.getModifiers();
+  Serial.print("Modifiers: ");
+  Serial.println(modifiers, HEX);
+  if (unicode == 0) {
+    unicode = usb.getOemKey();
+    Serial.print("oemKey: ");
+    Serial.println(unicode);
+  }
   //  vmkeyboard->keyReleased(keypad.key[i].kchar);
 }
 
@@ -306,6 +322,9 @@ void loop()
 
   doDebugging();
 
+  // FIXME: this is sometimes *VERY* slow.
+  uint32_t startDisp = millis();
+  uint32_t cpuBefore = g_cpu->cycles;
   g_ui->blit();
   g_vm->vmdisplay->lockDisplay();
   if (g_vm->vmdisplay->needsRedraw()) { // necessary for the VM to redraw
@@ -317,6 +336,14 @@ void loop()
   }
   g_display->blit(); // Blit the whole thing, including UI area
   g_vm->vmdisplay->unlockDisplay();
+  uint32_t dispTime = millis() - startDisp;
+  uint32_t cpuAfter = g_cpu->cycles;
+  if (dispTime > 30) {
+    Serial.print("Slow blit: ");
+    Serial.print(dispTime);
+    Serial.print(" cpu ran: ");
+    Serial.println(cpuAfter - cpuBefore);
+  }
   
   static unsigned long nextBattCheck = millis() + 30;// debugging
   static int batteryLevel = 0; // static for debugging code! When done
@@ -329,11 +356,7 @@ void loop()
     // This is a bit disruptive - but the external 3.3v will drop along with the battery level, so we should use the more stable (I hope) internal 1.7v.
     // The alternative is to build a more stable buck/boost regulator for reference...
 
-    println("FIXME: analogReference for Teensy 4.0 => batteryLevel");
-    /*
-    analogReference(INTERNAL);
     batteryLevel = analogRead(BATTERYPIN);
-    analogReference(EXTERNAL);*/
 
     /* LiIon charge to a max of 4.2v; and we should not let them discharge below about 3.5v.
      *  With a resistor voltage divider of Z1=39k, Z2=10k we're looking at roughly 20.4% of 
@@ -349,7 +372,7 @@ void loop()
      *    3.46v = 144 - 146
      *    4.21v = 172
      */
-#if 0
+#if 1
     Serial.print("battery: ");
     println(batteryLevel);
 #endif

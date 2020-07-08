@@ -15,6 +15,9 @@ class TeensyUSB {
   void attachKeypress(keyboardCallback cb);
   void attachKeyrelease(keyboardCallback cb);
 
+  uint8_t getModifiers();
+  uint8_t getOemKey();
+  
   void maintain();
 };
 

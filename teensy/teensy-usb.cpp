@@ -38,3 +38,15 @@ void TeensyUSB::maintain()
 {
   myusb.Task();
 }
+
+uint8_t TeensyUSB::getModifiers()
+{
+  // FIXME: specifically keyboard1? guess the callbacks need a kb #
+  return keyboard1.getModifiers();
+}
+
+uint8_t TeensyUSB::getOemKey()
+{
+  // same FIXME as getModifiers
+  return keyboard1.getOemKey();
+}
