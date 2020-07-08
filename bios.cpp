@@ -8,7 +8,9 @@
 
 #ifdef TEENSYDUINO
 #include <TeensyThreads.h>
+#include <Bounce2.h>
 #include "teensy-paddles.h"
+extern Bounce resetButtonDebouncer;
 #endif
 
 enum {
@@ -52,9 +54,6 @@ const uint8_t diskActions[] = { ACT_DISK1, ACT_DISK2,
 #define CPUSPEED_FULL 1
 #define CPUSPEED_DOUBLE 2
 #define CPUSPEED_QUAD 3
-
-// FIXME: abstract the pin # rather than repeating it here
-#define RESETPIN 39
 
 const char *staticPathConcat(const char *rootPath, const char *filePath)
 {
@@ -284,7 +283,7 @@ uint8_t BIOS::GetAction(int8_t selection)
     while (!g_keyboard->kbhit() 
 #ifdef TEENSYDUINO
 	   &&
-	   (digitalRead(RESETPIN) == HIGH)
+	   (resetButtonDebouncer.read() == HIGH)
 #endif
 	   ) {
 #ifndef TEENSYDUINO
@@ -296,10 +295,9 @@ uint8_t BIOS::GetAction(int8_t selection)
     }
 
 #ifdef TEENSYDUINO
-    // FIXME: debounce!
-    if (digitalRead(RESETPIN) == LOW) {
+    if (resetButtonDebouncer.read() == LOW) {
       // wait until it's no longer pressed
-      while (digitalRead(RESETPIN) == HIGH)
+      while (resetButtonDebouncer.read() == HIGH)
 	;
       threads.delay(100); // wait long enough for it to debounce
       // then return an exit code

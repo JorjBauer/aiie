@@ -27,9 +27,9 @@ class AppleUI : public VMui {
   virtual void blit();
 
  private:
-  bool redrawFrame;
-  bool redrawDriveLatches;
-  bool redrawDriveActivity;
+  volatile bool redrawFrame;
+  volatile bool redrawDriveLatches;
+  volatile bool redrawDriveActivity;
   bool driveInserted[2];
   bool driveActivity[2];
 };

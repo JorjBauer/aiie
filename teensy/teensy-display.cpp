@@ -29,9 +29,9 @@
 #include "globals.h"
 #include "applevm.h"
 
-DMAMEM uint16_t dmaBuffer[240][320]; // 240 rows, 320 columns
+volatile DMAMEM uint16_t dmaBuffer[240][320]; // 240 rows, 320 columns
 
-#define RGBto565(r,g,b) (((r & 0x3E00) << 2) | ((g & 0x3F00) >>3) | ((b & 0x3E00) >> 9))
+#define RGBto565(r,g,b) ((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
 
 ILI9341_t3 tft = ILI9341_t3(PIN_CS, PIN_DC, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
 
@@ -155,7 +155,8 @@ void TeensyDisplay::clrScr()
 
 void TeensyDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
 {
-  tft.drawPixel(x,y,color);
+  // These pixels are just cached in the buffer; they're not drawn directly.
+  dmaBuffer[y][x] = color;
 }
 
 void TeensyDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)

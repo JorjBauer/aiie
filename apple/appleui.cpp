@@ -130,11 +130,11 @@ void AppleUI::blit()
     uint8_t yoff = 213;
 
     for (int x=0; x<6; x++) {
-      g_display->drawUIPixel(x + xoff, yoff, driveActivity[0] ? 0xF800 : 0x8AA9);
-      g_display->drawUIPixel(x + xoff, yoff + 1, driveActivity[0] ? 0xF800 : 0x8AA9);
+      g_display->drawUIPixel(x + xoff, yoff, driveActivity[0] ? 0xFA00 : 0x0000);
+      g_display->drawUIPixel(x + xoff, yoff + 1, driveActivity[0] ? 0xFA00 : 0x0000);
 
-      g_display->drawUIPixel(x + xoff + 135, yoff, driveActivity[1] ? 0xF800 : 0x8AA9);
-      g_display->drawUIPixel(x + xoff + 135, yoff + 1, driveActivity[1] ? 0xF800 : 0x8AA9);
+      g_display->drawUIPixel(x + xoff + 135, yoff, driveActivity[1] ? 0xFA00 : 0x0000);
+      g_display->drawUIPixel(x + xoff + 135, yoff + 1, driveActivity[1] ? 0xFA00 : 0x0000);
     }
   }
 

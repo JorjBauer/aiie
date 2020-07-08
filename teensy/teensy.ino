@@ -80,7 +80,7 @@ void onKeyrelease(int unicode)
 void setup()
 {
   Serial.begin(230400);
-#if 0
+#if 1
   // Wait for USB serial connection before booting while debugging
   while (!Serial) {
     yield();
@@ -110,37 +110,22 @@ void setup()
   pinMode(SPEAKERPIN, OUTPUT); // analog speaker output, used as digital volume control
   pinMode(BATTERYPIN, INPUT);
 
-  Serial.print("Free RAM: ");
-  println(FreeRamEstimate());
-
   println("creating virtual hardware");
   g_speaker = new TeensySpeaker(SPEAKERPIN);
-
-  Serial.print("Free RAM: ");
-  println(FreeRamEstimate());
 
   println(" fm");
   // First create the filemanager - the interface to the host file system.
   g_filemanager = new TeensyFileManager();
 
-  Serial.print("Free RAM: ");
-  println(FreeRamEstimate());
-  
   // Construct the interface to the host display. This will need the
   // VM's video buffer in order to draw the VM, but we don't have that
   // yet. 
   println(" display");
   g_display = new TeensyDisplay();
 
-  Serial.print("Free RAM: ");
-  println(FreeRamEstimate());
-  
   println(" UI");
   g_ui = new AppleUI();
 
-  Serial.print("Free RAM: ");
-  println(FreeRamEstimate());
-  
   // Next create the virtual CPU. This needs the VM's MMU in order to
   // run, but we don't have that yet.
   println(" cpu");
@@ -151,46 +136,29 @@ void setup()
   usb.attachKeypress(onKeypress);
   usb.attachKeyrelease(onKeyrelease);
 
-  Serial.print("Free RAM: ");
-  println(FreeRamEstimate());
-  
   // Create the virtual machine. This may read from g_filemanager to
   // get ROMs if necessary.  (The actual Apple VM we've built has them
   // compiled in, though.) It will create its virutal hardware (MMU,
   // video driver, floppy, paddles, whatever).
   println(" vm");
+  Serial.flush();
   g_vm = new AppleVM();
 
-  Serial.print("Free RAM: ");
-  println(FreeRamEstimate());
-  
   // Now that the VM exists and it has created an MMU, we tell the CPU
   // how to access memory through the MMU.
-  println(" [setMMU]");
+  println("  [setMMU]");
   g_cpu->SetMMU(g_vm->getMMU());
-
-  Serial.print("Free RAM: ");
-  println(FreeRamEstimate());
-  
 
   // And the physical keyboard needs hooks in to the virtual keyboard...
   println(" keyboard");
   g_keyboard = new TeensyKeyboard(g_vm->getKeyboard());
 
-  Serial.print("Free RAM: ");
-  println(FreeRamEstimate());
-  
   println(" paddles");
   g_paddles = new TeensyPaddles(A3, A4, g_invertPaddleX, g_invertPaddleY);
 
-  Serial.print("Free RAM: ");
-  println(FreeRamEstimate());
-  
   // Now that all the virtual hardware is glued together, reset the VM
   println("Resetting VM");
   g_vm->Reset();
-
-  g_display->redraw(); // Redraw the UI; don't blit to the physical device
 
   println("Reading prefs");
   readPrefs(); // read from eeprom and set anything we need setting
@@ -200,13 +168,11 @@ void setup()
   //((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/JORJ/disk_s6d1.dsk", false);
   //  ((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/GAMES/ALIBABA.DSK", false);
 
-  Serial.print("Free RAM: ");
-  println(FreeRamEstimate());
-
   resetButtonDebouncer.attach(RESETPIN);
   resetButtonDebouncer.interval(5); // ms
   
   println("free-running");
+  Serial.flush();
 
   threads.setMicroTimer(); // use a 100uS timer instead of a 1mS timer
   cpuThreadId = threads.addThread(runCPU);
@@ -252,30 +218,24 @@ void biosInterrupt()
   Threads::Scope lock1(cpulock);
   Threads::Scope lock2(displaylock);
 
-  Serial.println("Waiting for button to be released");
   // wait for the interrupt button to be released
   while (!resetButtonDebouncer.read())
     ;
 
-  Serial.println("Invoking BIOS");
   // invoke the BIOS
   if (bios.runUntilDone()) {
     // if it returned true, we have something to store persistently in EEPROM.
     // The EEPROM doesn't like to be written to from a thread?
-    Serial.println("Writing prefs");
     g_writePrefsFromMainLoop = true;
     while (g_writePrefsFromMainLoop) {
-      Serial.println("Waiting for prefs to be written");
       delay(100);
       // wait for write to complete
     }
     // Also might have changed the paddles state
-    Serial.println("Updating paddle state");
     TeensyPaddles *tmp = (TeensyPaddles *)g_paddles;
     tmp->setRev(g_invertPaddleX, g_invertPaddleY);
   }
 
-  Serial.println("Cleaning up");
   // if we turned off debugMode, make sure to clear the debugMsg
   if (g_debugMode == D_NONE) {
     g_display->debugMsg("");
@@ -291,12 +251,10 @@ void biosInterrupt()
   // Drain the speaker queue (FIXME: a little hacky)
   g_speaker->maintainSpeaker(-1, -1);
 
-  Serial.println("Forcing display redraw");
   // Force the display to redraw
   g_display->redraw(); // Redraw the UI
   ((AppleDisplay*)(g_vm->vmdisplay))->modeChange(); // force a full re-draw and blit
 
-  Serial.println("re-priming keyboard");
   // Poll the keyboard before we start, so we can do selftest on startup
   g_keyboard->maintainKeyboard();
 }
@@ -322,9 +280,7 @@ void runMaintenance()
 	  }
       } else if (threads.getState(biosThreadId) != Threads::RUNNING) {
 	// When the BIOS thread exits, we clean up
-	Serial.println("Cleaing up bios thread");
 	threads.wait(biosThreadId);
-	Serial.println("BIOS thread is cleaned");
 	biosThreadId = -1;
       }
       
@@ -382,12 +338,13 @@ void runMaintenance()
 // appropriately use threads.yield()
 void runDisplay()
 {
+  g_display->redraw(); // Redraw the UI; don't blit to the physical device
+  
   while (1) {
     {
       Threads::Scope lock(displaylock);
       doDebugging();
-      
-      // FIXME: this is sometimes *VERY* slow.
+
       uint32_t startDisp = millis();
       uint32_t cpuBefore = g_cpu->cycles;
       g_ui->blit();
@@ -404,10 +361,10 @@ void runDisplay()
       uint32_t dispTime = millis() - startDisp;
       uint32_t cpuAfter = g_cpu->cycles;
       if (dispTime > 75) {
-	Serial.print("Slow blit: ");
-	Serial.print(dispTime);
-	Serial.print(" cpu ran: ");
-	Serial.println(cpuAfter - cpuBefore);
+	print("Slow blit: ");
+	print(dispTime);
+	print(" cpu ran: ");
+	println(cpuAfter - cpuBefore);
       }
     }
   }
@@ -421,7 +378,6 @@ void runCPU()
 
   uint32_t startMillis = millis();
   
-  Serial.println("CPU thread is started");
   while (1) {
     // Relatively critical timing: CPU needs to run ahead at least 4
     // cycles, b/c we're calling this interrupt (runCPU, that is) just
@@ -440,14 +396,14 @@ void runCPU()
       // was ((1000/1023) * numberOfCycles) - which is about 97.8%.
       if (expectedCycles > g_cpu->cycles) {
 	nextInstructionMicros = micros();
-#if 0
+#if 1
 	// show a warning on serial about our current performance
 	double percentage = ((double)g_cpu->cycles / (double)expectedCycles) * 100.0;
 	static uint32_t nextWarningTime = 0;
 	if (millis() > nextWarningTime) {
 	  static char buf[100];
 	  sprintf(buf, "CPU running at %f%% of %d", percentage, g_speed);
-	  Serial.println(buf);
+	  println(buf);
 	  nextWarningTime = millis() + 1000;
 	}
 #endif
@@ -468,7 +424,6 @@ void loop()
   resetButtonDebouncer.update();
 
   if (g_writePrefsFromMainLoop) {
-    Serial.println("Writing prefs");
     writePrefs();
     g_writePrefsFromMainLoop = false;
   }
@@ -568,7 +523,6 @@ void writePrefs()
   TeensyPrefs np;
   prefs_t p;
 
-  Serial.println("writePrefs()");
   p.magic = PREFSMAGIC;
   p.prefsSize = sizeof(prefs_t);
   p.version = PREFSVERSION;

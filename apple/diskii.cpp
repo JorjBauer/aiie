@@ -257,8 +257,7 @@ void DiskII::driveOn()
   }
   // FIXME: does the sequencer get reset? Maybe if it's the selected disk? Or no?
   // sequencer = 0;
-
-  g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, true); // FIXME: do we really want to update the UI from inside this thread?
+  g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, true);
 }
 
 uint8_t DiskII::readSwitches(uint8_t s)
@@ -595,11 +594,11 @@ void DiskII::select(int8_t which)
       diskIsSpinningUntil[selectedDisk] = 0;
       // FIXME: consume any disk bits that need to be consumed, and
       // spin it down
-      g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false); // FIXME: queue for later drawing?
+      g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false);
 
       // Spin up the other one though
       diskIsSpinningUntil[which] = -1;
-      g_ui->drawOnOffUIElement(UIeDisk1_activity + which, false); // FIXME: queue for later drawing?
+      g_ui->drawOnOffUIElement(UIeDisk1_activity + which, true);
     }
     
     // Queue flushing the cache of the disk that's no longer selected
@@ -751,7 +750,7 @@ void DiskII::maintenance(uint32_t cycle)
       // Stop the given disk drive spinning
       diskIsSpinningUntil[i] = 0;
       // FIXME: consume any disk bits that need to be consumed, and spin it down
-      g_ui->drawOnOffUIElement(UIeDisk1_activity + i, false); // FIXME: queue for later drawing?
+      g_ui->drawOnOffUIElement(UIeDisk1_activity + i, false);
     }
 
     if (flushAt[i] &&
