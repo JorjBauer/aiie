@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <errno.h>
 #include <dirent.h>
+#include <stdlib.h>
 
 #include "nix-filemanager.h"
 
@@ -202,13 +203,13 @@ int NixFileManager::write(int8_t fd, const void *buf, int nbyte)
 
   // open, seek, write, close.
   bool ret = false;
-  int ffd = open(cachedNames[fd], O_WRONLY|O_CREAT, 0644);
+  int ffd = ::open(cachedNames[fd], O_WRONLY|O_CREAT, 0644);
   if (ffd != -1) {
-    if (lseek(ffd, pos, SEEK_SET) == -1) {
+    if (::lseek(ffd, pos, SEEK_SET) == -1) {
       close(ffd);
       return -1;
     }
-    ret = write(ffd, buf, nbyte);
+    ret = ::write(ffd, buf, nbyte);
     if (ret != nbyte) {
       printf("error writing: %d\n", errno);
     }
@@ -223,32 +224,38 @@ int NixFileManager::write(int8_t fd, const void *buf, int nbyte)
 
 int NixFileManager::read(int8_t fd, void *buf, int nbyte)
 {
-  if (fd < 0 || fd >= numCached)
+  if (fd < 0 || fd >= numCached) {
+    printf("no fd when reading? fd=%d\n", fd);
     return -1; // FIXME: error handling?
+  }
 
-  if (cachedNames[fd][0] == 0)
+  if (cachedNames[fd][0] == 0) {
     return -1; // FIXME: error handling?
+  }
 
-  uint32_t pos = fileSeekPositions[fd];
+  off_t pos = fileSeekPositions[fd];
 
   // open, seek, read, close.
-  bool ret = false;
-  int ffd = open(cachedNames[fd], O_RDONLY);
-  if (ffd != -1) {
-    if (lseek(ffd, pos, SEEK_SET) == -1) {
-      close(ffd);
-      return -1;
-    }
-    ret = read(ffd, buf, nbyte);
+  int ffd = ::open(cachedNames[fd], O_RDONLY);
+  if (ffd == -1) {
+    return -1;
+  }
+
+  if (::lseek(ffd, pos, SEEK_SET) != pos) {
     close(ffd);
-  }
-  fileSeekPositions[fd]+=nbyte;
-
-  if (ret != nbyte) {
-    printf("ERROR reading from pos %d: %d\n", pos, errno);
+    return -1;
   }
 
-  return ret;
+  ssize_t rv = ::read(ffd, buf, nbyte);
+  if (rv != nbyte) {
+    close(ffd);
+    return -1;
+  }
+    
+  fileSeekPositions[fd]+=rv;
+  close(ffd);
+
+  return rv;
 };
 
 int NixFileManager::lseek(int8_t fd, int offset, int whence)
