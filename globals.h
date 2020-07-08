@@ -54,7 +54,9 @@ extern uint32_t g_speed;
 extern bool g_invertPaddleX;
 extern bool g_invertPaddleY;
 
+#ifdef TEENSYDUINO
 #include <TeensyThreads.h>
 extern Threads::Mutex spi_lock;
+#endif
 
 #endif
