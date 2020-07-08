@@ -36,6 +36,7 @@ class HD32 : public Slot {
 
  protected:
   uint8_t readNextByteFromSelectedDrive();
+  bool readBlockFromSelectedDrive();
   bool writeBlockToSelectedDrive();
 
  private:
@@ -53,6 +54,9 @@ class HD32 : public Slot {
   
   int8_t fd[2];
   uint32_t cursor[2]; // seek position on the given file handle
+
+  int32_t cachedBlockNum;
+  uint8_t cachedBlock[512];
 };
 
 #endif

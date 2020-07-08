@@ -27,11 +27,15 @@
 
 #include "hd32-rom.h"
 
+#define HD32_BLOCKSIZE 512
+
 #define HD32MAGIC 0xF5
 
 #define DEVICE_OK 0x00
 #define DEVICE_UNKNOWN_ERROR 0x28
 #define DEVICE_IO_ERROR 0x27
+#define DEVICE_WRITE_PROTECTED 0x28
+#define DEVICE_OFF_LINE 0x2F
 
 // Switches...
 #define HD32_EXEC_RETSTAT 0x0
@@ -124,6 +128,8 @@ bool HD32::Deserialize(int8_t fd)
   cursor[1] <<= 8; cursor[1] |= buf[17];
   cursor[1] <<= 8; cursor[1] |= buf[18];
 
+  cachedBlockNum = -1; // just invalidate the cache; it will reload...
+
   for (int i=0; i<2; i++) {
     uint32_t ptr = 0;
     // FIXME: MAXPATH check!                                                  
@@ -158,14 +164,17 @@ void HD32::Reset()
   diskBlock[0] = diskBlock[1] = 0;
   driveSelected = 0;
   command = CMD_STATUS;
+
+  cachedBlockNum = -1;
 }
 
 uint8_t HD32::readSwitches(uint8_t s)
 {
   uint8_t ret = DEVICE_OK;
 
-  if (!enabled)
+  if (!enabled) {
     return DEVICE_IO_ERROR;
+  }
 
   switch (s) {
   case HD32_EXEC_RETSTAT:
@@ -187,7 +196,11 @@ uint8_t HD32::readSwitches(uint8_t s)
       errorState[driveSelected] = 0;
       ret = DEVICE_OK;
 
-      cursor[driveSelected] = diskBlock[driveSelected] * 512; // sectors are 512 bytes
+      cursor[driveSelected] = diskBlock[driveSelected] * HD32_BLOCKSIZE;
+      if (!readBlockFromSelectedDrive()) {
+	ret = DEVICE_IO_ERROR;
+	errorState[driveSelected] = 1;
+      }
       break;
       
     case CMD_WRITE:
@@ -289,30 +302,79 @@ void HD32::loadROM(uint8_t *toWhere)
 
 uint8_t HD32::readNextByteFromSelectedDrive()
 {
-  // FIXME: assumes file is open & cursor is valid
-
-  uint8_t v;
-  // FIXME: error handling
-  g_filemanager->lseek(fd[driveSelected], cursor[driveSelected], SEEK_SET);
-  g_filemanager->read(fd[driveSelected], &v, 1);
-
-  cursor[driveSelected]++;
+  uint8_t ret = 0;
   
-  return v;
+  if (fd[driveSelected] == -1) {
+    return 0;
+  }
+
+  int32_t blockToRead = cursor[driveSelected] >> 9; // 512-byte block number
+  if (blockToRead != cachedBlockNum) {
+    if (g_filemanager->lseek(fd[driveSelected], blockToRead*512, SEEK_SET) != blockToRead*512) {
+      goto err;
+    }
+    ssize_t nread = g_filemanager->read(fd[driveSelected], cachedBlock, 512);
+    if (nread != 512) {
+      goto err;
+    }
+    cachedBlockNum = blockToRead;
+
+  }
+
+  ret = cachedBlock[cursor[driveSelected] & 0x1FF];
+  cursor[driveSelected]++;
+  return ret;
+
+ err:
+  //  memset(cachedBlock, 0, sizeof(cachedBlock));
+  //  cachedBlockNum = -1;
+  return false;
+}
+
+// Based on diskBlock[driveSelected]; updates cursor[driveSelected].
+// Populates the local cache as well as the memory block pointed to.
+bool HD32::readBlockFromSelectedDrive()
+{
+  if (fd[driveSelected]==-1)
+    return false;
+
+  cursor[driveSelected] = diskBlock[driveSelected] * HD32_BLOCKSIZE;
+  int32_t blockToRead = cursor[driveSelected] >> 9; // 512-byte block number
+  if (blockToRead != cachedBlockNum) {
+    if (g_filemanager->lseek(fd[driveSelected], blockToRead*512, SEEK_SET) != blockToRead*512) {
+      goto err;
+    }
+    ssize_t nread = g_filemanager->read(fd[driveSelected], cachedBlock, 512);
+    if (nread != 512) {
+      goto err;
+    }
+    cachedBlockNum = blockToRead;
+  }
+  
+  for (uint16_t i=0; i<HD32_BLOCKSIZE; i++) {
+    mmu->write(memBlock[driveSelected] + i, cachedBlock[i]);
+  }
+  
+  return true;
+  
+ err:
+  //  memset(cachedBlock, 0, sizeof(cachedBlock));
+  //  cachedBlockNum = -1;
+  return false;
 }
 
 bool HD32::writeBlockToSelectedDrive()
 {
-  // FIXME: assumes file is open & cursor is valid
-  
-  // FIXME: is there a better static 512-char buf somewhere we can reuse instead of allocing new? (The teensy is low on ram.)
-  uint8_t buf[512];
+  cachedBlockNum = -1; // just invalidate any cache we have
 
-  for (uint16_t i=0; i<512; i++) {
-    buf[i] = mmu->read(memBlock[driveSelected] + i);
+  if (fd[driveSelected]==-1)
+    return false;
+  
+  for (uint16_t i=0; i<HD32_BLOCKSIZE; i++) {
+    cachedBlock[i] = mmu->read(memBlock[driveSelected] + i);
   }
-  if (g_filemanager->lseek(fd[driveSelected], diskBlock[driveSelected]*512, SEEK_SET) == -1 ||
-      g_filemanager->write(fd[driveSelected], buf, 512) != 512) {
+  if (g_filemanager->lseek(fd[driveSelected], diskBlock[driveSelected]*HD32_BLOCKSIZE, SEEK_SET) != diskBlock[driveSelected]*HD32_BLOCKSIZE ||
+      g_filemanager->write(fd[driveSelected], cachedBlock, HD32_BLOCKSIZE) != HD32_BLOCKSIZE) {
     // FIXME
 #ifndef TEENSYDUINO
     printf("ERROR: failed to write to hd file? errno %d\n", errno);
