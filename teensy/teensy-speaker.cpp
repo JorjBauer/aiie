@@ -21,8 +21,11 @@ void TeensySpeaker::toggle(uint32_t c)
 
   mixerValue = (toggleState ? 0x1FF : 0x00);
   mixerValue >>= (16-g_volume);
-  
-  analogWrite(speakerPin, mixerValue);
+
+  // FIXME: this is one helluva hack
+  if (g_volume >= 8) 
+    digitalWrite(speakerPin, toggleState ? HIGH : LOW);
+  //analogWrite(speakerPin, mixerValue);
 }
 
 void TeensySpeaker::maintainSpeaker(uint32_t c, uint64_t runtimeInMicros)
