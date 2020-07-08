@@ -7,6 +7,7 @@
 #include "cpu.h"
 
 #ifdef TEENSYDUINO
+#include <TeensyThreads.h>
 #include "teensy-paddles.h"
 #endif
 
@@ -147,14 +148,7 @@ bool BIOS::runUntilDone()
       break;
     case ACT_SPEED:
       currentCPUSpeedIndex++;
-#ifdef TEENSYDUINO
-      // The Teensy doesn't have any overhead to spare. Allow slowing
-      // down the virtual CPU, but not speeding it up...
-      currentCPUSpeedIndex %= 2;
-#else
-      // Other variants can support double and quad speeds.
       currentCPUSpeedIndex %= 4;
-#endif
       switch (currentCPUSpeedIndex) {
       case CPUSPEED_HALF:
 	g_speed = 1023000/2;
@@ -296,16 +290,18 @@ uint8_t BIOS::GetAction(int8_t selection)
 #ifndef TEENSYDUINO
       usleep(100)
 #endif
+	threads.delay(1);
 	;
       // Wait for either a keypress or the reset button to be pressed
     }
 
 #ifdef TEENSYDUINO
+    // FIXME: debounce!
     if (digitalRead(RESETPIN) == LOW) {
       // wait until it's no longer pressed
       while (digitalRead(RESETPIN) == HIGH)
 	;
-      delay(100); // wait long enough for it to debounce
+      threads.delay(100); // wait long enough for it to debounce
       // then return an exit code
       return ACT_EXIT;
     }

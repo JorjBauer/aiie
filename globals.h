@@ -47,11 +47,14 @@ extern VMui *g_ui;
 extern int8_t g_volume;
 extern uint8_t g_displayType;
 extern VMRam g_ram;
-extern volatile bool g_inInterrupt;
 extern volatile uint8_t g_debugMode;
 extern bool g_prioritizeDisplay;
 extern volatile bool g_biosInterrupt;
 extern uint32_t g_speed;
 extern bool g_invertPaddleX;
 extern bool g_invertPaddleY;
+
+#include <TeensyThreads.h>
+extern Threads::Mutex spi_lock;
+
 #endif

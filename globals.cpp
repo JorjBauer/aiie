@@ -12,7 +12,6 @@ VMui *g_ui;
 int8_t g_volume = 15;
 uint8_t g_displayType = 3; // FIXME m_perfectcolor
 VMRam g_ram;
-volatile bool g_inInterrupt = false;
 volatile uint8_t g_debugMode = D_NONE;
 bool g_prioritizeDisplay = false;
 volatile bool g_biosInterrupt = false;
