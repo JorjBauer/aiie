@@ -8,9 +8,11 @@
 
 #include "physicaldisplay.h"
 
-
-#define SDLDISPLAY_WIDTH (320*2)
-#define SDLDISPLAY_HEIGHT (240*2)
+// scale can be 1,2,4. '1' is half-width at the highest resolution
+// (80-col mode). '2' is full width. '4' is double full width.
+#define SDLDISPLAY_SCALE 1
+#define SDLDISPLAY_WIDTH (320*SDLDISPLAY_SCALE)
+#define SDLDISPLAY_HEIGHT (240*SDLDISPLAY_SCALE)
 
 class SDLDisplay : public PhysicalDisplay {
  public:

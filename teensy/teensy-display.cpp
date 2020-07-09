@@ -32,6 +32,9 @@
 volatile DMAMEM uint16_t dmaBuffer[240][320]; // 240 rows, 320 columns
 
 #define RGBto565(r,g,b) ((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
+#define _565toR(c) ( ((c) & 0xF800) >> 8 )
+#define _565toG(c) ( ((c) & 0x07E0) >> 5 )
+#define _565toB(c) ( ((c) & 0x001F) )
 
 ILI9341_t3 tft = ILI9341_t3(PIN_CS, PIN_DC, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
 
@@ -302,26 +305,79 @@ void TeensyDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y,
   dmaBuffer[y+VOFFSET][x+1+HOFFSET] = loresPixelColors[colorA&0xF];
 }
 
+inline double logfn(double x)
+{
+  // At a value of x=255, log(base 1.022)(x) is 254.636.
+  return log(x)/log(1.022);
+}
+  
+
+inline uint16_t blendColors(uint16_t a, uint16_t b)
+{
+  // Straight linear average doesn't work well for inverted text, because the
+  // whites overwhelm the blacks.
+  //return ((uint32_t)a + (uint32_t)b)/2;
+
+#if 0
+  // Testing a logarithmic color scale. My theory was that, since our
+  // colors here are mostly black or white, it would be reasonable to
+  // use a log scale of the average to bump up the brightness a
+  // little. In practice, it's not really legible.
+  return RGBto565(  (uint8_t)(logfn((_565toR(a) + _565toR(b))/2)),
+		    (uint8_t)(logfn((_565toG(a) + _565toG(b))/2)),
+		    (uint8_t)(logfn((_565toB(a) + _565toB(b))/2))  );
+#endif
+  
+  // Doing an R/G/B average works okay for legibility. It's not great for
+  // inverted text.
+  return RGBto565(  (_565toR(a) + _565toR(b))/2,
+		    (_565toG(a) + _565toG(b))/2,
+		    (_565toB(a) + _565toB(b))/2  );
+
+}
+
 // This is the full 560-pixel-wide version -- and we only have 280
 // pixels in our buffer b/c the display is only 320 pixels wide
 // itself. So we'll divide x by 2. On odd-numbered X pixels, we also
-// alpha-blend -- "black" means "clear"
+// blend the colors of the two virtual pixels that share an onscreen
+// pixel
 void TeensyDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 {
-  if (/*x&*/1) {
-    // divide x by 2, then this is mostly cacheDoubleWidePixel. Except
-    // we also have to do the alpha blend so we can see both pixels.
-    
-    uint16_t *p = &dmaBuffer[y+VOFFSET][(x>>1)+HOFFSET];
-    uint16_t destColor = loresPixelColors[color];
-    
-    //    if (color == 0)
-    //      destColor = *p; // retain the even-numbered pixel's contents ("alpha blend")
-    // Otherwise the odd-numbered pixel's contents "win" as "last drawn"
-    // FIXME: do better blending of these two pixels.
-    
-    dmaBuffer[y+VOFFSET][(x>>1)+HOFFSET] = destColor;
+#if 0
+  static uint8_t previousColor = 0;
+#endif
+  if (x&1) {
+    // Blend the two pixels. This takes advantage of the fact that we
+    // always call this linearly for 80-column text drawing -- we never
+    // do partial screen blits, but always draw at least a whole character.
+    // So we can look at the pixel in the "shared" cell of RAM, and come up
+    // with a color between the two.
+
+#if 1
+    // This is straight blending, R/G/B average
+    uint16_t origColor = dmaBuffer[y+VOFFSET][(x>>1)+HOFFSET];
+    uint16_t newColor = loresPixelColors[color];
+    cacheDoubleWidePixel(x>>1, y, blendColors(origColor, newColor));
+#endif
+
+#if 0
+  // The model we use for the SDL display works better, strangely - it keeps
+  // the lores pixel index color (black, magenda, dark blue, purple, dark
+  // green, etc.) until render time; so when it does the blend here, it's
+  // actually blending in a very nonlinear way - e.g. "black + white / 2"
+  // is actually "black(0) + white(15) / 2 = 15/2 = 7 (light blue)". Weird,
+  // but definitely legible in a mini laptop SDL window with the same scale.
+  // Unfortunately, it doesn't translate well to a ILI9341 panel; the pixels
+  // are kind of muddy and indistinct, so the blue spills over and makes it
+  // very difficult to read.
+    uint8_t origColor = previousColor;
+    uint8_t newColor = (uint16_t)(origColor + color) / 2;
+    cacheDoubleWidePixel(x>>1, y, (uint16_t)color + (uint16_t)previousColor/2);
+#endif
   } else {
-    cacheDoubleWidePixel(x, y, color);
+#if 0
+    previousColor = color; // used for blending
+#endif
+    cacheDoubleWidePixel(x>>1, y, color);
   }
 }

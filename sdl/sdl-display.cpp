@@ -9,8 +9,8 @@
 
 #include "apple/appleui.h"
 
-#define SCREENINSET_X (18*2)
-#define SCREENINSET_Y (13*2)
+#define SCREENINSET_X (18*SDLDISPLAY_SCALE)
+#define SCREENINSET_Y (13*SDLDISPLAY_SCALE)
 
 // RGB map of each of the lowres colors
 const uint8_t loresPixelColors[16][3] = { { 0, 0, 0 }, // black
@@ -85,8 +85,8 @@ void SDLDisplay::drawImageOfSizeAt(const uint8_t *img,
     for (uint16_t x=0; x<sizex; x++) {
       const uint8_t *p = &img[(y * sizex + x)*3];
       p = &img[(y * sizex + x)*3];
-      drawPixel((x+wherex)*2, y+wherey, p[0], p[1], p[2]);
-      drawPixel((x+wherex)*2+1, y+wherey, p[0], p[1], p[2]);
+      drawPixel((x+wherex)*SDLDISPLAY_SCALE, y+wherey, p[0], p[1], p[2]);
+      drawPixel((x+wherex)*SDLDISPLAY_SCALE+1, y+wherey, p[0], p[1], p[2]);
     }
   }
 }
@@ -103,8 +103,8 @@ void SDLDisplay::blit(AiieRect r)
   // not the border. We don't support updating the border *except* by
   // drawing directly to the screen device...
 
-  for (uint16_t y=r.top*2; y<r.bottom*2; y++) {
-    for (uint16_t x=r.left*2; x<r.right*2; x++) {
+  for (uint16_t y=r.top*SDLDISPLAY_SCALE; y<r.bottom*SDLDISPLAY_SCALE; y++) {
+    for (uint16_t x=r.left*SDLDISPLAY_SCALE; x<r.right*SDLDISPLAY_SCALE; x++) {
       uint8_t colorIdx = videoBuffer[y*SDLDISPLAY_WIDTH+x];
 
       uint8_t r, g, b;
@@ -142,8 +142,7 @@ inline void putpixel(SDL_Renderer *renderer, int x, int y, uint8_t r, uint8_t g,
 
 void SDLDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
 {
-  drawPixel(x*2, y, color);
-  drawPixel(x*2+1, y, color);
+  drawPixel(x*SDLDISPLAY_SCALE, y, color);
 }
 
 void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
@@ -154,17 +153,21 @@ void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
     b = (color & 0x1F) << 3;
 
 
-  // Pixel-doubling vertically
-  for (int yoff=0; yoff<2; yoff++) {
-    putpixel(renderer, x, yoff+y*2, r, g, b);
+  // Pixel-doubling vertically and horizontally, based on scale
+  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
+    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
+      putpixel(renderer, x+xoff, yoff+y*SDLDISPLAY_SCALE, r, g, b);
+    }
   }
 }
 
 void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b)
 {
-  // Pixel-doubling vertically
-  for (int yoff=0; yoff<2; yoff++) {
-    putpixel(renderer, x, yoff+y*2, r, g, b);
+  // Pixel-doubling horizontally and vertically, based on scale
+  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
+    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
+      putpixel(renderer, x+xoff, yoff+y*SDLDISPLAY_SCALE, r, g, b);
+    }
   }
 }
 
@@ -230,35 +233,63 @@ void SDLDisplay::clrScr()
   SDL_RenderPresent(renderer); // perform the render
 }
 
+// This was called with the expectation that it can draw every one of
+// the 560x192 pixels that could be addressed. The SDLDISPLAY_SCALE is
+// basically half the X scale - so a 320-pixel-wide screen can show 40
+// columns fine, which means that we need to be creative for 80 columns,
+// which need to be alpha-blended...
 void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 {
-  videoBuffer[y*2*SDLDISPLAY_WIDTH+x] = color;
-  videoBuffer[((y*2)+1)*SDLDISPLAY_WIDTH+x] = color;
+  if (SDLDISPLAY_SCALE == 1) {
+    // we need to alpha blend the X because there aren't enough screen pixels.
+    // This takes advantage of the fact that we always call this linearly
+    // for the 80-column text -- we never (?) do partial screen blits, but
+    // always wind up redrawing the entirety. So we can look at the pixel in
+    // the "shared" cell of RAM, and come up with a color between the two.
+    if (x&1) {
+      uint8_t origColor = videoBuffer[(y*SDLDISPLAY_SCALE)*SDLDISPLAY_WIDTH+(x>>1)*SDLDISPLAY_SCALE];
+
+      uint8_t newColor = (uint16_t) (origColor + color) / 2;
+
+      if (x==1 && y==0) {
+	printf("origcolor: %d color: %d newcolor: %d\n", origColor, color, newColor);
+      }
+      cacheDoubleWidePixel(x>>1,y,newColor);
+      // Else if it's black, we leave whatever was in the other pixel.
+    } else {
+      // The even pixels always draw.
+      cacheDoubleWidePixel(x>>1,y,color);
+    }
+    
+  } else {
+    // we have enough resolution to show all the pixels, so just do it
+    x = (x * SDLDISPLAY_SCALE)/2;
+    for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
+      for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
+	videoBuffer[(y*SDLDISPLAY_SCALE+yoff)*SDLDISPLAY_WIDTH+x+xoff] = color;
+      }
+    }
+  }
 }
 
 // "DoubleWide" means "please double the X because I'm in low-res width mode"
 void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
 {
-  videoBuffer[y*2*SDLDISPLAY_WIDTH+x*2] = color;
-  videoBuffer[y*2*SDLDISPLAY_WIDTH+x*2+1] = color;
-
-  videoBuffer[(y*2+1)*SDLDISPLAY_WIDTH+x*2] = color;
-  videoBuffer[(y*2+1)*SDLDISPLAY_WIDTH+x*2+1] = color;
+  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
+    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
+      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)*SDLDISPLAY_WIDTH+x*SDLDISPLAY_SCALE+xoff] = color;
+    }
+  }
 }
 
 void SDLDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorB, uint8_t colorA)
 {
-  videoBuffer[y*2*SDLDISPLAY_WIDTH+x*2] = colorA;
-  videoBuffer[y*2*SDLDISPLAY_WIDTH+x*2+1] = colorA;
-
-  videoBuffer[y*2*SDLDISPLAY_WIDTH+x*2+2] = colorB;
-  videoBuffer[y*2*SDLDISPLAY_WIDTH+x*2+3] = colorB;
-
-  videoBuffer[(y*2+1)*SDLDISPLAY_WIDTH+x*2] = colorA;
-  videoBuffer[(y*2+1)*SDLDISPLAY_WIDTH+x*2+1] = colorA;
-
-  videoBuffer[(y*2+1)*SDLDISPLAY_WIDTH+x*2+2] = colorB;
-  videoBuffer[(y*2+1)*SDLDISPLAY_WIDTH+x*2+3] = colorB;
+  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
+    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
+      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)*SDLDISPLAY_WIDTH+x*SDLDISPLAY_SCALE+2*xoff] = colorA;
+      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)*SDLDISPLAY_WIDTH+x*SDLDISPLAY_SCALE+1+2*xoff] = colorB;
+    }
+  }
 }
 
 
