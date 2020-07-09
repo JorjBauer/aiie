@@ -251,9 +251,6 @@ void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 
       uint8_t newColor = (uint16_t) (origColor + color) / 2;
 
-      if (x==1 && y==0) {
-	printf("origcolor: %d color: %d newcolor: %d\n", origColor, color, newColor);
-      }
       cacheDoubleWidePixel(x>>1,y,newColor);
       // Else if it's black, we leave whatever was in the other pixel.
     } else {
