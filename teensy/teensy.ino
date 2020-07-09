@@ -20,8 +20,7 @@
 #pragma AiiE warning: performance will improve if you overclock the Teensy to 240MHz (F_CPU=240MHz) or 256MHz (F_CPU=256MHz)
 #endif
 
-#define RESETPIN 39
-#define BATTERYPIN 38
+#define RESETPIN 38
 #define SPEAKERPIN A16 // aka digital 40
 
 #include "globals.h"
@@ -104,11 +103,10 @@ void setup()
   pinMode(RESETPIN, INPUT);
   digitalWrite(RESETPIN, HIGH);
 
-  analogReadRes(8); // We only need 8 bits of resolution (0-255) for battery & paddles
+  analogReadRes(8); // We only need 8 bits of resolution (0-255) for paddles
   analogReadAveraging(4); // ?? dunno if we need this or not.
   
   pinMode(SPEAKERPIN, OUTPUT); // analog speaker output, used as digital volume control
-  pinMode(BATTERYPIN, INPUT);
 
   println("creating virtual hardware");
   g_speaker = new TeensySpeaker(SPEAKERPIN);
@@ -154,7 +152,7 @@ void setup()
   g_keyboard = new TeensyKeyboard(g_vm->getKeyboard());
 
   println(" paddles");
-  g_paddles = new TeensyPaddles(A3, A4, g_invertPaddleX, g_invertPaddleY);
+  g_paddles = new TeensyPaddles(A3, A2, g_invertPaddleX, g_invertPaddleY);
 
   // Now that all the virtual hardware is glued together, reset the VM
   println("Resetting VM");
@@ -286,47 +284,6 @@ void runMaintenance()
       
       g_keyboard->maintainKeyboard();
       usb.maintain();
-      
-      static unsigned long nextBattCheck = millis() + 30;// debugging
-      static int batteryLevel = 0; // static for debugging code! When done
-      // debugging, this can become a local
-      // in the appropriate block below
-      if (millis() >= nextBattCheck) {
-	// FIXME: what about rollover?
-	nextBattCheck = millis() + 3 * 1000; // check every 3 seconds
-	
-	// This is a bit disruptive - but the external 3.3v will drop along with the battery level, so we should use the more stable (I hope) internal 1.7v.
-	// The alternative is to build a more stable buck/boost regulator for reference...
-	
-	batteryLevel = analogRead(BATTERYPIN);
-	
-	/* LiIon charge to a max of 4.2v; and we should not let them discharge below about 3.5v.
-	 *  With a resistor voltage divider of Z1=39k, Z2=10k we're looking at roughly 20.4% of 
-	 *  those values: (10/49) * 4.2 = 0.857v, and (10/49) * 3.5 = 0.714v. Since the external 
-	 *  voltage reference flags as the battery drops, we can't use that as an absolute 
-	 *  reference. So using the INTERNAL 1.1v reference, that should give us a reasonable 
-	 *  range, in theory; the math shows the internal reference to be about 1.27v (assuming 
-	 *  the resistors are indeed 39k and 10k, which is almost certainly also wrong). But 
-	 *  then the high end would be 172, and the low end is about 142, which matches my 
-	 *  actual readings here very well.
-	 *  
-	 *  Actual measurements: 
-	 *    3.46v = 144 - 146
-	 *    4.21v = 172
-	 */
-#if 0
-	Serial.print("battery: ");
-	println(batteryLevel);
-#endif
-	
-	if (batteryLevel < 146)
-	  batteryLevel = 146;
-	if (batteryLevel > 168)
-	  batteryLevel = 168;
-	
-	batteryLevel = map(batteryLevel, 146, 168, 0, 100);
-	g_ui->drawPercentageUIElement(UIePowerPercentage, batteryLevel);
-      }
     } else {
       threads.delay(10);
       //      threads.yield();
@@ -461,10 +418,6 @@ void doDebugging()
     break;
   case D_SHOWCYCLES:
     sprintf(buf, "%lX", g_cpu->cycles);
-    g_display->debugMsg(buf);
-    break;
-  case D_SHOWBATTERY:
-    sprintf(buf, "BAT %d", analogRead(BATTERYPIN));
     g_display->debugMsg(buf);
     break;
   case D_SHOWTIME:
