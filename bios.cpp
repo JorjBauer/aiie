@@ -28,12 +28,11 @@ enum {
   ACT_VOLMINUS = 12,
   ACT_SUSPEND = 13,
   ACT_RESTORE = 14,
-  ACT_PRIMODE = 15,
-  ACT_PADX_INV = 16,
-  ACT_PADY_INV = 17,
-  ACT_PADDLES = 18,
-  ACT_SPEED = 19,
-  ACT_ABOUT = 20,
+  ACT_PADX_INV = 15,
+  ACT_PADY_INV = 16,
+  ACT_PADDLES = 17,
+  ACT_SPEED = 18,
+  ACT_ABOUT = 19,
 };
 
 #define NUM_TITLES 4
@@ -45,7 +44,7 @@ const uint8_t aiieActions[] = { ACT_ABOUT };
 const uint8_t vmActions[] = { ACT_EXIT, ACT_RESET, ACT_COLDBOOT, ACT_MONITOR,
 			      ACT_DEBUG, ACT_SUSPEND, ACT_RESTORE };
 const uint8_t hardwareActions[] = { ACT_DISPLAYTYPE,  ACT_SPEED,
-				    ACT_PRIMODE, ACT_PADX_INV, ACT_PADY_INV,
+				    ACT_PADX_INV, ACT_PADY_INV,
 				    ACT_PADDLES, ACT_VOLPLUS, ACT_VOLMINUS };
 const uint8_t diskActions[] = { ACT_DISK1, ACT_DISK2, 
 				ACT_HD1, ACT_HD2 };
@@ -166,9 +165,6 @@ bool BIOS::runUntilDone()
     case ACT_DEBUG:
       g_debugMode++;
       g_debugMode %= 9; // FIXME: abstract max #
-      break;
-    case ACT_PRIMODE:
-      g_prioritizeDisplay = !g_prioritizeDisplay;
       break;
     case ACT_DISK1:
       if (((AppleVM *)g_vm)->DiskName(0)[0] != '\0') {
@@ -372,7 +368,6 @@ bool BIOS::isActionActive(int8_t action)
   case ACT_SPEED:
   case ACT_ABOUT:
   case ACT_DEBUG:
-  case ACT_PRIMODE:
   case ACT_DISK1:
   case ACT_DISK2:
   case ACT_HD1:
@@ -536,12 +531,6 @@ void BIOS::DrawHardwareMenu()
 	  break;
 	}
       }
-      break;
-    case ACT_PRIMODE:
-      if (g_prioritizeDisplay)
-	strcpy(buf, "Prioritize display over audio");
-      else
-	strcpy(buf, "Prioritize audio over display");
       break;
     case ACT_PADX_INV:
       if (g_invertPaddleX)

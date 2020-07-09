@@ -491,7 +491,6 @@ void readPrefs()
     g_volume = p.volume;
     g_displayType = p.displayType;
     g_debugMode = p.debug;
-    g_prioritizeDisplay = p.priorityMode;
     g_speed = (p.speed * (1023000/2)); // steps of half normal speed
     if (g_speed < (1023000/2))
       g_speed = (1023000/2);
@@ -533,7 +532,6 @@ void writePrefs()
   p.volume = g_volume;
   p.displayType = g_displayType;
   p.debug = g_debugMode;
-  p.priorityMode = g_prioritizeDisplay;
   p.speed = g_speed / (1023000/2);
   strcpy(p.disk1, ((AppleVM *)g_vm)->DiskName(0));
   strcpy(p.disk2, ((AppleVM *)g_vm)->DiskName(1));
