@@ -12,3 +12,5 @@ apple/parallel-rom.h
 apple/hd32-rom.h
 aiie-sdl
 mockingboard-d.rom
+*.d
+
