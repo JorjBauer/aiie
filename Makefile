@@ -51,13 +51,10 @@ clean:
 	rm -f *.o *~ */*.o */*~ testharness.basic testharness.verbose testharness.extended testharness apple/diskii-rom.h apple/applemmu-rom.h apple/parallel-rom.h aiie-sdl *.d */*.d
 
 # Automatic dependency handling
--include $(OBJS:.o=.d)
-%.o: %.cpp
-	g++ -c $(CXXFLAGS) $^ -o $*.o
-	g++ -MM $(CXXFLAGS) $^ > $*.d
-	@mv -f $*.d $*.d.tmp
-	@sed -e 's|.*:|$*.o:|' < $*.d.tmp > $*.d
-	@sed -e 's/.*://' -e 's/\\$$//' < $*.d.tmp | fmt -1 | \
-	  sed -e 's/^ *//' -e 's/$$/:/' >> $*.d
-	@rm -f $*.d.tmp
+-include *.d
+-include apple/*.d
+-include nix/*.d
+-include sdl/*.d
 
+%.o: %.cpp
+	g++ $(CXXFLAGS) -MMD -MP -c $< -o $@
