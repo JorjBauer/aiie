@@ -152,7 +152,6 @@ void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
     g = (color & 0x7E0) >> 3,
     b = (color & 0x1F) << 3;
 
-
   // Pixel-doubling vertically and horizontally, based on scale
   for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
     for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
@@ -202,6 +201,7 @@ void SDLDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
   }
 
   temp=(c*ysize);
+  // This does not scale, because drawPixel scales.
   for (int8_t y_off = 0; y_off <= ysize; y_off++) {
     uint8_t ch = BiosFont[temp];
     for (int8_t x_off = 0; x_off <= xsize; x_off++) {
