@@ -49,31 +49,26 @@ volatile bool g_writePrefsFromMainLoop = false;
 
 void onKeypress(int unicode)
 {
-  Serial.print("onKeypress:");
-  Serial.println(unicode);
-  uint8_t modifiers = usb.getModifiers();
-  Serial.print("Modifiers: ");
-  Serial.println(modifiers, HEX);
-  if (unicode == 0) {
-    unicode = usb.getOemKey();
-    Serial.print("oemKey: ");
-    Serial.println(unicode);
-  }
+  /*
+shift/control/command are automatically applied
+caps lock is oemkey 57
+  set the keyboard LED w/ ::capsLock(bool)
+modifiers are <<8 bits for the right side:
+  command: 0x08; option/alt: 0x04; shift: 0x02; control: 0x01
+F1..F12 are 194..205
+Arrows: l/r/u/d 216/215/218/217
+Delete: 127 (control-delete is 31)
+home/pgup/down/delete/end: 210,211,214,212,213
+numlock: oem 83
+keypad: 210..218 as arrows &c, or digit ascii values w/ numlock on
+  enter: 10
+   */
+
   //  vmkeyboard->keyDepressed(keypad.key[i].kchar);
 }
 
 void onKeyrelease(int unicode)
 {
-  Serial.print("onKeyrelease: ");
-  Serial.println(unicode);
-  uint8_t modifiers = usb.getModifiers();
-  Serial.print("Modifiers: ");
-  Serial.println(modifiers, HEX);
-  if (unicode == 0) {
-    unicode = usb.getOemKey();
-    Serial.print("oemKey: ");
-    Serial.println(unicode);
-  }
   //  vmkeyboard->keyReleased(keypad.key[i].kchar);
 }
 
