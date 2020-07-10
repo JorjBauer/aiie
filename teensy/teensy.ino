@@ -38,6 +38,7 @@ TeensyUSB usb;
 int cpuThreadId;
 int displayThreadId;
 int maintenanceThreadId;
+int speakerThreadId;
 int biosThreadId = -1;
 
 Bounce resetButtonDebouncer = Bounce();
@@ -109,7 +110,7 @@ void setup()
   pinMode(SPEAKERPIN, OUTPUT); // analog speaker output, used as digital volume control
 
   println("creating virtual hardware");
-  g_speaker = new TeensySpeaker(SPEAKERPIN);
+  g_speaker = new TeensySpeaker(18, 19); // FIXME abstract constants
 
   println(" fm");
   // First create the filemanager - the interface to the host file system.
@@ -176,12 +177,14 @@ void setup()
   cpuThreadId = threads.addThread(runCPU);
   displayThreadId = threads.addThread(runDisplay);
   maintenanceThreadId = threads.addThread(runMaintenance);
+  speakerThreadId = threads.addThread(runSpeaker);
   // Set the relative priorities of the threads by defining how long a "slice"
   // is for each (in 100uS "ticks")
   // At a ratio of 50:10:1, we get about 30FPS and 100% CPU speed.
   threads.setTimeSlice(displayThreadId, 100);
   threads.setTimeSlice(cpuThreadId, 20);
   threads.setTimeSlice(maintenanceThreadId, 1);
+  threads.setTimeSlice(speakerThreadId, 3); // guessing at a good value
 }
 
 // FIXME: move these memory-related functions elsewhere...
@@ -257,8 +260,16 @@ void biosInterrupt()
   g_keyboard->maintainKeyboard();
 }
 
-//bool debugState = false;
-//bool debugLCDState = false;
+void runSpeaker()
+{
+  uint32_t nextRuntime = 0;
+  while (1) {
+    if (micros() > nextRuntime) {
+      nextRuntime = micros() + ((float)1000000/(float)SAMPLERATE); // 125 uS per cycle @ 8k sample rate
+      ((TeensySpeaker *)g_speaker)->maintainSpeaker();
+    }
+  }
+}
 
 // FIXME: how often does this really need to run? We can threads.yield() when we're running too quickly
 void runMaintenance()
