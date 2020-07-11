@@ -1,3 +1,4 @@
+#include <string.h>
 #include "globals.h"
 #include "bios.h"
 
@@ -824,6 +825,7 @@ uint16_t BIOS::DrawDiskNames(uint8_t page, int8_t selection, const char *filter)
   return fileCount;
 }
 
+// Read a directory, cache all the entries
 uint16_t BIOS::cacheAllEntries(const char *filter)
 {
   // If we've already cached this directory, then just return it
@@ -860,12 +862,39 @@ uint16_t BIOS::cacheAllEntries(const char *filter)
   /* NOTREACHED */
 }
 
+void BIOS::swapCacheEntries(int a, int b)
+{
+  struct _cacheEntry tmpEntry;
+  strcpy(tmpEntry.fn, biosCache[a].fn);
+  strcpy(biosCache[a].fn, biosCache[b].fn);
+  strcpy(biosCache[b].fn, tmpEntry.fn);
+}
+
+// Take all the entries in the cache and sort htem
+void BIOS::sortCachedEntries()
+{
+  if (numCacheEntries <= 1)
+    return;
+
+  bool changedAnything = true;
+  while (changedAnything) {
+    changedAnything = false;
+    for (int i=0; i<numCacheEntries-1; i++) {
+      if (strcmp(biosCache[i].fn, biosCache[i+1].fn) > 0) {
+	swapCacheEntries(i, i+1);
+	changedAnything = true;
+      }
+    }
+  }  
+}
+
 uint16_t BIOS::GatherFilenames(uint8_t pageOffset, const char *filter)
 {
   uint8_t startNum = 10 * pageOffset;
   uint8_t count = 0; // number we're including in our listing
 
   uint16_t numEntriesTotal = cacheAllEntries(filter);
+  sortCachedEntries();
   if (numEntriesTotal > BIOSCACHESIZE) {
     // ... umm, this is a problem. FIXME?
   }

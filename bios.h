@@ -46,6 +46,8 @@ class BIOS {
   void showAbout();
 
   uint16_t cacheAllEntries(const char *filter);
+  void sortCachedEntries();
+  void swapCacheEntries(int a, int b);
 
  private:
   int8_t selectedFile;
