@@ -1,10 +1,12 @@
 #include <Arduino.h>
-#include <softspi.h>
 #include <TeensyThreads.h>
 #include "teensy-speaker.h"
 #include "teensy-println.h"
+#include <i2c_device.h>
 
 #include "globals.h"
+
+I2CDevice dac = I2CDevice(Master, 0x60, _BIG_ENDIAN);
 
 Threads::Mutex togmutex;
 #define BUFSIZE 4096
@@ -20,6 +22,7 @@ TeensySpeaker::TeensySpeaker(uint8_t sda, uint8_t scl) : PhysicalSpeaker()
 {
   toggleState = false;
   mixerValue = numMixed = 0;
+  Master.begin(1000000); // 100000 or 400000 or 1000000
 }
 
 TeensySpeaker::~TeensySpeaker()
@@ -39,6 +42,7 @@ void TeensySpeaker::toggle(uint32_t c)
   Threads::Scope lock(togmutex);
   // Queue the speaker toggle time; maintainSpeaker will pick it up
   toggleBuffer[tailptr++] = c; tailptr %= BUFSIZE;
+ 
 }
 
 void TeensySpeaker::maintainSpeaker(uint32_t c, uint64_t microseconds)
@@ -48,8 +52,6 @@ void TeensySpeaker::maintainSpeaker(uint32_t c, uint64_t microseconds)
 
 void TeensySpeaker::maintainSpeaker()
 {
-  Threads::Scope lock(togmutex);
-
   // This is called @ SAMPLERATE (8k, as of this writing) and looks for
   // any transitions that have passed before sending data to the DAC.
   // The idea is that this will be called fast enough for the given number
@@ -68,6 +70,7 @@ void TeensySpeaker::maintainSpeaker()
   // since we actually run cycles in batches).
   uint32_t curTime = g_cpu->cycles - CYCLEDELAY;
   // And then find any events that should have happened, accounting for them:
+  togmutex.lock();
   while (headptr != tailptr) {
     if (curTime >= toggleBuffer[headptr]) {
       toggleState = !toggleState;
@@ -77,18 +80,12 @@ void TeensySpeaker::maintainSpeaker()
       break;
     }
   }
+  togmutex.unlock();
 
   // Now we can safely update the DAC based on the current toggleState
-  uint16_t v = (toggleState ? 0x1FF : 0x0);
-  uint8_t configbits =
-    (0 << 3) | // channel (A/B; A=0)
-    (0 << 2) | // buffered (no)
-    (1 << 1) | // gain (1 = 1x; 0 = 2x)
-    1;         // keep channel active
-  uint8_t b = ((configbits << 4) | (v & 0xF00)) >> 8;
-  uint8_t b2 = (v & 0xFF);
-  spi_send(b);
-  spi_send(b2);
+  uint16_t v = (toggleState ? 0xFFF : 0x000);
+  dac.write((uint8_t) ((v >> 8) & 0xFF), (uint8_t) (v & 0xFF), true);
+
 }
 
 void TeensySpeaker::beginMixing()

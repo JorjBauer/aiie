@@ -4,7 +4,7 @@
 #include "physicalspeaker.h"
 #include <MCP492X.h>
 
-#define SAMPLERATE 8000
+#define SAMPLERATE 4000
 
 class TeensySpeaker : public PhysicalSpeaker {
  public:

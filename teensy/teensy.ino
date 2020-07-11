@@ -21,7 +21,7 @@
 #endif
 
 #define RESETPIN 38
-#define SPEAKERPIN A16 // aka digital 40
+#define DEBUGPIN 23
 
 #include "globals.h"
 #include "teensy-crash.h"
@@ -44,6 +44,7 @@ int biosThreadId = -1;
 Bounce resetButtonDebouncer = Bounce();
 Threads::Mutex cpulock; // For the BIOS to suspend CPU cleanly
 Threads::Mutex displaylock; // For the BIOS to shut down the display cleanly
+Threads::Mutex speakerlock;
 
 volatile bool g_writePrefsFromMainLoop = false;
 
@@ -83,6 +84,8 @@ void setup()
 #endif
   delay(120); // let the power settle
 
+  pinMode(DEBUGPIN, OUTPUT); // for debugging
+
 //  enableFaultHandler();
   SCB_SHCSR |= SCB_SHCSR_BUSFAULTENA | SCB_SHCSR_USGFAULTENA | SCB_SHCSR_MEMFAULTENA;
 
@@ -102,8 +105,6 @@ void setup()
   analogReadRes(8); // We only need 8 bits of resolution (0-255) for paddles
   analogReadAveraging(4); // ?? dunno if we need this or not.
   
-  pinMode(SPEAKERPIN, OUTPUT); // analog speaker output, used as digital volume control
-
   println("creating virtual hardware");
   g_speaker = new TeensySpeaker(18, 19); // FIXME abstract constants
 
@@ -169,17 +170,22 @@ void setup()
   Serial.flush();
 
   threads.setMicroTimer(); // use a 100uS timer instead of a 1mS timer
+  threads.setSliceMicros(5);
   cpuThreadId = threads.addThread(runCPU);
   displayThreadId = threads.addThread(runDisplay);
   maintenanceThreadId = threads.addThread(runMaintenance);
   speakerThreadId = threads.addThread(runSpeaker);
   // Set the relative priorities of the threads by defining how long a "slice"
   // is for each (in 100uS "ticks")
-  // At a ratio of 50:10:1, we get about 30FPS and 100% CPU speed.
-  threads.setTimeSlice(displayThreadId, 100);
-  threads.setTimeSlice(cpuThreadId, 20);
+  // At a ratio of 50:10:1, we get about 30FPS and 100% CPU speed using 100uS ticks.
+  // After adding an I2C DAC (what a terrible idea!) - 40:10:1:10 gets us about 70%
+  // CPU during disk activity, and 22 FPS, with a speaker that, well, makes a good deal
+  // of noise. It's not ideal, but it proves that it's possible; using a real SPI
+  // DAC here would probably work.
+  threads.setTimeSlice(displayThreadId, 40);
+  threads.setTimeSlice(cpuThreadId, 10);
   threads.setTimeSlice(maintenanceThreadId, 1);
-  threads.setTimeSlice(speakerThreadId, 3); // guessing at a good value
+  threads.setTimeSlice(speakerThreadId, 10); // guessing at a good value
 }
 
 // FIXME: move these memory-related functions elsewhere...
@@ -213,6 +219,7 @@ void biosInterrupt()
   // Make sure the CPU and display don't run while we're in interrupt.
   Threads::Scope lock1(cpulock);
   Threads::Scope lock2(displaylock);
+  Threads::Scope lock3(speakerlock);
 
   // wait for the interrupt button to be released
   while (!resetButtonDebouncer.read())
@@ -260,8 +267,14 @@ void runSpeaker()
   uint32_t nextRuntime = 0;
   while (1) {
     if (micros() > nextRuntime) {
+      Threads::Scope lock(speakerlock);
+      digitalWrite(DEBUGPIN, HIGH);
+      digitalWrite(DEBUGPIN, LOW);
+      
       nextRuntime = micros() + ((float)1000000/(float)SAMPLERATE); // 125 uS per cycle @ 8k sample rate
       ((TeensySpeaker *)g_speaker)->maintainSpeaker();
+    } else {
+      threads.yield();
     }
   }
 }
@@ -376,8 +389,8 @@ void runCPU()
       
       ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
     } else {
-      //      threads.yield();
-      threads.delay(1);
+      threads.yield();
+      //      threads.delay(1);
     }
   }
 }
