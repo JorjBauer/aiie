@@ -78,28 +78,42 @@ const char *TeensyFileManager::fileName(int8_t fd)
   return cachedNames[fd];
 }
 
+File outerDir;
+
+void TeensyFileManager::closeDir()
+{
+  // FIXME: this should Threads::Scope lock, but it's being called
+  // from readDir, so that would block
+  if (outerDir) {
+    outerDir.close();
+  }
+}
+
 // suffix may be comma-separated
-int8_t TeensyFileManager::readDir(const char *where, const char *suffix, char *outputFN, int8_t startIdx, uint16_t maxlen)
+int16_t TeensyFileManager::readDir(const char *where, const char *suffix, char *outputFN, int16_t startIdx, uint16_t maxlen)
 {
   Threads::Scope locker(fslock);
-  //  ... open, read, save next name, close, return name. Horribly
-  //  inefficient but hopefully won't break the sd layer. And if it
-  //  works then we can make this more efficient later.
 
-  // First entry is always "../"
-  if (startIdx == 0) {
+  // First entry is always "../" if we're in a subdir of the root
+  if (startIdx == 0 || !outerDir) {
+    if (outerDir)
+      closeDir();
+    outerDir = SD.open(where, FILE_READ);
+    if (!outerDir)
+      return -1;
+    if (strcmp(where, "/")) { // FIXME: is this correct for the root?
       strcpy(outputFN, "../");
       return 0;
+    }
   }
 
-  int8_t idxCount = 1;
-  File f = SD.open(where, FILE_READ);
+  outputFN[0] = '\0';
 
   while (1) {
-    File e = f.openNextFile();
+    File e = outerDir.openNextFile();
     if (!e) {
       // No more - all done.
-      f.close();
+      closeDir();
       return -1;
     }
 
@@ -139,16 +153,12 @@ int8_t TeensyFileManager::readDir(const char *where, const char *suffix, char *o
       }
     }
 
-    if (idxCount == startIdx) {
-      if (e.isDirectory()) {
-      	strcat(outputFN, "/");
-      }
-      e.close();
-      f.close();
-      return idxCount;
+    if (e.isDirectory()) {
+      strcat(outputFN, "/");
     }
-
-    idxCount++;
+    e.close();
+    
+    return startIdx;
   }
 
   /* NOTREACHED */

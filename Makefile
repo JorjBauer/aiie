@@ -3,7 +3,8 @@ LDFLAGS=-L/usr/local/lib
 SDLLIBS=-lSDL2 -lpthread
 FBLIBS=-lpthread
 
-CXXFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -g -O3 -DSUPPRESSREALTIME -DSTATICALLOC
+CFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -g -DSUPPRESSREALTIME -DSTATICALLOC
+CXXFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -g -DSUPPRESSREALTIME -DSTATICALLOC
 
 TSRC=cpu.cpp util/testharness.cpp
 

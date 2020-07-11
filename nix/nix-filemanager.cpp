@@ -65,27 +65,38 @@ const char *NixFileManager::fileName(int8_t fd)
   return cachedNames[fd];
 }
 
-int8_t NixFileManager::readDir(const char *where, const char *suffix, char *outputFN, int8_t startIdx, uint16_t maxlen)
+// FIXME make these member vars instead of globals
+static DIR *dirp = NULL;
+
+void NixFileManager::closeDir()
 {
-  int idx = 1;
-  if (strcmp(where, ROOTDIR)) {
-    // First entry is always "../"
-    if (startIdx == 0) {
+  if (dirp) {
+    closedir(dirp);
+    dirp = NULL;
+  }
+}
+
+int16_t NixFileManager::readDir(const char *where, const char *suffix, char *outputFN, int16_t startIdx, uint16_t maxlen)
+{
+  if (startIdx == 0 || !dirp) {
+    // This is an openDir() -- so reset state, open the directory, etc.
+    closeDir();
+    dirp = opendir(where);
+    if (!dirp)
+      return -1;
+  }
+  
+  if (startIdx == 0) {
+    if (strcmp(where, ROOTDIR)) {
+      // As long as we're not at the root, we start with "../"
       strcpy(outputFN, "../");
       return 0;
     }
-  } else {
-    idx = 0; // we skipped ROOTDIR
   }
-
-  DIR *dirp = opendir(where);
-  if (!dirp)
-    return -1;
-
-  struct dirent *dp;
 
   outputFN[0] = '\0';
 
+  struct dirent *dp;
   while ((dp = readdir(dirp)) != NULL) {
     if (dp->d_name[0] == '.') {
       // Skip any dot files (and dot directories)
@@ -128,30 +139,20 @@ int8_t NixFileManager::readDir(const char *where, const char *suffix, char *outp
       }
     }
     // If we get here, it's something we want to show.
-    if (idx == startIdx) {
-      // Fill in the reply
-      strncpy(outputFN, dp->d_name, maxlen-1);
-
-      if (dp->d_type & DT_DIR) {
-	// suffix
-	strcat(outputFN, "/");
-      }
-      break;
+    strncpy(outputFN, dp->d_name, maxlen-1);
+    
+    if (dp->d_type & DT_DIR) {
+      // suffix
+      strcat(outputFN, "/");
     }
-
-    // Next!
-    idx++;
+    
+    return startIdx;
   }
 
   // Exited the loop - all done.
-  closedir(dirp);
-
-  if (!outputFN[0]) {
-    // didn't find any more
-    return -1;
-  }
-
-  return idx;
+  // didn't find any more
+  closeDir();
+  return -1;
 }
 
 void NixFileManager::getRootPath(char *toWhere, int8_t maxLen)

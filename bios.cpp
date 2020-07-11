@@ -13,6 +13,21 @@
 extern Bounce resetButtonDebouncer;
 #endif
 
+// Experimenting with using EXTMEM to cache all the filenames in a directory
+#ifndef TEENSYDUINO
+#define EXTMEM
+#endif
+
+struct _cacheEntry {
+  char fn[BIOS_MAXPATH];
+};
+#define BIOSCACHESIZE 1024 // hope that's enough files?
+EXTMEM char cachedPath[BIOS_MAXPATH] = {0};
+EXTMEM char cachedFilter[BIOS_MAXPATH] = {0};
+EXTMEM struct _cacheEntry biosCache[BIOSCACHESIZE];
+uint16_t numCacheEntries = 0;
+
+
 enum {
   ACT_EXIT = 1,
   ACT_RESET = 2,
@@ -92,12 +107,12 @@ void BIOS::DrawMenuBar()
 
   for (int i=0; i<NUM_TITLES; i++) {
     for (int x=0; x<titleWidths[i] + 2*XPADDING; x++) {
-      g_display->drawUIPixel(xpos+x, 0, 0xFFFF);
-      g_display->drawUIPixel(xpos+x, 16, 0xFFFF);
+      g_display->drawPixel(xpos+x, 0, 0xFFFF);
+      g_display->drawPixel(xpos+x, 16, 0xFFFF);
     }
     for (int y=0; y<=16; y++) {
-      g_display->drawUIPixel(xpos, y, 0xFFFF);
-      g_display->drawUIPixel(xpos + titleWidths[i] + 2*XPADDING, y, 0xFFFF);
+      g_display->drawPixel(xpos, y, 0xFFFF);
+      g_display->drawPixel(xpos + titleWidths[i] + 2*XPADDING, y, 0xFFFF);
     }
 
     xpos += XPADDING;
@@ -111,6 +126,10 @@ void BIOS::DrawMenuBar()
 
 bool BIOS::runUntilDone()
 {
+  // Reset the cache
+  cachedPath[0] = 0;
+  numCacheEntries = 0;
+
   g_filemanager->getRootPath(rootPath, sizeof(rootPath));
 
   // FIXME: abstract these constant speeds
@@ -566,7 +585,7 @@ void BIOS::DrawHardwareMenu()
   uint16_t volCutoff = 300.0 * (float)((float) g_volume / 15.0);
   for (uint8_t y=234; y<=235; y++) {
     for (uint16_t x = 0; x< 300; x++) {
-      g_display->drawUIPixel( x, y, x <= volCutoff ? 0xFFFF : 0x0010 );
+      g_display->drawPixel( x, y, x <= volCutoff ? 0xFFFF : 0x0010 );
     }
   }
 }
@@ -704,9 +723,9 @@ bool BIOS::SelectDiskImage(const char *filter)
 {
   int8_t sel = 0;
   int8_t page = 0;
-
+  uint16_t fileCount = 0;
   while (1) {
-    DrawDiskNames(page, sel, filter);
+    fileCount = DrawDiskNames(page, sel, filter);
 
     while (!g_keyboard->kbhit())
       ;
@@ -729,31 +748,31 @@ bool BIOS::SelectDiskImage(const char *filter)
 	//	else sel = BIOS_MAXFILES + 1;
       }
       else if (sel == BIOS_MAXFILES+1) {
-	page++;
-	//sel = 0;
-      } else {
-	if (strcmp(fileDirectory[sel-1], "../") == 0) {
-	  // Go up a directory (strip a directory name from rootPath)
-	  stripDirectory();
-	  page = 0;
+	if (fileCount == BIOS_MAXFILES) { // don't let them select 'Next' if there were no files in the list or if the list isn't full
+	  page++;
 	  //sel = 0;
-	  continue;
-	} else if (fileDirectory[sel-1][strlen(fileDirectory[sel-1])-1] == '/') {
-	  // Descend in to the directory. FIXME: file path length?
-	  strcat(rootPath, fileDirectory[sel-1]);
-	  sel = 0;
-	  page = 0;
-	  continue;
-	} else {
-	  selectedFile = sel - 1;
-	  g_display->flush();
-	  return true;
 	}
+      } else if (strcmp(fileDirectory[sel-1], "../") == 0) {
+	// Go up a directory (strip a directory name from rootPath)
+	stripDirectory();
+	page = 0;
+	//sel = 0;
+	continue;
+      } else if (fileDirectory[sel-1][strlen(fileDirectory[sel-1])-1] == '/') {
+	// Descend in to the directory. FIXME: file path length?
+	strcat(rootPath, fileDirectory[sel-1]);
+	sel = 0;
+	page = 0;
+	continue;
+      } else {
+	selectedFile = sel - 1;
+	g_display->flush();
+	return true;
       }
       break;
     }
   }
-  g_display->flush();
+  /* NOTREACHED */
 }
 
 void BIOS::stripDirectory()
@@ -772,9 +791,9 @@ void BIOS::stripDirectory()
   }
 }
 
-void BIOS::DrawDiskNames(uint8_t page, int8_t selection, const char *filter)
+uint16_t BIOS::DrawDiskNames(uint8_t page, int8_t selection, const char *filter)
 {
-  uint8_t fileCount = GatherFilenames(page, filter);
+  uint16_t fileCount = GatherFilenames(page, filter);
   g_display->clrScr();
   g_display->drawString(M_NORMAL, 0, 12, "BIOS Configuration - pick disk");
 
@@ -795,37 +814,78 @@ void BIOS::DrawDiskNames(uint8_t page, int8_t selection, const char *filter)
   }
 
   // FIXME: this doesn't accurately say whether or not there *are* more.
-  if (fileCount == BIOS_MAXFILES || fileCount == 0) {
+  if (fileCount < BIOS_MAXFILES) {
     g_display->drawString((i+1 == selection) ? M_SELECTDISABLED : M_DISABLED, 10, 50 + 14 * (i+1), "<Next>");
   } else {
     g_display->drawString(i+1 == selection ? M_SELECTED : M_NORMAL, 10, 50 + 14 * (i+1), "<Next>");
   }
 
   g_display->flush();
+  return fileCount;
 }
 
+uint16_t BIOS::cacheAllEntries(const char *filter)
+{
+  // If we've already cached this directory, then just return it
+  if (numCacheEntries && !strcmp(cachedPath, rootPath) && !strcmp(cachedFilter, filter))
+    return numCacheEntries;
 
-uint8_t BIOS::GatherFilenames(uint8_t pageOffset, const char *filter)
+  // Otherwise flush the cache and start over
+  numCacheEntries = 0;
+  strcpy(cachedPath, rootPath);
+  strcpy(cachedFilter, filter);
+  
+  // This could be a lengthy process, so...
+  g_display->clrScr();
+  g_display->drawString(M_SELECTED,
+                        0,
+                        0,
+                        "Loading...");
+  g_display->flush();
+  
+  // read all the entries we can find
+  int16_t idx = 0;
+  while (1) {
+    struct _cacheEntry *ce = &biosCache[numCacheEntries];
+    idx = g_filemanager->readDir(rootPath, filter, ce->fn, idx, BIOS_MAXPATH);
+    if (idx == -1) {
+      return numCacheEntries;
+    }
+    idx++;
+    numCacheEntries++;
+    if (numCacheEntries >= BIOSCACHESIZE-1) {
+      return numCacheEntries;
+    }
+  }
+  /* NOTREACHED */
+}
+
+uint16_t BIOS::GatherFilenames(uint8_t pageOffset, const char *filter)
 {
   uint8_t startNum = 10 * pageOffset;
   uint8_t count = 0; // number we're including in our listing
 
+  uint16_t numEntriesTotal = cacheAllEntries(filter);
+  if (numEntriesTotal > BIOSCACHESIZE) {
+    // ... umm, this is a problem. FIXME?
+  }
+  struct _cacheEntry *nextEntry = biosCache;
+  while (startNum) {
+    nextEntry++;
+    startNum--;
+  }
+
   while (1) {
-    char fn[BIOS_MAXPATH];
-    int8_t idx = g_filemanager->readDir(rootPath, filter, fn, startNum + count, BIOS_MAXPATH);
-
-    if (idx == -1) {
+    if (nextEntry->fn[0] == 0)
       return count;
-    }
 
-    idx++;
-
-    strncpy(fileDirectory[count], fn, BIOS_MAXPATH);
+    strncpy(fileDirectory[count], nextEntry->fn, BIOS_MAXPATH);
     count++;
 
     if (count >= BIOS_MAXFILES) {
       return count;
     }
+    nextEntry++;
   }
 }
 
@@ -840,7 +900,7 @@ void BIOS::showAbout()
 
   g_display->drawString(M_NORMAL, 
 			15, 20,
-			"(c) 2017 Jorj Bauer");
+			"(c) 2017-2020 Jorj Bauer");
 
   g_display->drawString(M_NORMAL,
 			15, 38,

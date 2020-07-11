@@ -16,8 +16,9 @@ class TeensyFileManager : public FileManager {
 
   virtual const char *fileName(int8_t fd);
 
-  virtual int8_t readDir(const char *where, const char *suffix, char *outputFN, int8_t startIdx, uint16_t maxlen);
-
+  virtual int16_t readDir(const char *where, const char *suffix, char *outputFN, int16_t startIdx, uint16_t maxlen);
+  virtual void closeDir();
+  
   virtual void getRootPath(char *toWhere, int8_t maxLen);
 
   virtual bool setSeekPosition(int8_t fd, uint32_t pos);

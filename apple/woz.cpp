@@ -3,9 +3,7 @@
 #include "crc32.h"
 #include "nibutil.h"
 #include "version.h"
-#ifdef TEENSYDUINO
 #include "fscompat.h"
-#endif
 
 extern    uint32_t FreeRamEstimate();
 

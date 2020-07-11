@@ -126,7 +126,8 @@ class FileManager {
 
   virtual const char *fileName(int8_t fd) = 0;
 
-  virtual int8_t readDir(const char *where, const char *suffix, char *outputFN, int8_t startIdx, uint16_t maxlen) = 0;
+  virtual int16_t readDir(const char *where, const char *suffix, char *outputFN, int16_t startIdx, uint16_t maxlen) = 0;
+  virtual void closeDir() = 0;
 
   virtual void getRootPath(char *toWhere, int8_t maxLen) = 0;
 
