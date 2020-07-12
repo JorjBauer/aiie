@@ -37,6 +37,7 @@ namespace arduino_preprocessor_is_buggy {
         Threads::Scope locker(getSerialLock());
         silence(expand{ (print_fwd(params), 42)... });
         Serial.println();
+	Serial.flush();
     }
 }
 

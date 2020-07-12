@@ -16,6 +16,8 @@
 #include "teensy-prefs.h"
 #include "teensy-println.h"
 
+//#define DEBUG_TIMING
+
 #if F_CPU < 240000000
 #pragma AiiE warning: performance will improve if you overclock the Teensy to 240MHz (F_CPU=240MHz) or 256MHz (F_CPU=256MHz)
 #endif
@@ -170,7 +172,7 @@ void setup()
   Serial.flush();
 
   threads.setMicroTimer(); // use a 100uS timer instead of a 1mS timer
-  threads.setSliceMicros(5);
+  //  threads.setSliceMicros(5);
   cpuThreadId = threads.addThread(runCPU);
   displayThreadId = threads.addThread(runDisplay);
   maintenanceThreadId = threads.addThread(runMaintenance);
@@ -183,9 +185,9 @@ void setup()
   // of noise. It's not ideal, but it proves that it's possible; using a real SPI
   // DAC here would probably work.
   threads.setTimeSlice(displayThreadId, 40);
-  threads.setTimeSlice(cpuThreadId, 10);
+  threads.setTimeSlice(cpuThreadId, 20);
   threads.setTimeSlice(maintenanceThreadId, 1);
-  threads.setTimeSlice(speakerThreadId, 10); // guessing at a good value
+  threads.setTimeSlice(speakerThreadId, 20); // guessing at a good value
 }
 
 // FIXME: move these memory-related functions elsewhere...
@@ -264,28 +266,48 @@ void biosInterrupt()
 
 void runSpeaker()
 {
-  uint32_t nextRuntime = 0;
+  uint32_t nextResetMillis = 0;
+  uint32_t refreshCount = 0;
+  uint32_t microsAtStart = 0;
+  uint32_t microsForNext = micros() + 1000000/SAMPLERATE; // (1000000 us/second) / (frames/second) = us/frame
+
   while (1) {
-    if (micros() > nextRuntime) {
-      Threads::Scope lock(speakerlock);
-      digitalWrite(DEBUGPIN, HIGH);
-      digitalWrite(DEBUGPIN, LOW);
+    if (micros() >= microsForNext) {
+      refreshCount++;
+      microsForNext = microsAtStart + ((1000000*refreshCount)/SAMPLERATE);
+      {
+	Threads::Scope lock(speakerlock);
       
-      nextRuntime = micros() + ((float)1000000/(float)SAMPLERATE); // 125 uS per cycle @ 8k sample rate
-      ((TeensySpeaker *)g_speaker)->maintainSpeaker();
+	((TeensySpeaker *)g_speaker)->maintainSpeaker();
+      }
     } else {
-      threads.yield();
+      while (micros() < microsForNext)
+	threads.yield();
     }
+    
+    if (millis() >= nextResetMillis) {
+      nextResetMillis = millis() + 1000;
+#ifdef DEBUG_TIMING
+      static char buf[25];
+      float pct = (100.0 * (float)refreshCount) / (float)SAMPLERATE;
+      sprintf(buf, "Speaker running at %f%%", pct);
+      println(buf);
+#endif      
+      
+      refreshCount = 0;
+      microsAtStart = micros();
+      microsForNext = microsAtStart + ((1000000*refreshCount)/SAMPLERATE);
+    }
+    
   }
 }
 
-// FIXME: how often does this really need to run? We can threads.yield() when we're running too quickly
 void runMaintenance()
 {
   uint32_t nextRuntime = 0;
   
   while (1) {
-    if (millis() > nextRuntime) {
+    if (millis() >= nextRuntime) {
       nextRuntime = millis() + 100; // FIXME: what's a good time here
 
       if (biosThreadId == -1) {
@@ -304,94 +326,101 @@ void runMaintenance()
       g_keyboard->maintainKeyboard();
       usb.maintain();
     } else {
-      threads.delay(10);
-      //      threads.yield();
+      while (millis() < nextRuntime)
+	threads.yield();
     }
   }
 }
 
-// FIXME: figure out how to limit this to 30 FPS (or whatver) so we can
-// appropriately use threads.yield()
+#define TARGET_FPS 30
 void runDisplay()
 {
   g_display->redraw(); // Redraw the UI; don't blit to the physical device
+
+  // When do we want to reset our expectation of "normal"?
+  uint32_t nextResetMillis = 0;
+  // how many full display refreshes have we managed in this second?
+  uint32_t refreshCount = 0;
+  // how many micros until the next frame refresh?
+  uint32_t microsAtStart = 0;
+  uint32_t microsForNext = micros() + 1000000/TARGET_FPS; // (1000000 us/second) / (frames/second) = us/frame
+  uint32_t lastFps = 0;
   
   while (1) {
-    {
-      Threads::Scope lock(displaylock);
-      doDebugging();
+    // If it's time to draw the next frame, then do so
+    if (micros() >= microsForNext) {
+      refreshCount++;
+      microsForNext = microsAtStart + ((1000000*refreshCount)/TARGET_FPS);
 
-      uint32_t startDisp = millis();
-      uint32_t cpuBefore = g_cpu->cycles;
-      g_ui->blit();
-      g_vm->vmdisplay->lockDisplay();
-      if (g_vm->vmdisplay->needsRedraw()) { // necessary for the VM to redraw
-	// Used to get the dirty rect and blit just that rect. Could still do,
-	// but instead, I'm just wildly wasting resources. MWAHAHAHA
-	//    AiieRect what = g_vm->vmdisplay->getDirtyRect();
-	g_vm->vmdisplay->didRedraw();
-	//    g_display->blit(what);
+      {
+	Threads::Scope lock(displaylock);
+	doDebugging(lastFps);
+	
+	g_ui->blit();
+	g_vm->vmdisplay->lockDisplay();
+	if (g_vm->vmdisplay->needsRedraw()) { // necessary for the VM to redraw
+	  // Used to get the dirty rect and blit just that rect. Could still do,
+	  // but instead, I'm just wildly wasting resources. MWAHAHAHA
+	  //    AiieRect what = g_vm->vmdisplay->getDirtyRect();
+	  g_vm->vmdisplay->didRedraw();
+	  //    g_display->blit(what);
+	}
+	g_display->blit(); // Blit the whole thing, including UI area
+	g_vm->vmdisplay->unlockDisplay();
       }
-      g_display->blit(); // Blit the whole thing, including UI area
-      g_vm->vmdisplay->unlockDisplay();
-      uint32_t dispTime = millis() - startDisp;
-      uint32_t cpuAfter = g_cpu->cycles;
-      if (dispTime > 75) {
-	print("Slow blit: ");
-	print(dispTime);
-	print(" cpu ran: ");
-	println(cpuAfter - cpuBefore);
-      }
+    } else {
+      // We're running faster than needed, so give other threads some time
+      while (micros() < microsForNext)
+	threads.yield();
+    }
+    
+    // Once a second, start counting all over again
+    if (millis() >= nextResetMillis) {
+      lastFps = refreshCount;
+#ifdef DEBUG_TIMING
+      println("Display running at ", lastFps, " FPS");
+#endif
+      nextResetMillis = millis() + 1000;
+      refreshCount = 0;
+      microsAtStart = micros();
+      microsForNext = microsAtStart + ((1000000*refreshCount)/TARGET_FPS);
     }
   }
 }
 
 void runCPU()
 {
-  uint32_t nextInstructionMicros;
-  uint32_t startMicros;
-  startMicros = nextInstructionMicros = micros();
-
-  uint32_t startMillis = millis();
+  uint32_t nextResetMillis = 0;
+  uint32_t countSinceLast = 0;
+  uint32_t microsAtStart = micros();
+  uint32_t microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
   
   while (1) {
-    // Relatively critical timing: CPU needs to run ahead at least 4
-    // cycles, b/c we're calling this interrupt (runCPU, that is) just
-    // about 1/3 as fast as we should; and the speaker is updated
-    // directly from within it, so it needs to be real-ish time.
-    if (micros() >= nextInstructionMicros) {
-      uint32_t expectedCycles = (micros() - startMicros) * SPEEDCTL;
-      
-      uint8_t executed;
+    if (micros() >= microsForNext) {
       cpulock.lock(); // Blocking; if the BIOS is running, we stall here
-      executed = g_cpu->Run(24);
-      cpulock.unlock();
-      
-      // The CPU of the Apple //e ran at 1.023 MHz. Adjust when we think
-      // the next instruction should run based on how long the execution
-      // was ((1000/1023) * numberOfCycles) - which is about 97.8%.
-      if (expectedCycles > g_cpu->cycles) {
-	nextInstructionMicros = micros();
-#if 1
-	// show a warning on serial about our current performance
-	double percentage = ((double)g_cpu->cycles / (double)expectedCycles) * 100.0;
-	static uint32_t nextWarningTime = 0;
-	if (millis() > nextWarningTime) {
-	  static char buf[100];
-	  sprintf(buf, "CPU running at %f%% of %d", percentage, g_speed);
-	  println(buf);
-	  nextWarningTime = millis() + 1000;
-	}
-#endif
-      } else {
-	nextInstructionMicros = startMicros + ((double)g_cpu->cycles * (double)SPEEDCTL);
-      }
-      
+      countSinceLast += g_cpu->Run(24); // The CPU runs in bursts of cycles. This '24' is the max burst we perform.
       ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
+      cpulock.unlock();
+
+      microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
     } else {
-      threads.yield();
-      //      threads.delay(1);
+      while (micros() < microsForNext)
+	threads.yield();
     }
+
+    if (millis() >= nextResetMillis) {
+      nextResetMillis = millis() + 1000;
+#ifdef DEBUG_TIMING
+      static char buf[25];
+      float pct = (100.0 * (float)countSinceLast) / (float)g_speed;
+      sprintf(buf, "CPU running at %f%%", pct);
+      println(buf);
+#endif      
+      countSinceLast = 0;
+      microsAtStart = micros();
+      microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
+    }
+    
   }
 }
 
@@ -405,23 +434,13 @@ void loop()
   }
 }
 
-void doDebugging()
+void doDebugging(uint32_t lastFps)
 {
   char buf[25];
   switch (g_debugMode) {
   case D_SHOWFPS:
-    // display some FPS data
-    static uint32_t startAt = millis();
-    static uint32_t loopCount = 0;
-    loopCount++;
-    time_t lenSecs;
-    lenSecs = (millis() - startAt) / 1000;
-    if (lenSecs >= 5) {
-      sprintf(buf, "%lu FPS", loopCount / lenSecs);
-      g_display->debugMsg(buf);
-      startAt = millis();
-      loopCount = 0;
-    }
+    sprintf(buf, "%lu FPS", lastFps);
+    g_display->debugMsg(buf);
     break;
   case D_SHOWMEMFREE:
     sprintf(buf, "%lu %u", FreeRamEstimate(), heapSize());
