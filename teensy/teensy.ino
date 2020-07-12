@@ -18,6 +18,8 @@
 
 #define DEBUG_TIMING
 
+#define THREADED if (1)
+
 #if F_CPU < 240000000
 #pragma AiiE warning: performance will improve if you overclock the Teensy to 240MHz (F_CPU=240MHz) or 256MHz (F_CPU=256MHz)
 #endif
@@ -78,7 +80,7 @@ void setup()
   pinMode(DEBUGPIN, OUTPUT); // for debugging
 
 //  enableFaultHandler();
-  SCB_SHCSR |= SCB_SHCSR_BUSFAULTENA | SCB_SHCSR_USGFAULTENA | SCB_SHCSR_MEMFAULTENA;
+//  SCB_SHCSR |= SCB_SHCSR_BUSFAULTENA | SCB_SHCSR_USGFAULTENA | SCB_SHCSR_MEMFAULTENA;
 
 
   // set the Time library to use Teensy 3.0's RTC to keep time
@@ -226,43 +228,43 @@ void biosInterrupt()
   g_keyboard->maintainKeyboard();
 }
 
-uint32_t spk_nextResetMillis = 0;
-uint32_t spk_refreshCount = 0;
-uint32_t spk_microsAtStart = micros();
-uint32_t spk_microsForNext = 0;
-void runSpeaker()
+void runSpeaker(uint32_t now)
 {
-  if (1) {
-    if (micros() >= spk_microsForNext) {
+  static uint32_t spk_nextResetMicros = 0;
+  static uint32_t spk_refreshCount = 0;
+  static uint32_t spk_microsAtStart = micros();
+  static uint32_t spk_microsForNext = 0;
+
+  THREADED {
+    if (now >= spk_microsForNext) {
       spk_refreshCount++;
-      spk_microsForNext = spk_microsAtStart + ((1000000*spk_refreshCount)/SAMPLERATE);
+      spk_microsForNext = spk_microsAtStart + ((float)1000000.0*((float)spk_refreshCount/(float)SAMPLERATE));
       ((TeensySpeaker *)g_speaker)->maintainSpeaker();
     }
     
-    if (millis() >= spk_nextResetMillis) {
-      spk_nextResetMillis = millis() + 1000;
+    if (now >= spk_nextResetMicros) {
 #ifdef DEBUG_TIMING
-      static char buf[25];
       float pct = (100.0 * (float)spk_refreshCount) / (float)SAMPLERATE;
-       sprintf(buf, "Speaker running at %f%% [%lu]", pct, spk_refreshCount);
-      println(buf);
+      sprintf(debugBuf, "Speaker running at %f%% [%lu]", pct, spk_refreshCount);
+      println(debugBuf);
 #endif      
-      
+
+      spk_microsAtStart = now;
       spk_refreshCount = 0;
-      spk_microsAtStart = micros();
-      spk_microsForNext = spk_microsAtStart + ((1000000*spk_refreshCount)/SAMPLERATE);
+      spk_nextResetMicros = spk_microsAtStart + 1000000;
+      spk_microsForNext = spk_microsAtStart + ((float)1000000.0*((float)spk_refreshCount/(float)SAMPLERATE));
     }
     
   }
 }
 
-void runMaintenance()
+void runMaintenance(uint32_t now)
 {
   static uint32_t nextRuntime = 0;
   
-  if (1) {
-    if (millis() >= nextRuntime) {
-      nextRuntime = millis() + 100; // FIXME: what's a good time here
+  THREADED {
+    if (now >= nextRuntime) {
+      nextRuntime = now + 100000000; // FIXME: what's a good time here
 
       if (!resetButtonDebouncer.read()) {
 	// This is the BIOS interrupt. We immediately act on it.
@@ -276,22 +278,22 @@ void runMaintenance()
 }
 
 #define TARGET_FPS 30
-void runDisplay()
+void runDisplay(uint32_t now)
 {
   // When do we want to reset our expectation of "normal"?
-  static uint32_t nextResetMillis = 0;
+  static uint32_t nextResetMicros = 0;
   // how many full display refreshes have we managed in this second?
   static uint32_t refreshCount = 0;
   // how many micros until the next frame refresh?
   static uint32_t microsAtStart = 0;
-  static uint32_t microsForNext = micros() + 1000000/TARGET_FPS; // (1000000 us/second) / (frames/second) = us/frame
+  static uint32_t microsForNext = micros();
   static uint32_t lastFps = 0;
   
-  if (1) {
+  THREADED {
     // If it's time to draw the next frame, then do so
-    if (micros() >= microsForNext) {
+    if (now >= microsForNext) {
       refreshCount++;
-      microsForNext = microsAtStart + ((1000000*refreshCount)/TARGET_FPS);
+      microsForNext = microsAtStart + (1000000.0*((float)refreshCount/(float)TARGET_FPS));
 
       doDebugging(lastFps);
       
@@ -309,15 +311,15 @@ void runDisplay()
     }
     
     // Once a second, start counting all over again
-    if (millis() >= nextResetMillis) {
+    if (now >= nextResetMicros) {
       lastFps = refreshCount;
 #ifdef DEBUG_TIMING
       println("Display running at ", lastFps, " FPS");
 #endif
-      nextResetMillis = millis() + 1000;
+      nextResetMicros = now + 1000000;
       refreshCount = 0;
-      microsAtStart = micros();
-      microsForNext = microsAtStart + ((1000000*refreshCount)/TARGET_FPS);
+      microsAtStart = now;
+      microsForNext = microsAtStart + (1000000.0*((float)refreshCount/(float)TARGET_FPS));
     }
   }
 }
@@ -337,80 +339,78 @@ void runDebouncer()
   }
 }
 
-void runCPU()
+void runCPU(uint32_t now)
 {
-  static uint32_t nextResetMillis = 0;
+  static uint32_t nextResetMicros = 0;
   static uint32_t countSinceLast = 0;
   static uint32_t microsAtStart = micros();
   static uint32_t microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
   
-  if (1) {
-    if (micros() >= microsForNext) {
+  THREADED {
+    if (now >= microsForNext) {
       countSinceLast += g_cpu->Run(24); // The CPU runs in bursts of cycles. This '24' is the max burst we perform.
       ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
 
       microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
     }
 
-    if (millis() >= nextResetMillis) {
-      nextResetMillis = millis() + 1000;
+    if (now >= nextResetMicros) {
+      nextResetMicros = now + 1000000;
 #ifdef DEBUG_TIMING
-      static char buf[25];
       float pct = (100.0 * (float)countSinceLast) / (float)g_speed;
-      sprintf(buf, "CPU running at %f%%", pct);
-      println(buf);
+      sprintf(debugBuf, "CPU running at %f%%", pct);
+      println(debugBuf);
 #endif      
       countSinceLast = 0;
-      microsAtStart = micros();
+      microsAtStart = now;
       microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
     }
-    
   }
 }
 
 void loop()
 {
-  runCPU();
-  runDisplay();
-  runSpeaker();
-  runMaintenance();
+  uint32_t now = micros();
+  runCPU(now);
+  runDisplay(now);
+  runSpeaker(now);
+  runMaintenance(now);
 }
 
 void doDebugging(uint32_t lastFps)
 {
-  char buf[25];
   switch (g_debugMode) {
   case D_SHOWFPS:
-    sprintf(buf, "%lu FPS", lastFps);
-    g_display->debugMsg(buf);
+    sprintf(debugBuf, "%lu FPS", lastFps);
+    g_display->debugMsg(debugBuf);
     break;
   case D_SHOWMEMFREE:
-    sprintf(buf, "%lu %u", FreeRamEstimate(), heapSize());
-    g_display->debugMsg(buf);
+    sprintf(debugBuf, "%lu %u", FreeRamEstimate(), heapSize());
+    g_display->debugMsg(debugBuf);
     break;
   case D_SHOWPADDLES:
-    sprintf(buf, "%u %u", g_paddles->paddle0(), g_paddles->paddle1());
-    g_display->debugMsg(buf);
+    sprintf(debugBuf, "%u %u", g_paddles->paddle0(), g_paddles->paddle1());
+    g_display->debugMsg(debugBuf);
     break;
   case D_SHOWPC:
-    sprintf(buf, "%X", g_cpu->pc);
-    g_display->debugMsg(buf);
+    sprintf(debugBuf, "%X", g_cpu->pc);
+    g_display->debugMsg(debugBuf);
     break;
   case D_SHOWCYCLES:
-    sprintf(buf, "%lX", g_cpu->cycles);
-    g_display->debugMsg(buf);
+    sprintf(debugBuf, "%lX", g_cpu->cycles);
+    g_display->debugMsg(debugBuf);
     break;
   case D_SHOWTIME:
-    sprintf(buf, "%.2d:%.2d:%.2d", hour(), minute(), second());
-    g_display->debugMsg(buf);
+    sprintf(debugBuf, "%.2d:%.2d:%.2d", hour(), minute(), second());
+    g_display->debugMsg(debugBuf);
     break;
   case D_SHOWDSK:
     {
       uint8_t sd = ((AppleVM *)g_vm)->disk6->selectedDrive();
-      sprintf(buf, "s %d t %d",
+      sprintf(debugBuf, "s %d t %d",
 	      sd,
 	      ((AppleVM *)g_vm)->disk6->headPosition(sd));
-      g_display->debugMsg(buf);
+      g_display->debugMsg(debugBuf);
     }
     break;
   }

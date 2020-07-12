@@ -83,9 +83,8 @@ void TeensySpeaker::maintainSpeaker()
   togmutex.unlock();
 
   // Now we can safely update the DAC based on the current toggleState
-  //  uint16_t v = (toggleState ? 0xFFF : 0x000);
+  uint16_t v = (toggleState ? 0xFFF : 0x000);
   //  dac.write((uint8_t) ((v >> 8) & 0xFF), (uint8_t) (v & 0xFF), true);
-
 }
 
 void TeensySpeaker::beginMixing()
