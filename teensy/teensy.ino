@@ -16,7 +16,7 @@
 #include "teensy-prefs.h"
 #include "teensy-println.h"
 
-//#define DEBUG_TIMING
+#define DEBUG_TIMING
 
 #if F_CPU < 240000000
 #pragma AiiE warning: performance will improve if you overclock the Teensy to 240MHz (F_CPU=240MHz) or 256MHz (F_CPU=256MHz)
@@ -173,6 +173,7 @@ void setup()
 
   threads.setMicroTimer(); // use a 100uS timer instead of a 1mS timer
   //  threads.setSliceMicros(5);
+#if 0
   cpuThreadId = threads.addThread(runCPU);
   displayThreadId = threads.addThread(runDisplay);
   maintenanceThreadId = threads.addThread(runMaintenance);
@@ -188,6 +189,7 @@ void setup()
   threads.setTimeSlice(cpuThreadId, 20);
   threads.setTimeSlice(maintenanceThreadId, 1);
   threads.setTimeSlice(speakerThreadId, 20); // guessing at a good value
+#endif
 }
 
 // FIXME: move these memory-related functions elsewhere...
@@ -266,23 +268,20 @@ void biosInterrupt()
 
 void runSpeaker()
 {
-  uint32_t nextResetMillis = 0;
-  uint32_t refreshCount = 0;
-  uint32_t microsAtStart = 0;
-  uint32_t microsForNext = micros() + 1000000/SAMPLERATE; // (1000000 us/second) / (frames/second) = us/frame
+  static uint32_t nextResetMillis = 0;
+  static uint32_t refreshCount = 0;
+  static uint32_t microsAtStart = micros();
+  static uint32_t microsForNext = 0;
 
-  while (1) {
+  if (1) {
     if (micros() >= microsForNext) {
       refreshCount++;
       microsForNext = microsAtStart + ((1000000*refreshCount)/SAMPLERATE);
-      {
-	Threads::Scope lock(speakerlock);
-      
-	((TeensySpeaker *)g_speaker)->maintainSpeaker();
-      }
+      speakerlock.lock();
+      //	((TeensySpeaker *)g_speaker)->maintainSpeaker();
+      speakerlock.unlock();
     } else {
-      while (micros() < microsForNext)
-	threads.yield();
+      //      threads.yield();
     }
     
     if (millis() >= nextResetMillis) {
@@ -290,7 +289,7 @@ void runSpeaker()
 #ifdef DEBUG_TIMING
       static char buf[25];
       float pct = (100.0 * (float)refreshCount) / (float)SAMPLERATE;
-      sprintf(buf, "Speaker running at %f%%", pct);
+      sprintf(buf, "Speaker running at %f%% [%lu]", pct, refreshCount);
       println(buf);
 #endif      
       
@@ -304,9 +303,9 @@ void runSpeaker()
 
 void runMaintenance()
 {
-  uint32_t nextRuntime = 0;
+  static uint32_t nextRuntime = 0;
   
-  while (1) {
+  if (1) {
     if (millis() >= nextRuntime) {
       nextRuntime = millis() + 100; // FIXME: what's a good time here
 
@@ -326,8 +325,7 @@ void runMaintenance()
       g_keyboard->maintainKeyboard();
       usb.maintain();
     } else {
-      while (millis() < nextRuntime)
-	threads.yield();
+      //      threads.yield();
     }
   }
 }
@@ -335,18 +333,18 @@ void runMaintenance()
 #define TARGET_FPS 30
 void runDisplay()
 {
-  g_display->redraw(); // Redraw the UI; don't blit to the physical device
+  //  g_display->redraw(); // Redraw the UI; don't blit to the physical device
 
   // When do we want to reset our expectation of "normal"?
-  uint32_t nextResetMillis = 0;
+  static uint32_t nextResetMillis = 0;
   // how many full display refreshes have we managed in this second?
-  uint32_t refreshCount = 0;
+  static uint32_t refreshCount = 0;
   // how many micros until the next frame refresh?
-  uint32_t microsAtStart = 0;
-  uint32_t microsForNext = micros() + 1000000/TARGET_FPS; // (1000000 us/second) / (frames/second) = us/frame
-  uint32_t lastFps = 0;
+  static uint32_t microsAtStart = 0;
+  static uint32_t microsForNext = micros() + 1000000/TARGET_FPS; // (1000000 us/second) / (frames/second) = us/frame
+  static uint32_t lastFps = 0;
   
-  while (1) {
+  if (1) {
     // If it's time to draw the next frame, then do so
     if (micros() >= microsForNext) {
       refreshCount++;
@@ -370,8 +368,7 @@ void runDisplay()
       }
     } else {
       // We're running faster than needed, so give other threads some time
-      while (micros() < microsForNext)
-	threads.yield();
+      //      threads.yield();
     }
     
     // Once a second, start counting all over again
@@ -390,12 +387,12 @@ void runDisplay()
 
 void runCPU()
 {
-  uint32_t nextResetMillis = 0;
-  uint32_t countSinceLast = 0;
-  uint32_t microsAtStart = micros();
-  uint32_t microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
+  static uint32_t nextResetMillis = 0;
+  static uint32_t countSinceLast = 0;
+  static uint32_t microsAtStart = micros();
+  static uint32_t microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
   
-  while (1) {
+  if (1) {
     if (micros() >= microsForNext) {
       cpulock.lock(); // Blocking; if the BIOS is running, we stall here
       countSinceLast += g_cpu->Run(24); // The CPU runs in bursts of cycles. This '24' is the max burst we perform.
@@ -404,8 +401,7 @@ void runCPU()
 
       microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
     } else {
-      while (micros() < microsForNext)
-	threads.yield();
+      //      threads.yield();
     }
 
     if (millis() >= nextResetMillis) {
@@ -432,6 +428,11 @@ void loop()
     writePrefs();
     g_writePrefsFromMainLoop = false;
   }
+
+  runCPU();
+  runDisplay();
+  runSpeaker();
+  runMaintenance();
 }
 
 void doDebugging(uint32_t lastFps)
