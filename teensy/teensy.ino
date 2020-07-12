@@ -156,6 +156,9 @@ void setup()
 
   resetButtonDebouncer.attach(RESETPIN);
   resetButtonDebouncer.interval(5); // ms
+
+  println("Drawing UI border");
+  g_display->redraw();
   
   println("free-running");
   Serial.flush();
@@ -275,8 +278,6 @@ void runMaintenance()
 #define TARGET_FPS 30
 void runDisplay()
 {
-  //  g_display->redraw(); // Redraw the UI; don't blit to the physical device
-
   // When do we want to reset our expectation of "normal"?
   static uint32_t nextResetMillis = 0;
   // how many full display refreshes have we managed in this second?
