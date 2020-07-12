@@ -164,6 +164,7 @@ void setup()
   Serial.flush();
 
   threads.setMicroTimer(); // use a 100uS timer instead of a 1mS timer
+  //  threads.setSliceMicros(5);
   threads.addThread(runDebouncer);
 }
 
@@ -225,32 +226,31 @@ void biosInterrupt()
   g_keyboard->maintainKeyboard();
 }
 
+uint32_t spk_nextResetMillis = 0;
+uint32_t spk_refreshCount = 0;
+uint32_t spk_microsAtStart = micros();
+uint32_t spk_microsForNext = 0;
 void runSpeaker()
 {
-  static uint32_t nextResetMillis = 0;
-  static uint32_t refreshCount = 0;
-  static uint32_t microsAtStart = micros();
-  static uint32_t microsForNext = 0;
-
   if (1) {
-    if (micros() >= microsForNext) {
-      refreshCount++;
-      microsForNext = microsAtStart + ((1000000*refreshCount)/SAMPLERATE);
-      //	((TeensySpeaker *)g_speaker)->maintainSpeaker();
+    if (micros() >= spk_microsForNext) {
+      spk_refreshCount++;
+      spk_microsForNext = spk_microsAtStart + ((1000000*spk_refreshCount)/SAMPLERATE);
+      ((TeensySpeaker *)g_speaker)->maintainSpeaker();
     }
     
-    if (millis() >= nextResetMillis) {
-      nextResetMillis = millis() + 1000;
+    if (millis() >= spk_nextResetMillis) {
+      spk_nextResetMillis = millis() + 1000;
 #ifdef DEBUG_TIMING
       static char buf[25];
-      float pct = (100.0 * (float)refreshCount) / (float)SAMPLERATE;
-      sprintf(buf, "Speaker running at %f%% [%lu]", pct, refreshCount);
+      float pct = (100.0 * (float)spk_refreshCount) / (float)SAMPLERATE;
+       sprintf(buf, "Speaker running at %f%% [%lu]", pct, spk_refreshCount);
       println(buf);
 #endif      
       
-      refreshCount = 0;
-      microsAtStart = micros();
-      microsForNext = microsAtStart + ((1000000*refreshCount)/SAMPLERATE);
+      spk_refreshCount = 0;
+      spk_microsAtStart = micros();
+      spk_microsForNext = spk_microsAtStart + ((1000000*spk_refreshCount)/SAMPLERATE);
     }
     
   }
