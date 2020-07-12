@@ -303,8 +303,8 @@ uint8_t BIOS::GetAction(int8_t selection)
 #endif
 	   ) {
 #ifdef TEENSYDUINO
-      threads.delay(1);
-	#else
+      threads.delay(10);
+#else
       usleep(100);
 #endif
       // Wait for either a keypress or the reset button to be pressed

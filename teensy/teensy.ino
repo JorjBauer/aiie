@@ -37,18 +37,7 @@ static   time_t getTeensy3Time() {  return Teensy3Clock.get(); }
 
 TeensyUSB usb;
 
-int cpuThreadId;
-int displayThreadId;
-int maintenanceThreadId;
-int speakerThreadId;
-int biosThreadId = -1;
-
 Bounce resetButtonDebouncer = Bounce();
-Threads::Mutex cpulock; // For the BIOS to suspend CPU cleanly
-Threads::Mutex displaylock; // For the BIOS to shut down the display cleanly
-Threads::Mutex speakerlock;
-
-volatile bool g_writePrefsFromMainLoop = false;
 
 void onKeypress(int unicode)
 {
@@ -172,24 +161,7 @@ void setup()
   Serial.flush();
 
   threads.setMicroTimer(); // use a 100uS timer instead of a 1mS timer
-  //  threads.setSliceMicros(5);
-#if 0
-  cpuThreadId = threads.addThread(runCPU);
-  displayThreadId = threads.addThread(runDisplay);
-  maintenanceThreadId = threads.addThread(runMaintenance);
-  speakerThreadId = threads.addThread(runSpeaker);
-  // Set the relative priorities of the threads by defining how long a "slice"
-  // is for each (in 100uS "ticks")
-  // At a ratio of 50:10:1, we get about 30FPS and 100% CPU speed using 100uS ticks.
-  // After adding an I2C DAC (what a terrible idea!) - 40:10:1:10 gets us about 70%
-  // CPU during disk activity, and 22 FPS, with a speaker that, well, makes a good deal
-  // of noise. It's not ideal, but it proves that it's possible; using a real SPI
-  // DAC here would probably work.
-  threads.setTimeSlice(displayThreadId, 40);
-  threads.setTimeSlice(cpuThreadId, 20);
-  threads.setTimeSlice(maintenanceThreadId, 1);
-  threads.setTimeSlice(speakerThreadId, 20); // guessing at a good value
-#endif
+  threads.addThread(runDebouncer);
 }
 
 // FIXME: move these memory-related functions elsewhere...
@@ -220,11 +192,6 @@ int heapSize(){
 
 void biosInterrupt()
 {
-  // Make sure the CPU and display don't run while we're in interrupt.
-  Threads::Scope lock1(cpulock);
-  Threads::Scope lock2(displaylock);
-  Threads::Scope lock3(speakerlock);
-
   // wait for the interrupt button to be released
   while (!resetButtonDebouncer.read())
     ;
@@ -232,12 +199,8 @@ void biosInterrupt()
   // invoke the BIOS
   if (bios.runUntilDone()) {
     // if it returned true, we have something to store persistently in EEPROM.
-    // The EEPROM doesn't like to be written to from a thread?
-    g_writePrefsFromMainLoop = true;
-    while (g_writePrefsFromMainLoop) {
-      delay(100);
-      // wait for write to complete
-    }
+    writePrefs();
+
     // Also might have changed the paddles state
     TeensyPaddles *tmp = (TeensyPaddles *)g_paddles;
     tmp->setRev(g_invertPaddleX, g_invertPaddleY);
@@ -248,13 +211,6 @@ void biosInterrupt()
     g_display->debugMsg("");
   }
 
-  // clear the CPU next-step counters
-  #if 0
-  // FIXME: this is to prevent the CPU from racing to catch up, and we need sth in the threads world
-  g_cpu->cycles = 0;
-  nextInstructionMicros = micros();
-  startMicros = micros();
-  #endif
   // Drain the speaker queue (FIXME: a little hacky)
   g_speaker->maintainSpeaker(-1, -1);
 
@@ -277,11 +233,7 @@ void runSpeaker()
     if (micros() >= microsForNext) {
       refreshCount++;
       microsForNext = microsAtStart + ((1000000*refreshCount)/SAMPLERATE);
-      speakerlock.lock();
       //	((TeensySpeaker *)g_speaker)->maintainSpeaker();
-      speakerlock.unlock();
-    } else {
-      //      threads.yield();
     }
     
     if (millis() >= nextResetMillis) {
@@ -309,23 +261,13 @@ void runMaintenance()
     if (millis() >= nextRuntime) {
       nextRuntime = millis() + 100; // FIXME: what's a good time here
 
-      if (biosThreadId == -1) {
-	// bios is not running; see if it should be
-	  if (!resetButtonDebouncer.read()) {
-	    // This is the BIOS interrupt. We immediately act on it.
-
-	    biosThreadId = threads.addThread(biosInterrupt);
-	  }
-      } else if (threads.getState(biosThreadId) != Threads::RUNNING) {
-	// When the BIOS thread exits, we clean up
-	threads.wait(biosThreadId);
-	biosThreadId = -1;
+      if (!resetButtonDebouncer.read()) {
+	// This is the BIOS interrupt. We immediately act on it.
+	biosInterrupt();
       }
       
       g_keyboard->maintainKeyboard();
       usb.maintain();
-    } else {
-      //      threads.yield();
     }
   }
 }
@@ -350,25 +292,19 @@ void runDisplay()
       refreshCount++;
       microsForNext = microsAtStart + ((1000000*refreshCount)/TARGET_FPS);
 
-      {
-	Threads::Scope lock(displaylock);
-	doDebugging(lastFps);
-	
-	g_ui->blit();
-	g_vm->vmdisplay->lockDisplay();
-	if (g_vm->vmdisplay->needsRedraw()) { // necessary for the VM to redraw
-	  // Used to get the dirty rect and blit just that rect. Could still do,
-	  // but instead, I'm just wildly wasting resources. MWAHAHAHA
-	  //    AiieRect what = g_vm->vmdisplay->getDirtyRect();
-	  g_vm->vmdisplay->didRedraw();
-	  //    g_display->blit(what);
-	}
-	g_display->blit(); // Blit the whole thing, including UI area
-	g_vm->vmdisplay->unlockDisplay();
+      doDebugging(lastFps);
+      
+      g_ui->blit();
+      g_vm->vmdisplay->lockDisplay();
+      if (g_vm->vmdisplay->needsRedraw()) { // necessary for the VM to redraw
+	// Used to get the dirty rect and blit just that rect. Could still do,
+	// but instead, I'm just wildly wasting resources. MWAHAHAHA
+	//    AiieRect what = g_vm->vmdisplay->getDirtyRect();
+	g_vm->vmdisplay->didRedraw();
+	//    g_display->blit(what);
       }
-    } else {
-      // We're running faster than needed, so give other threads some time
-      //      threads.yield();
+      g_display->blit(); // Blit the whole thing, including UI area
+	g_vm->vmdisplay->unlockDisplay();
     }
     
     // Once a second, start counting all over again
@@ -385,6 +321,21 @@ void runDisplay()
   }
 }
 
+// The debouncer is used in the bios, which blocks the main loop
+// execution; so this thread updates the debouncer instead.
+void runDebouncer()
+{
+  static uint32_t nextRuntime = 0;
+  while (1) {
+    if (millis() >= nextRuntime) {
+      nextRuntime = millis() + 10;
+      resetButtonDebouncer.update();
+    } else {
+      threads.yield();
+    }
+  }
+}
+
 void runCPU()
 {
   static uint32_t nextResetMillis = 0;
@@ -394,14 +345,10 @@ void runCPU()
   
   if (1) {
     if (micros() >= microsForNext) {
-      cpulock.lock(); // Blocking; if the BIOS is running, we stall here
       countSinceLast += g_cpu->Run(24); // The CPU runs in bursts of cycles. This '24' is the max burst we perform.
       ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
-      cpulock.unlock();
 
       microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
-    } else {
-      //      threads.yield();
     }
 
     if (millis() >= nextResetMillis) {
@@ -422,13 +369,6 @@ void runCPU()
 
 void loop()
 {
-  resetButtonDebouncer.update();
-
-  if (g_writePrefsFromMainLoop) {
-    writePrefs();
-    g_writePrefsFromMainLoop = false;
-  }
-
   runCPU();
   runDisplay();
   runSpeaker();
