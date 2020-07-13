@@ -8,7 +8,7 @@
 #endif
 
 #define BIOS_MAXFILES 10 // number of files in a page of listing
-#define BIOS_MAXPATH 40  // maximum length of a single filename that we'll support
+#define BIOS_MAXPATH 60  // maximum length of a single filename that we'll support
 
 class BIOS {
  public:
