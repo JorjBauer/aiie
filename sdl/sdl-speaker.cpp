@@ -1,6 +1,7 @@
 #include "sdl-speaker.h"
 #include <pthread.h>
 #include <unistd.h>
+#include <fcntl.h> // for open()
 
 extern "C"
 {
@@ -8,31 +9,61 @@ extern "C"
 #include <SDL_thread.h>
 };
 
+// What values do we use for logical speaker-high and speaker-low?
+#define HIGHVAL 0xC0
+#define LOWVAL 0x40
+
 #include "globals.h"
 
 #include "timeutil.h"
 
-// FIXME: 4096 is the right value here, I'm just debugging
 #define SDLSIZE (4096)
+// But we want to keep more than just that, so we can fill it full every time
+#define CACHEMULTIPLIER 2
 
 // FIXME: Globals; ick.
 static volatile uint32_t bufIdx = 0;
-static uint8_t soundBuf[44100];
+static volatile uint8_t soundBuf[CACHEMULTIPLIER*SDLSIZE];
 static pthread_mutex_t togmutex = PTHREAD_MUTEX_INITIALIZER;
 static struct timespec sdlEmptyTime, sdlStartTime;
 extern struct timespec startTime; // defined in aiie (main)
 
+volatile uint8_t audioRunning = 0;
+
+// How many cpu cycles do we lag "real time"? (Enough to give us a
+// solid audio buffer fill...)
+#define PLAYBACK_LAG ((SDLSIZE/44100)*1023000)
+
+// Debugging by writing a wav file with the sound output...
+//#define DEBUG_OUT_WAV
+#ifdef DEBUG_OUT_WAV
+int outputFD = -1;
+#endif
+
 static void audioCallback(void *unused, Uint8 *stream, int len)
 {
+  if (audioRunning==0)
+    audioRunning=1;
   pthread_mutex_lock(&togmutex);
   if (g_biosInterrupt) {
     // While the BIOS is running, we don't put samples in the audio
     // queue.
+    audioRunning = 0;
     memset(stream, 0x80, len);
     pthread_mutex_unlock(&togmutex);
     return;
   }
 
+  if (audioRunning==1 && bufIdx >= len) {
+    // Fully up and running now; we got a full cache
+    audioRunning = 2;
+  } else if (audioRunning==1) {
+    // waiting for first fill; return an empty buffer.
+    printf("pre\n");
+    memset(stream, 0x80, len);
+    return;
+  }
+  
   // calculate when the buffer will be empty again
   do_gettime(&sdlEmptyTime);
   timespec_add_us(&sdlEmptyTime, ((float)len * (float)1000000)/(float)44100, &sdlEmptyTime);
@@ -41,32 +72,57 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
   static uint8_t lastKnownSample = 0; // saved for when the apple is quiescent
 
   if (bufIdx >= len) {
-    memcpy(stream, soundBuf, len);
+    memcpy(stream, (void *)soundBuf, len);
     lastKnownSample = stream[len-1];
 
     if (bufIdx > len) {
       // move the remaining data down
-      memcpy(soundBuf, &soundBuf[len], bufIdx - len + 1);
+      memcpy((void *)soundBuf, (void *)&soundBuf[len], bufIdx - len + 1);
       bufIdx -= len;
     }
   } else {
     if (bufIdx) {
       // partial buffer exists
-      memcpy(stream, soundBuf, bufIdx);
-
+      memcpy(stream, (void *)soundBuf, bufIdx);
       // and it's a partial underrun
       memset(&stream[bufIdx], lastKnownSample, len-bufIdx);
       bufIdx = 0;
     } else {
-      // Total audio underrun. This is normal if nothing is toggling the
-      // speaker; we stay at the last known level.
-      memset(stream, lastKnownSample, len);
+      // No big deal - buffer underrun might just mean nothing
+      // is trying to play audio right now.
+
+      memset(stream, 0x80, len);
+      //      memset(stream, lastKnownSample, len);
+      // Trend toward DC voltage = 0v
+      //      if (lastKnownSample < 0x7F) lastKnownSample++;
+      //      if (lastKnownSample >= 0x80) lastKnownSample--;
     }
   }
+#ifdef DEBUG_OUT_WAV
+  if (outputFD == -1) {
+    outputFD = open("/tmp/out.wav", O_RDWR | O_CREAT | O_TRUNC, 0600);
+    unsigned char buf[44] = { 'R', 'I', 'F', 'F',
+			      0xff,0xff,0xff,0, // size == 0 for now
+			      'W', 'A', 'V', 'E',
+			      'f', 'm', 't', ' ',
+			      16,0,0,0, // no extensions
+			      1,0, // PCM
+			      1,0, // 1 channel
+			      0x44, 0xAC, 0, 0, // 44100 Hz
+			      0x44, 0xAC, 0, 0, // (sample rate * bits * channels)/8
+			      1,0, // sample size (1 byte here b/c 1 channel @ 8bit)
+			      8,0, // bits per sample
+			      'd', 'a', 't', 'a',
+			      0xff, 0xff, 0xff, 0, // size of data chunk
+    };
+    write(outputFD, buf, sizeof(buf));
+  }
+			    
+  write(outputFD, (void *)(stream), len);
+#endif
+  
   pthread_mutex_unlock(&togmutex);
 }
-
-void ResetDCFilter(); // FIXME: remove
 
 SDLSpeaker::SDLSpeaker()
 {
@@ -76,8 +132,6 @@ SDLSpeaker::SDLSpeaker()
   pthread_mutex_init(&togmutex, NULL);
 
   _init_darwin_shim();
-
-  ResetDCFilter();
 
   lastCycleCount = 0;
   lastSampleCount = 0;
@@ -103,114 +157,64 @@ void SDLSpeaker::begin()
   audioDevice.callback = audioCallback;
   audioDevice.userdata = NULL;
 
-  memset(&soundBuf[0], 0, SDLSIZE);
-  bufIdx = SDLSIZE/2; // FIXME: why? Shouldn't this just be 0?
+  memset((void *)&soundBuf[0], 0, CACHEMULTIPLIER*SDLSIZE);
+  bufIdx = 0;
 
   SDL_OpenAudio(&audioDevice, &audioActual); // FIXME retval
   printf("Actual: freq %d channels %d samples %d\n", 
 	 audioActual.freq, audioActual.channels, audioActual.samples);
+  // FIXME: if any of those don't match the orginal we're gonna be unhappy
   SDL_PauseAudio(0);
 }
 
+uint32_t lastFilledTime = 0;
 void SDLSpeaker::toggle(uint32_t c)
 {
   pthread_mutex_lock(&togmutex);
 
-  /* Figuring out what to do:
-   *
-   * The wallclock time we started the app is in startTime.
-   *
-   * The wallclock time when the SDL audio buffer will be totally
-   * drained is in sdlEmptyTime. When that time comes, we want to have
-   * at least SDLSIZE samples in soundBuf[] - which is currently filled
-   * to bufIdx samples.
-   * 
-   * So given the cycle number at which this toggle happened (c), we
-   * know we need to fill soundBuf[bufIdx..?] with either 0 or 127
-   * (adjusted for volume). The end of that area that we need to fill is 
-   * based on what time cycle 'c' refers to, 
-   *
-   * The wallclock time of cycle (c) is calculable from 
-   *   timespec_add_cycles(&startTime, c, &outputTime);
-   *
-   * And the point at which the SDL buffer will be drained is the same
-   * as the time at which soundBuf begins. So the difference between
-   * the two tells us where the end point is.
-   *
-   * Then we need to fill soundBuf[bufIdx .. endPoint] with that 0 or 127, 
-   * and set bufIdx = endPoint.
-   *
-   * Bonus: if it looks like we're not filling enough buffer, then we
-   * should tell the emulation layer above to run more cycles in bulk
-   * to build up more speaker backlog.
-   */
+  uint32_t expectedCycleNumber = (float)c * (float)44100 / (float)g_speed;
+  if (lastFilledTime == 0) {
+    lastFilledTime = expectedCycleNumber;
+  }
+  uint32_t audioBufferSamples = expectedCycleNumber - lastFilledTime;
+  uint32_t newIdx = bufIdx + audioBufferSamples;
 
-  // calculate the timespec that refers to the cycle where this
-  // speaker toggle happened
-  struct timespec blipTime;
-  timespec_add_cycles(&startTime, c, &blipTime);
-  timespec_add_us(&blipTime, ((float)SDLSIZE * (float)1000000)/(float)44100, &blipTime); // it's delayed one SDL buffer naturally, and there's some drift between the start of the CPU and the start of the speaker. :/
-  
-  // determine how long there will be between the start of the buffer
-  // and that cycle time. (tsSubtract bounds at 0 and is never
-  // negative.)
-  struct timespec timeOffset = tsSubtract(blipTime, sdlEmptyTime);
+  if (audioBufferSamples == 0) {
+    // If the toggle wouldn't result in at least 1 buffer sample change,
+    // then we'll blatantly skip it here. If this turns out to be
+    // a problem, we could try setting audioBufferSamples++ and then
+    // twiddle the lastFilledTime so it looks like it's more in the
+    // future, but I suspect that would mean missing more future events,
+    // just like we would have missed this one.
+    //
+    // But I think this is probably okay - because something that's
+    // toggling the speaker fast enough that our 44k audio can't keep
+    // up with the individual changes is likely to toggle again in a
+    // moment without significant distortion?
+    pthread_mutex_unlock(&togmutex);
+    return;
+  }
 
-  // Turn that in to a sample index in the soundBuf[] buffer. There are 44100 of them per second,
-  // so this is straightforward
-  float newIdx = (float)timeOffset.tv_sec + ((float)timeOffset.tv_nsec / (float)NANOSECONDS_PER_SECOND);
-  newIdx *= 44100.0;
 
   if (newIdx >= sizeof(soundBuf)) {
-    // Buffer overrun
-    printf("ERROR: buffer overrun, dropping data\n");
+    printf("Buffer overrun: size %d idx %d\n", sizeof(soundBuf), newIdx);
+    //    printf("ERROR: buffer overrun, dropping data; need to increase buffer\n");
     newIdx = sizeof(soundBuf)-1;
   }
+  lastFilledTime = expectedCycleNumber;
 
   // Flip the toggle state
   toggleState = !toggleState;
 
-  // Fill from bufIdx .. newIdx and set bufIdx to newIdx when done
+  // Fill from bufIdx .. newIdx and set bufIdx to newIdx when done.
   if (newIdx > bufIdx) {
     long count = (long)newIdx - bufIdx;
-    memset(&soundBuf[bufIdx], toggleState ? 127 : 0, count);
+    memset((void *)&soundBuf[bufIdx], toggleState ? HIGHVAL : LOWVAL, count);
     bufIdx = newIdx;
-  } else {
-    // Why are we backtracking? This does happen, and it's a bug.
-    if (newIdx >= 1) {
-      bufIdx = newIdx-1;
-      long count = (long)newIdx - bufIdx;
-      memset(&soundBuf[bufIdx], toggleState ? 127 : 0, count);
-      bufIdx = newIdx;
-    } else {
-      // ... and it's zero?
-    }
   }
 
   pthread_mutex_unlock(&togmutex);
 }
-
-// FIXME: make methods
-uint16_t dcFilterState = 0;
-
-void ResetDCFilter()
-{
-  dcFilterState = 32768 + 10000;
-}
-
-int16_t DCFilter(int16_t in)
-{
-  if (dcFilterState == 0)
-    return 0;
-
-  if (dcFilterState >= 32768) {
-    dcFilterState--;
-    return in;
-  }
-
-  return ( (int32_t)in * (int32_t)dcFilterState-- ) / (int32_t)32768;
-}
-
 
 void SDLSpeaker::maintainSpeaker(uint32_t c, uint64_t microseconds)
 {
