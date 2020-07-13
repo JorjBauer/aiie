@@ -9,7 +9,6 @@
 
 #include "globals.h"
 #include <Arduino.h>
-#include <TeensyThreads.h>
 
 #define open(path, flags, perms) g_filemanager->openFile(path)
 #define close(filedes) g_filemanager->closeFile(filedes)
@@ -17,9 +16,8 @@
 #define read(filedes,buf,nbyte) g_filemanager->read(filedes,buf,nbyte)
 #define lseek(filedes,offset,whence) g_filemanager->lseek(filedes,offset,whence)
 
-Threads::Mutex serlock;
 static char fsbuf[200];
-#define printf(x, ...) {sprintf(fsbuf, x, ##__VA_ARGS__); serlock.lock(); Serial.println(fsbuf); Serial.flush(); Serial.send_now(); serlock.unlock();}
-#define fprintf(f, x, ...) {sprintf(fsbuf, x, ##__VA_ARGS__); serlock.lock(); Serial.println(fsbuf); Serial.flush(); Serial.send_now(); serlock.lock();}
-#define perror(x) {serlock.lock();Serial.println(x);Serial.flush(); Serial.send_now(); serlock.unlock();}
+#define printf(x, ...) {sprintf(fsbuf, x, ##__VA_ARGS__); Serial.println(fsbuf); Serial.flush(); Serial.send_now();}
+#define fprintf(f, x, ...) {sprintf(fsbuf, x, ##__VA_ARGS__); Serial.println(fsbuf); Serial.flush(); Serial.send_now();}
+#define perror(x) {Serial.println(x);Serial.flush(); Serial.send_now();}
   

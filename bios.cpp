@@ -8,7 +8,6 @@
 #include "cpu.h"
 
 #ifdef TEENSYDUINO
-#include <TeensyThreads.h>
 #include <Bounce2.h>
 #include "teensy-paddles.h"
 extern Bounce resetButtonDebouncer;
@@ -303,7 +302,7 @@ uint8_t BIOS::GetAction(int8_t selection)
 #endif
 	   ) {
 #ifdef TEENSYDUINO
-      threads.delay(10);
+      delay(10);
 #else
       usleep(100);
 #endif
@@ -315,7 +314,7 @@ uint8_t BIOS::GetAction(int8_t selection)
       // wait until it's no longer pressed
       while (resetButtonDebouncer.read() == HIGH)
 	;
-      threads.delay(100); // wait long enough for it to debounce
+      delay(100); // wait long enough for it to debounce
       // then return an exit code
       return ACT_EXIT;
     }

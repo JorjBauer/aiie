@@ -2,10 +2,7 @@
 #include <wchar.h>
 #include "teensy-filemanager.h"
 #include <string.h> // strcpy
-#include <TeensyThreads.h>
 #include "teensy-println.h"
-
-Threads::Mutex fslock;
 
 TeensyFileManager::TeensyFileManager()
 {
@@ -23,8 +20,6 @@ TeensyFileManager::~TeensyFileManager()
 
 int8_t TeensyFileManager::openFile(const char *name)
 {
-  Threads::Scope locker(fslock);
-  
   if (cacheFd != -1) {
     cacheFile.close();
     cacheFd = -1;
@@ -56,7 +51,6 @@ int8_t TeensyFileManager::openFile(const char *name)
 
 void TeensyFileManager::closeFile(int8_t fd)
 {
-  Threads::Scope locker(fslock);
   if (cacheFd != -1) {
     cacheFile.close();
     cacheFd = -1;
@@ -92,8 +86,6 @@ void TeensyFileManager::closeDir()
 // suffix may be comma-separated
 int16_t TeensyFileManager::readDir(const char *where, const char *suffix, char *outputFN, int16_t startIdx, uint16_t maxlen)
 {
-  Threads::Scope locker(fslock);
-
   // First entry is always "../" if we're in a subdir of the root
   if (startIdx == 0 || !outerDir) {
     if (outerDir)
@@ -220,7 +212,6 @@ void TeensyFileManager::seekToEnd(int8_t fd)
 
 int TeensyFileManager::write(int8_t fd, const void *buf, int nbyte)
 {
-  Threads::Scope locker(fslock);
   // open, seek, write, close.
   if (fd < 0 || fd >= numCached) {
     return -1;
@@ -249,7 +240,6 @@ int TeensyFileManager::write(int8_t fd, const void *buf, int nbyte)
 
 int TeensyFileManager::read(int8_t fd, void *buf, int nbyte)
 {
-  Threads::Scope locker(fslock);
   // open, seek, read, close.
   if (fd < 0 || fd >= numCached) {
     return -1;
@@ -276,7 +266,6 @@ int TeensyFileManager::read(int8_t fd, void *buf, int nbyte)
 
 int TeensyFileManager::lseek(int8_t fd, int offset, int whence)
 {
-  Threads::Scope locker(fslock);
   if (whence == SEEK_CUR && offset == 0) {
     return fileSeekPositions[fd];
   }

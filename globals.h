@@ -55,9 +55,4 @@ extern bool g_invertPaddleY;
 
 extern char debugBuf[255];
 
-#ifdef TEENSYDUINO
-#include <TeensyThreads.h>
-extern Threads::Mutex spi_lock;
-#endif
-
 #endif

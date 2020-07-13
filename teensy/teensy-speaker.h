@@ -1,10 +1,18 @@
 #ifndef __TEENSY_SPEAKER_H
 #define __TEENSY_SPEAKER_H
 
+#include <AudioStream.h>
 #include "physicalspeaker.h"
 #include <MCP492X.h>
 
 #define SAMPLERATE 44100
+
+class TeensyAudio : public AudioStream {
+ public:
+  TeensyAudio(void) : AudioStream(0, NULL) {}
+
+  virtual void update(void);
+};
 
 class TeensySpeaker : public PhysicalSpeaker {
  public:
@@ -21,7 +29,7 @@ class TeensySpeaker : public PhysicalSpeaker {
   virtual void mixOutput(uint8_t v);
 
  private:
-  bool toggleState;
+  //  bool toggleState;
 
   uint32_t mixerValue;
   uint8_t numMixed;

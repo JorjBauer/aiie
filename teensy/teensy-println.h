@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <utility>
-#include <TeensyThreads.h>
 
 // cf. https://forum.pjrc.com/threads/41504-Teensy-3-x-multithreading-library-first-release/page6
 
@@ -12,10 +11,12 @@ namespace arduino_preprocessor_is_buggy {
     // used for suppressing compiler warnings
     template<class T> void silence(T&&) {};
 
+  /*
     inline Threads::Mutex& getSerialLock() {
         static Threads::Mutex serial_lock;
         return serial_lock;
     }
+  */
 
   bool serialavailable();
   char serialgetch();
@@ -29,12 +30,12 @@ namespace arduino_preprocessor_is_buggy {
     }
 
     template<class... args_t> void print(args_t... params) {
-        Threads::Scope locker(getSerialLock());
+      //        Threads::Scope locker(getSerialLock());
         silence(expand{ (print_fwd(params), 42)... });
     }
   
     template<class... args_t> void println(args_t... params) {
-        Threads::Scope locker(getSerialLock());
+      //        Threads::Scope locker(getSerialLock());
         silence(expand{ (print_fwd(params), 42)... });
         Serial.println();
 	Serial.flush();

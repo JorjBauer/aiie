@@ -1,7 +1,7 @@
 #include <Arduino.h>
+#include <Audio.h>
 #include <SPI.h>
 #include <TimeLib.h>
-#include <TeensyThreads.h>
 #include <Bounce2.h>
 #include "bios.h"
 #include "cpu.h"
@@ -16,7 +16,7 @@
 #include "teensy-prefs.h"
 #include "teensy-println.h"
 
-#define DEBUG_TIMING
+//#define DEBUG_TIMING
 
 #define THREADED if (1)
 
@@ -69,7 +69,7 @@ void onKeyrelease(int unicode)
 void setup()
 {
   Serial.begin(230400);
-#if 0
+#if 1
   // Wait for USB serial connection before booting while debugging
   while (!Serial) {
     yield();
@@ -165,9 +165,9 @@ void setup()
   println("free-running");
   Serial.flush();
 
-  threads.setMicroTimer(); // use a 100uS timer instead of a 1mS timer
+//  threads.setMicroTimer(); // use a 100uS timer instead of a 1mS timer
   //  threads.setSliceMicros(5);
-  threads.addThread(runDebouncer);
+//  threads.addThread(runDebouncer);
 }
 
 // FIXME: move these memory-related functions elsewhere...
@@ -228,43 +228,13 @@ void biosInterrupt()
   g_keyboard->maintainKeyboard();
 }
 
-void runSpeaker(uint32_t now)
-{
-  static uint32_t spk_nextResetMicros = 0;
-  static uint32_t spk_refreshCount = 0;
-  static uint32_t spk_microsAtStart = micros();
-  static uint32_t spk_microsForNext = 0;
-
-  THREADED {
-    if (now >= spk_microsForNext) {
-      spk_refreshCount++;
-      spk_microsForNext = spk_microsAtStart + ((float)1000000.0*((float)spk_refreshCount/(float)SAMPLERATE));
-      ((TeensySpeaker *)g_speaker)->maintainSpeaker();
-    }
-    
-    if (now >= spk_nextResetMicros) {
-#ifdef DEBUG_TIMING
-      float pct = (100.0 * (float)spk_refreshCount) / (float)SAMPLERATE;
-      sprintf(debugBuf, "Speaker running at %f%% [%lu]", pct, spk_refreshCount);
-      println(debugBuf);
-#endif      
-
-      spk_microsAtStart = now;
-      spk_refreshCount = 0;
-      spk_nextResetMicros = spk_microsAtStart + 1000000;
-      spk_microsForNext = spk_microsAtStart + ((float)1000000.0*((float)spk_refreshCount/(float)SAMPLERATE));
-    }
-    
-  }
-}
-
 void runMaintenance(uint32_t now)
 {
   static uint32_t nextRuntime = 0;
   
   THREADED {
     if (now >= nextRuntime) {
-      nextRuntime = now + 100000000; // FIXME: what's a good time here
+      nextRuntime = now + 100000; // FIXME: what's a good time here? 1/10 sec?
 
       if (!resetButtonDebouncer.read()) {
 	// This is the BIOS interrupt. We immediately act on it.
@@ -334,7 +304,8 @@ void runDebouncer()
       nextRuntime = millis() + 10;
       resetButtonDebouncer.update();
     } else {
-      threads.yield();
+    yield();
+//      threads.yield();
     }
   }
 }
@@ -373,7 +344,6 @@ void loop()
   uint32_t now = micros();
   runCPU(now);
   runDisplay(now);
-  runSpeaker(now);
   runMaintenance(now);
 }
 
