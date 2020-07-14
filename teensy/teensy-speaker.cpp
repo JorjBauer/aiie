@@ -13,31 +13,29 @@ AudioConnection         patchCord1(audioDriver, 0, mixer1, 0);
 //AudioConnection         patchCord2(audioDriver, 0, mixer2, 0);
 //AudioConnection         patchCord3(mixer2, 0, i2s, 1);
 AudioConnection         patchCord4(mixer1, 0, i2s, 0);
-//const float     t_ampx  = 0.8;
-//const int       t_lox   = 10;
-//const int       t_hix   = 22000;
-//const float     t_timex = 10;           // Length of time for the sweep in seconds
 
 #include "globals.h"
 
-//#define BUFSIZE 4096
-//EXTMEM uint32_t toggleBuffer[BUFSIZE]; // cycle counts at which state toggles
-//uint16_t headptr, tailptr;
+#define HIGHVAL (0x4FFF)
+#define LOWVAL (-0x4FFF)
 
 // Ring buffer that we fill with 44.1kHz data
-#define RINGBUFSIZE 4096
-EXTMEM short sampleRingBuffer[RINGBUFSIZE];
-volatile uint16_t sampleHeadPtr = 0;
-volatile uint16_t sampleTailPtr = 0;
-volatile uint32_t lastFilledTime = 0;
+#define BUFSIZE 4096
+static volatile uint32_t bufIdx; // 0 .. BUFSIZE-1
+static volatile uint32_t skippedSamples; // Who knows where this will
+					 // wind up (FIXME: eventual
+					 // rollover means we need a
+					 // way to purge the queue
+					 // when it's quiescent for
+					 // too long & restart all the
+					 // constants)
+static volatile uint8_t audioRunning = 0; // FIXME: needs constants abstracted
+static volatile uint32_t lastFilledTime = 0;
 
-volatile uint32_t lastSampleNum = 0;
+#define SAMPLEBYTES sizeof(short)
+EXTMEM short soundBuf[BUFSIZE];
 
-bool toggleState = false;
-
-// How many cycles do we run the audio behind? Needs to be more than our bulk
-// cycle count.
-//#define CYCLEDELAY 100
+static bool toggleState = false;
 
 TeensySpeaker::TeensySpeaker(uint8_t sda, uint8_t scl) : PhysicalSpeaker()
 {
@@ -52,14 +50,12 @@ TeensySpeaker::~TeensySpeaker()
 
 void TeensySpeaker::begin()
 {
-  mixer1.gain(0, 0.5f); // left channel
-  
-  lastFilledTime = g_cpu->cycles;
-  sampleHeadPtr = sampleTailPtr = 0;
+  mixer1.gain(0, 0.1f); // left channel
+
   toggleState = false;
-  //  memset(toggleBuffer, 0, sizeof(toggleBuffer));
-  //  headptr = tailptr = 0;
-  lastSampleNum = 0;
+  bufIdx = 0;
+  skippedSamples = 0;
+  audioRunning = 0;
 }
 
 void TeensySpeaker::toggle(uint32_t c)
@@ -72,18 +68,59 @@ void TeensySpeaker::toggle(uint32_t c)
 
   // We expect to have filled to this cycle number...
   uint32_t expectedCycleNumber = (float)c  * (float)AUDIO_SAMPLE_RATE_EXACT / (float)g_speed;
+  // Dynamically initialize the lastFilledTime based on the start time of the
+  // audio channel.
+  if (lastFilledTime == 0)
+    lastFilledTime = expectedCycleNumber;
 
-  // and we have filled to cycle number lastFilledTime. So how many do we need?
-  uint32_t audioBufferSamples = expectedCycleNumber - lastFilledTime;
-
-  if (audioBufferSamples > RINGBUFSIZE)
-    audioBufferSamples = RINGBUFSIZE;
-  for (int i=0; i<audioBufferSamples; i++) {
-    sampleRingBuffer[sampleTailPtr++] = toggleState ? (32767/2) : (-32767/2); // FIXME: appropriate value?
-    sampleTailPtr %= RINGBUFSIZE;
+  // and we have filled to cycle number lastFilledTime. So how many do
+  // we need?  This subtracts skippedSamples because those were filled
+  // automatically by the audioCallback when we had no data.
+  int32_t audioBufferSamples = expectedCycleNumber - lastFilledTime - skippedSamples;
+  // If audioBufferSamples < 0, then we need to keep some
+  // skippedSamples for later; otherwise we can keep moving forward.
+  if (audioBufferSamples < 0) {
+    skippedSamples = -audioBufferSamples;
+    audioBufferSamples = 0;
+  } else {
+    // Otherwise we consumed them and can forget about it.
+    skippedSamples = 0;
   }
-  toggleState = !toggleState;
+
+  int32_t newIdx = bufIdx + audioBufferSamples;
+
+  if (audioBufferSamples == 0) {
+    // If the toggle wouldn't result in at least 1 buffer sample
+    // change, then we'll blatantly skip it here. If this turns out to
+    // be a problem, we could try setting audioBufferSamples++ and
+    // then twiddle the lastFilledTime so it looks like it's more in
+    // the future, but I suspect that would mean missing more future
+    // events, just like we would have missed this one.
+    //
+    // But I think this is probably okay - because something that's
+    // toggling the speaker fast enough that our 44k audio can't keep
+    // up with the individual changes is likely to toggle again in a
+    // moment without significant distortion?
+    return;
+  }
+
+  if (newIdx >= BUFSIZE) {
+    // Buffer overrun error. Shouldn't happen?
+    newIdx = BUFSIZE - 1;
+  }
   lastFilledTime = expectedCycleNumber;
+
+  // Flip the toggle state
+  toggleState = !toggleState;
+
+  // Fill from bufIdx .. newIdx and set bufIdx to newIdx when done.
+  if (newIdx > bufIdx) {
+    long count = (long)newIdx - bufIdx;
+    for (long i=0; i<count; i++) {
+      soundBuf[bufIdx+i] = toggleState ? HIGHVAL : LOWVAL;
+    }
+    bufIdx = newIdx;
+  }
   __enable_irq();
 #endif
 }
@@ -95,23 +132,6 @@ void TeensySpeaker::maintainSpeaker(uint32_t c, uint64_t microseconds)
 
 void TeensySpeaker::maintainSpeaker()
 {
-  // This is called @ 44100Hz, which is the sample rate for the
-  // Teensy4 (#define AUDIO_SAMPLE_RATE_EXACT 44100.0f). We fill a FIFO 
-  // that is then drained by update(). In theory, as long as we don't fall
-  // 128 cycles behind, it should be okay, I think (b/c AUDIO_BLOCK_SAMPLES
-  // is 128 on the Teensy 4).
-#if 0
-  uint32_t curTime = g_cpu->cycles - CYCLEDELAY;
-  while (headptr != tailptr) {
-    if (curTime >= toggleBuffer[headptr]) {
-      toggleState = !toggleState;
-      headptr++; headptr %= BUFSIZE;
-    } else {
-      // The time to deal with this one has not come yet, so we're done for now
-      break;
-    }
-  }
-#endif
 }
 
 void TeensySpeaker::beginMixing()
@@ -129,49 +149,69 @@ void TeensyAudio::update(void)
   audio_block_t *block;
   short *bp;
 
-  // Grab a block and we'll fill it up. It needs AUDIO_BLOCK_SAMPLES short values
-  // (which is 128 on the Teensy 4).
+  if (audioRunning == 0)
+    audioRunning = 1;
+
+  if (g_biosInterrupt) {
+    // While the BIOS is running, we don't put samples in the audio queue.
+    audioRunning = 0;
+    block = allocate();
+    if (block) {
+      bp = block->data;
+      memset(bp, 0, AUDIO_BLOCK_SAMPLES * SAMPLEBYTES);
+      transmit(block, 0);
+      release(block);
+    }
+    return;
+  }
+
+  if (audioRunning == 1 && bufIdx >= AUDIO_BLOCK_SAMPLES) {
+    // We have enough samples in the buffer to fill it, so we're fully
+    // up and running.
+    audioRunning = 2;
+  } else if (audioRunning == 1) {
+    // Still waiting for the first fill; return an empty buffer.
+    block = allocate();
+    if (block) {
+      bp = block->data;
+      memset(bp, 0, AUDIO_BLOCK_SAMPLES * SAMPLEBYTES);
+      transmit(block, 0);
+      release(block);
+    }
+    return;
+  }
+  
   block = allocate();
   if (block) {
     bp = block->data;
-#if 1
-    uint32_t underflow = 0;
-    for (int i=0; i<AUDIO_BLOCK_SAMPLES; i++) {
-      static short lastValue = 0;
-
-      if (sampleHeadPtr == sampleTailPtr) {
-	//	bp[i] = lastValue; // underflow: just repeat whatever old data we have
-	// FIXME: trend toward zero, maybe?
-	bp[i] = lastValue;
-	underflow++;
-      } else {
-	lastValue = sampleRingBuffer[sampleHeadPtr++];
-	bp[i] = lastValue;
-	sampleHeadPtr %= RINGBUFSIZE;
+    static short lastKnownSample = 0;
+    if (bufIdx >= AUDIO_BLOCK_SAMPLES) {
+      memcpy(bp, (void *)soundBuf, AUDIO_BLOCK_SAMPLES * SAMPLEBYTES);
+      lastKnownSample = bp[AUDIO_BLOCK_SAMPLES-1];
+      
+      if (bufIdx > AUDIO_BLOCK_SAMPLES) {
+	// move the remaining data down
+	memcpy((void *)soundBuf, (void *)&soundBuf[AUDIO_BLOCK_SAMPLES], (bufIdx - AUDIO_BLOCK_SAMPLES + 1)*SAMPLEBYTES);
+	bufIdx -= AUDIO_BLOCK_SAMPLES;
       }
-
-    }
-#else
-    // Fill in the AUDIO_BLOCK_SAMPLES samples of data, pull them from the FIFO
-    memset(bp, 0, AUDIO_BLOCK_SAMPLES * sizeof(short));
-#endif
-    if (underflow) {
-      println("U ", underflow);
+    } else {
+      if (bufIdx) {
+	// partial buffer exists
+	memcpy(bp, (void *)soundBuf, bufIdx * SAMPLEBYTES);
+	// and it's a partial underrun. Track the number of samples we skipped
+	// so we can keep the audio buffer in sync.
+	skippedSamples += AUDIO_BLOCK_SAMPLES - bufIdx;
+	for (int32_t i=0; i<AUDIO_BLOCK_SAMPLES-bufIdx; i++) {
+	  bp[i+bufIdx] = lastKnownSample;
+	}
+      } else {
+	// No big deal - buffer underrun might just mean nothing is
+	// trying to play audio right now.
+	skippedSamples += AUDIO_BLOCK_SAMPLES;
+	memset(bp, 0, AUDIO_BLOCK_SAMPLES * SAMPLEBYTES);
+      }
     }
     transmit(block, 0);
     release(block);
   }
-
-#if 0
-  if (sampleHeadPtr == sampleTailPtr) {
-    // The FIFO is empty, so reset...
-    if (g_cpu) {
-      lastFilledTime = g_cpu->cycles;
-    } else {
-      lastFilledTime = 0;
-    }
-    // FIXME:
-    //    lastSampleNum = 0;
-  }
-#endif
 }
