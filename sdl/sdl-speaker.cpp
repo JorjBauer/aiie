@@ -15,8 +15,6 @@ extern "C"
 
 #include "globals.h"
 
-#include "timeutil.h"
-
 #define SDLSIZE (4096)
 // But we want to keep more than just that, so we can fill it full every time
 #define CACHEMULTIPLIER 2
@@ -25,14 +23,10 @@ extern "C"
 static volatile uint32_t bufIdx = 0;
 static volatile uint8_t soundBuf[CACHEMULTIPLIER*SDLSIZE];
 static pthread_mutex_t togmutex = PTHREAD_MUTEX_INITIALIZER;
-static struct timespec sdlEmptyTime, sdlStartTime;
-extern struct timespec startTime; // defined in aiie (main)
+static volatile uint32_t skippedSamples = 0;
 
 volatile uint8_t audioRunning = 0;
 
-// How many cpu cycles do we lag "real time"? (Enough to give us a
-// solid audio buffer fill...)
-#define PLAYBACK_LAG ((SDLSIZE/44100)*1023000)
 
 // Debugging by writing a wav file with the sound output...
 //#define DEBUG_OUT_WAV
@@ -59,16 +53,10 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
     audioRunning = 2;
   } else if (audioRunning==1) {
     // waiting for first fill; return an empty buffer.
-    printf("pre\n");
     memset(stream, 0x80, len);
     return;
   }
   
-  // calculate when the buffer will be empty again
-  do_gettime(&sdlEmptyTime);
-  timespec_add_us(&sdlEmptyTime, ((float)len * (float)1000000)/(float)44100, &sdlEmptyTime);
-  sdlEmptyTime = tsSubtract(sdlEmptyTime, sdlStartTime);
-
   static uint8_t lastKnownSample = 0; // saved for when the apple is quiescent
 
   if (bufIdx >= len) {
@@ -84,12 +72,15 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
     if (bufIdx) {
       // partial buffer exists
       memcpy(stream, (void *)soundBuf, bufIdx);
-      // and it's a partial underrun
+      // and it's a partial underrun. Track the number of samples we skipped
+      // so we can keep the audio buffer in sync.
+      skippedSamples += len-bufIdx;
       memset(&stream[bufIdx], lastKnownSample, len-bufIdx);
       bufIdx = 0;
     } else {
       // No big deal - buffer underrun might just mean nothing
       // is trying to play audio right now.
+      skippedSamples += len;
 
       memset(stream, 0x80, len);
       //      memset(stream, lastKnownSample, len);
@@ -131,8 +122,6 @@ SDLSpeaker::SDLSpeaker()
 
   pthread_mutex_init(&togmutex, NULL);
 
-  _init_darwin_shim();
-
   lastCycleCount = 0;
   lastSampleCount = 0;
 }
@@ -143,10 +132,6 @@ SDLSpeaker::~SDLSpeaker()
 
 void SDLSpeaker::begin()
 {
-  do_gettime(&sdlStartTime);
-  do_gettime(&sdlEmptyTime);
-  sdlEmptyTime = tsSubtract(sdlEmptyTime, sdlStartTime);
-
   SDL_AudioSpec audioDevice;
   SDL_AudioSpec audioActual;
   SDL_memset(&audioDevice, 0, sizeof(audioDevice));
@@ -176,9 +161,21 @@ void SDLSpeaker::toggle(uint32_t c)
   if (lastFilledTime == 0) {
     lastFilledTime = expectedCycleNumber;
   }
-  uint32_t audioBufferSamples = expectedCycleNumber - lastFilledTime;
-  uint32_t newIdx = bufIdx + audioBufferSamples;
-
+  // This subtracts skippedSamples because those were filled automatically
+  // by the audioCallback when we had no data.
+  int32_t audioBufferSamples = expectedCycleNumber - lastFilledTime - skippedSamples;
+  // If audioBufferSamples < 0, then we need to keep some
+  // skippedSamples for later; otherwise we can keep moving forward.
+  if (audioBufferSamples < 0) {
+    skippedSamples = -audioBufferSamples;
+    audioBufferSamples = 0;
+  } else {
+    // Otherwise we consumed them and can forget about it.
+    skippedSamples = 0;
+  }
+  
+  int32_t newIdx = bufIdx + audioBufferSamples;
+  
   if (audioBufferSamples == 0) {
     // If the toggle wouldn't result in at least 1 buffer sample change,
     // then we'll blatantly skip it here. If this turns out to be
@@ -195,10 +192,8 @@ void SDLSpeaker::toggle(uint32_t c)
     return;
   }
 
-
   if (newIdx >= sizeof(soundBuf)) {
-    printf("Buffer overrun: size %d idx %d\n", sizeof(soundBuf), newIdx);
-    //    printf("ERROR: buffer overrun, dropping data; need to increase buffer\n");
+    printf("ERROR: buffer overrun: size %lu idx %d\n", sizeof(soundBuf), newIdx);
     newIdx = sizeof(soundBuf)-1;
   }
   lastFilledTime = expectedCycleNumber;
