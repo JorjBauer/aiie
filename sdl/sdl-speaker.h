@@ -22,9 +22,6 @@ class SDLSpeaker : public PhysicalSpeaker {
  private:
   uint8_t mixerValue;
   bool toggleState;
-
-  uint64_t lastCycleCount;
-  uint64_t lastSampleCount;
 };
 
 #endif

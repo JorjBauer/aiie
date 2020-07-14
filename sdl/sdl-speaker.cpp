@@ -121,9 +121,6 @@ SDLSpeaker::SDLSpeaker()
   mixerValue = 0x80;
 
   pthread_mutex_init(&togmutex, NULL);
-
-  lastCycleCount = 0;
-  lastSampleCount = 0;
 }
 
 SDLSpeaker::~SDLSpeaker()
@@ -144,6 +141,8 @@ void SDLSpeaker::begin()
 
   memset((void *)&soundBuf[0], 0, CACHEMULTIPLIER*SDLSIZE);
   bufIdx = 0;
+  skippedSamples = 0;
+  audioRunning = 0;
 
   SDL_OpenAudio(&audioDevice, &audioActual); // FIXME retval
   printf("Actual: freq %d channels %d samples %d\n", 
