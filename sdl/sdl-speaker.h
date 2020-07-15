@@ -5,8 +5,6 @@
 #include <stdint.h>
 #include "physicalspeaker.h"
 
-#define SPEAKERQUEUESIZE 1024
-
 class SDLSpeaker : public PhysicalSpeaker {
  public:
   SDLSpeaker();

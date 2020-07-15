@@ -69,7 +69,7 @@ void onKeyrelease(int unicode)
 void setup()
 {
   Serial.begin(230400);
-#if 1
+#if 0
   // Wait for USB serial connection before booting while debugging
   while (!Serial) {
     yield();
@@ -164,10 +164,6 @@ void setup()
   
   println("free-running");
   Serial.flush();
-
-//  threads.setMicroTimer(); // use a 100uS timer instead of a 1mS timer
-  //  threads.setSliceMicros(5);
-//  threads.addThread(runDebouncer);
 }
 
 // FIXME: move these memory-related functions elsewhere...
@@ -200,9 +196,9 @@ void biosInterrupt()
 {
   // wait for the interrupt button to be released
   while (!resetButtonDebouncer.read())
-    ;
+    resetButtonDebouncer.update();
 
-  // invoke the BIOS
+  // Invoke the BIOS
   if (bios.runUntilDone()) {
     // if it returned true, we have something to store persistently in EEPROM.
     writePrefs();
@@ -299,7 +295,7 @@ void runDisplay(uint32_t now)
 void runDebouncer()
 {
   static uint32_t nextRuntime = 0;
-  while (1) {
+  //  while (1) {
     if (millis() >= nextRuntime) {
       nextRuntime = millis() + 10;
       resetButtonDebouncer.update();
@@ -307,7 +303,7 @@ void runDebouncer()
     yield();
 //      threads.yield();
     }
-  }
+    //  }
 }
 
 void runCPU(uint32_t now)
@@ -345,6 +341,7 @@ void loop()
   runCPU(now);
   runDisplay(now);
   runMaintenance(now);
+  runDebouncer();
 }
 
 void doDebugging(uint32_t lastFps)

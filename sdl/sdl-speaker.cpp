@@ -10,8 +10,8 @@ extern "C"
 };
 
 // What values do we use for logical speaker-high and speaker-low?
-#define HIGHVAL 0xC0
-#define LOWVAL 0x40
+#define HIGHVAL (0x1FFF)
+#define LOWVAL (-(0x1FFF))
 
 #include "globals.h"
 
@@ -21,11 +21,13 @@ extern "C"
 
 // FIXME: Globals; ick.
 static volatile uint32_t bufIdx = 0;
-static volatile uint8_t soundBuf[CACHEMULTIPLIER*SDLSIZE];
+static volatile short soundBuf[CACHEMULTIPLIER*SDLSIZE];
 static pthread_mutex_t togmutex = PTHREAD_MUTEX_INITIALIZER;
 static volatile uint32_t skippedSamples = 0;
+#define SAMPLEBYTES sizeof(short)
 
 volatile uint8_t audioRunning = 0;
+volatile uint32_t lastFilledTime = 0;
 
 
 // Debugging by writing a wav file with the sound output...
@@ -43,47 +45,49 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
     // While the BIOS is running, we don't put samples in the audio
     // queue.
     audioRunning = 0;
-    memset(stream, 0x80, len);
+    memset(stream, 0, SDLSIZE*SAMPLEBYTES);
     pthread_mutex_unlock(&togmutex);
     return;
   }
 
-  if (audioRunning==1 && bufIdx >= len) {
+  if (audioRunning==1 && bufIdx >= SDLSIZE) {
     // Fully up and running now; we got a full cache
     audioRunning = 2;
   } else if (audioRunning==1) {
     // waiting for first fill; return an empty buffer.
-    memset(stream, 0x80, len);
+    memset(stream, 0, SDLSIZE*SAMPLEBYTES);
     return;
   }
   
-  static uint8_t lastKnownSample = 0; // saved for when the apple is quiescent
+  static short lastKnownSample = 0; // saved for when the apple is quiescent
 
-  if (bufIdx >= len) {
-    memcpy(stream, (void *)soundBuf, len);
-    lastKnownSample = stream[len-1];
+  if (bufIdx >= SDLSIZE) {
+    memcpy(stream, (void *)soundBuf, SDLSIZE*SAMPLEBYTES);
+    lastKnownSample = stream[SDLSIZE-1];
 
-    if (bufIdx > len) {
+    if (bufIdx > SDLSIZE) {
       // move the remaining data down
-      memcpy((void *)soundBuf, (void *)&soundBuf[len], bufIdx - len + 1);
-      bufIdx -= len;
+      memcpy((void *)soundBuf, (void *)&soundBuf[SDLSIZE], (bufIdx - SDLSIZE + 1)*SAMPLEBYTES);
+      bufIdx -= SDLSIZE;
     }
   } else {
     if (bufIdx) {
       // partial buffer exists
-      memcpy(stream, (void *)soundBuf, bufIdx);
+      memcpy(stream, (void *)soundBuf, bufIdx*SAMPLEBYTES);
       // and it's a partial underrun. Track the number of samples we skipped
       // so we can keep the audio buffer in sync.
-      skippedSamples += len-bufIdx;
-      memset(&stream[bufIdx], lastKnownSample, len-bufIdx);
+      skippedSamples += SDLSIZE-bufIdx;
+      for (long i=0; i<SDLSIZE-bufIdx; i++) {
+	stream[bufIdx+i] = lastKnownSample;
+      }
       bufIdx = 0;
     } else {
       // No big deal - buffer underrun might just mean nothing
       // is trying to play audio right now.
-      skippedSamples += len;
+      skippedSamples += SDLSIZE;
 
-      memset(stream, 0x80, len);
-      //      memset(stream, lastKnownSample, len);
+      memset(stream, 0, SDLSIZE*SAMPLEBYTES);
+      //      memset(stream, lastKnownSample, SDLSIZE);
       // Trend toward DC voltage = 0v
       //      if (lastKnownSample < 0x7F) lastKnownSample++;
       //      if (lastKnownSample >= 0x80) lastKnownSample--;
@@ -109,7 +113,7 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
     write(outputFD, buf, sizeof(buf));
   }
 			    
-  write(outputFD, (void *)(stream), len);
+  write(outputFD, (void *)(stream), SDLSIZE*SAMPLEBYTES);
 #endif
   
   pthread_mutex_unlock(&togmutex);
@@ -132,14 +136,14 @@ void SDLSpeaker::begin()
   SDL_AudioSpec audioDevice;
   SDL_AudioSpec audioActual;
   SDL_memset(&audioDevice, 0, sizeof(audioDevice));
-  audioDevice.freq = 44100; // count of 8-bit samples
-  audioDevice.format = AUDIO_U8;
+  audioDevice.freq = 44100; // count of 16-bit samples
+  audioDevice.format = AUDIO_S16;
   audioDevice.channels = 1;
-  audioDevice.samples = SDLSIZE; // SDLSIZE 8-bit samples @ 44100Hz: 4096 is about 1/10th second out of sync
+  audioDevice.samples = SDLSIZE; // SDLSIZE 16-bit samples @ 44100Hz: 4096 is about 1/10th second out of sync
   audioDevice.callback = audioCallback;
   audioDevice.userdata = NULL;
 
-  memset((void *)&soundBuf[0], 0, CACHEMULTIPLIER*SDLSIZE);
+  memset((void *)&soundBuf[0], 0, CACHEMULTIPLIER*SDLSIZE*SAMPLEBYTES);
   bufIdx = 0;
   skippedSamples = 0;
   audioRunning = 0;
@@ -151,7 +155,6 @@ void SDLSpeaker::begin()
   SDL_PauseAudio(0);
 }
 
-uint32_t lastFilledTime = 0;
 void SDLSpeaker::toggle(uint32_t c)
 {
   pthread_mutex_lock(&togmutex);
@@ -191,9 +194,9 @@ void SDLSpeaker::toggle(uint32_t c)
     return;
   }
 
-  if (newIdx >= sizeof(soundBuf)) {
-    printf("ERROR: buffer overrun: size %lu idx %d\n", sizeof(soundBuf), newIdx);
-    newIdx = sizeof(soundBuf)-1;
+  if (newIdx >= sizeof(soundBuf)/SAMPLEBYTES) {
+    printf("ERROR: buffer overrun: size %lu idx %d\n", sizeof(soundBuf)/SAMPLEBYTES, newIdx);
+    newIdx = (sizeof(soundBuf)/SAMPLEBYTES)-1;
   }
   lastFilledTime = expectedCycleNumber;
 
@@ -203,7 +206,9 @@ void SDLSpeaker::toggle(uint32_t c)
   // Fill from bufIdx .. newIdx and set bufIdx to newIdx when done.
   if (newIdx > bufIdx) {
     long count = (long)newIdx - bufIdx;
-    memset((void *)&soundBuf[bufIdx], toggleState ? HIGHVAL : LOWVAL, count);
+    for (long i=0; i<count; i++) {
+      soundBuf[bufIdx+i] = toggleState ? HIGHVAL : LOWVAL;
+    }
     bufIdx = newIdx;
   }
 

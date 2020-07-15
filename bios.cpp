@@ -11,6 +11,7 @@
 #include <Bounce2.h>
 #include "teensy-paddles.h"
 extern Bounce resetButtonDebouncer;
+extern void runDebouncer();
 #endif
 
 // Experimenting with using EXTMEM to cache all the filenames in a directory
@@ -302,6 +303,7 @@ uint8_t BIOS::GetAction(int8_t selection)
 #endif
 	   ) {
 #ifdef TEENSYDUINO
+      runDebouncer();
       delay(10);
 #else
       usleep(100);
@@ -313,7 +315,7 @@ uint8_t BIOS::GetAction(int8_t selection)
     if (resetButtonDebouncer.read() == LOW) {
       // wait until it's no longer pressed
       while (resetButtonDebouncer.read() == HIGH)
-	;
+	runDebouncer();
       delay(100); // wait long enough for it to debounce
       // then return an exit code
       return ACT_EXIT;

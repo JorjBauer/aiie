@@ -20,7 +20,8 @@ AudioConnection         patchCord4(mixer1, 0, i2s, 0);
 #define LOWVAL (-0x4FFF)
 
 // Ring buffer that we fill with 44.1kHz data
-#define BUFSIZE 4096
+#define BUFSIZE (4096)
+#define CACHEMULTIPLIER 2
 static volatile uint32_t bufIdx; // 0 .. BUFSIZE-1
 static volatile uint32_t skippedSamples; // Who knows where this will
 					 // wind up (FIXME: eventual
@@ -32,8 +33,11 @@ static volatile uint32_t skippedSamples; // Who knows where this will
 static volatile uint8_t audioRunning = 0; // FIXME: needs constants abstracted
 static volatile uint32_t lastFilledTime = 0;
 
+// how full do we want the audio buffer before we start it playing?
+#define AUDIO_WATERLEVEL 4096
+
 #define SAMPLEBYTES sizeof(short)
-EXTMEM short soundBuf[BUFSIZE];
+EXTMEM short soundBuf[BUFSIZE*CACHEMULTIPLIER];
 
 static bool toggleState = false;
 
@@ -52,6 +56,8 @@ void TeensySpeaker::begin()
 {
   mixer1.gain(0, 0.1f); // left channel
 
+  memset(soundBuf, 0, sizeof(soundBuf));
+  
   toggleState = false;
   bufIdx = 0;
   skippedSamples = 0;
@@ -63,7 +69,6 @@ void TeensySpeaker::toggle(uint32_t c)
   // Figure out when the last time was that we put data in the audio buffer;
   // then figure out how many audio buffer cycles we have to fill from that
   // CPU time to this one.
-#if 1
   __disable_irq();
 
   // We expect to have filled to this cycle number...
@@ -101,12 +106,14 @@ void TeensySpeaker::toggle(uint32_t c)
     // toggling the speaker fast enough that our 44k audio can't keep
     // up with the individual changes is likely to toggle again in a
     // moment without significant distortion?
+    __enable_irq();
     return;
   }
 
-  if (newIdx >= BUFSIZE) {
+  if (newIdx >= sizeof(soundBuf)/SAMPLEBYTES) {
     // Buffer overrun error. Shouldn't happen?
-    newIdx = BUFSIZE - 1;
+    println("OVERRUN");
+    newIdx = (sizeof(soundBuf)/SAMPLEBYTES) - 1;
   }
   lastFilledTime = expectedCycleNumber;
 
@@ -122,7 +129,6 @@ void TeensySpeaker::toggle(uint32_t c)
     bufIdx = newIdx;
   }
   __enable_irq();
-#endif
 }
 
 void TeensySpeaker::maintainSpeaker(uint32_t c, uint64_t microseconds)
@@ -147,71 +153,70 @@ void TeensySpeaker::mixOutput(uint8_t v)
 void TeensyAudio::update(void)
 {
   audio_block_t *block;
-  short *bp;
+  short *stream;
 
   if (audioRunning == 0)
     audioRunning = 1;
-
+  
+  block = allocate();
+  if (!block) {
+    return;
+  }
+  
+  stream = block->data;
+  
   if (g_biosInterrupt) {
     // While the BIOS is running, we don't put samples in the audio queue.
     audioRunning = 0;
-    block = allocate();
-    if (block) {
-      bp = block->data;
-      memset(bp, 0, AUDIO_BLOCK_SAMPLES * SAMPLEBYTES);
-      transmit(block, 0);
-      release(block);
-    }
-    return;
+    memset(stream, 0, AUDIO_BLOCK_SAMPLES * SAMPLEBYTES);
+    goto done;
   }
 
-  if (audioRunning == 1 && bufIdx >= AUDIO_BLOCK_SAMPLES) {
+  if (audioRunning == 1 && bufIdx >= AUDIO_WATERLEVEL) {
     // We have enough samples in the buffer to fill it, so we're fully
     // up and running.
     audioRunning = 2;
   } else if (audioRunning == 1) {
     // Still waiting for the first fill; return an empty buffer.
-    block = allocate();
-    if (block) {
-      bp = block->data;
-      memset(bp, 0, AUDIO_BLOCK_SAMPLES * SAMPLEBYTES);
-      transmit(block, 0);
-      release(block);
-    }
-    return;
+    memset(stream, 0, AUDIO_BLOCK_SAMPLES * SAMPLEBYTES);
+    goto done;
   }
+
+  // FROM THE SOUND OF IT, something below this line isn't filling buffers
+  // completely; or something isn't filling soundBuf completely in toggle().
   
-  block = allocate();
-  if (block) {
-    bp = block->data;
-    static short lastKnownSample = 0;
-    if (bufIdx >= AUDIO_BLOCK_SAMPLES) {
-      memcpy(bp, (void *)soundBuf, AUDIO_BLOCK_SAMPLES * SAMPLEBYTES);
-      lastKnownSample = bp[AUDIO_BLOCK_SAMPLES-1];
+  static short lastKnownSample = 0;
+  
+  if (bufIdx >= AUDIO_BLOCK_SAMPLES) {
+    memcpy(stream, (void *)soundBuf, AUDIO_BLOCK_SAMPLES * SAMPLEBYTES);
+    lastKnownSample = stream[AUDIO_BLOCK_SAMPLES-1];
       
-      if (bufIdx > AUDIO_BLOCK_SAMPLES) {
+    if (bufIdx > AUDIO_BLOCK_SAMPLES) {
 	// move the remaining data down
-	memcpy((void *)soundBuf, (void *)&soundBuf[AUDIO_BLOCK_SAMPLES], (bufIdx - AUDIO_BLOCK_SAMPLES + 1)*SAMPLEBYTES);
-	bufIdx -= AUDIO_BLOCK_SAMPLES;
+      memcpy((void *)soundBuf, (void *)&soundBuf[AUDIO_BLOCK_SAMPLES], (bufIdx - AUDIO_BLOCK_SAMPLES + 1)*SAMPLEBYTES);
+      bufIdx -= AUDIO_BLOCK_SAMPLES;
+    }
+  } else {
+    if (bufIdx) {
+      // partial buffer exists
+      memcpy(stream, (void *)soundBuf, bufIdx * SAMPLEBYTES);
+      // and it's a partial underrun. Track the number of samples we skipped
+      // so we can keep the audio buffer in sync.
+      skippedSamples += AUDIO_BLOCK_SAMPLES - bufIdx;
+      for (int32_t i=0; i<AUDIO_BLOCK_SAMPLES-bufIdx; i++) {
+	stream[i+bufIdx] = lastKnownSample;
       }
     } else {
-      if (bufIdx) {
-	// partial buffer exists
-	memcpy(bp, (void *)soundBuf, bufIdx * SAMPLEBYTES);
-	// and it's a partial underrun. Track the number of samples we skipped
-	// so we can keep the audio buffer in sync.
-	skippedSamples += AUDIO_BLOCK_SAMPLES - bufIdx;
-	for (int32_t i=0; i<AUDIO_BLOCK_SAMPLES-bufIdx; i++) {
-	  bp[i+bufIdx] = lastKnownSample;
-	}
-      } else {
-	// No big deal - buffer underrun might just mean nothing is
-	// trying to play audio right now.
-	skippedSamples += AUDIO_BLOCK_SAMPLES;
-	memset(bp, 0, AUDIO_BLOCK_SAMPLES * SAMPLEBYTES);
+      // No big deal - buffer underrun might just mean nothing is
+      // trying to play audio right now.
+      skippedSamples += AUDIO_BLOCK_SAMPLES;
+      for (int32_t i=0; i<AUDIO_BLOCK_SAMPLES; i++) {
+	stream[i] = 0;
       }
+      //      memset(stream, 0, AUDIO_BLOCK_SAMPLES * SAMPLEBYTES);
     }
-    transmit(block, 0);
-    release(block);
   }
+ done:
+  transmit(block, 0);
+  release(block);
 }

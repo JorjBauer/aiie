@@ -3,9 +3,6 @@
 
 #include <AudioStream.h>
 #include "physicalspeaker.h"
-#include <MCP492X.h>
-
-#define SAMPLERATE 44100
 
 class TeensyAudio : public AudioStream {
  public:
@@ -29,7 +26,6 @@ class TeensySpeaker : public PhysicalSpeaker {
   virtual void mixOutput(uint8_t v);
 
  private:
-  //  bool toggleState;
 
   uint32_t mixerValue;
   uint8_t numMixed;
