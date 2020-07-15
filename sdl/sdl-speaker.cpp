@@ -15,9 +15,11 @@ extern "C"
 
 #include "globals.h"
 
-#define SDLSIZE (4096)
+#define SDLSIZE (2048)
 // But we want to keep more than just that, so we can fill it full every time
 #define CACHEMULTIPLIER 2
+
+#define WATERLEVEL SDLSIZE
 
 // FIXME: Globals; ick.
 static volatile uint32_t bufIdx = 0;
@@ -50,7 +52,7 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
     return;
   }
 
-  if (audioRunning==1 && bufIdx >= SDLSIZE) {
+  if (audioRunning==1 && bufIdx >= WATERLEVEL) {
     // Fully up and running now; we got a full cache
     audioRunning = 2;
   } else if (audioRunning==1) {
