@@ -254,6 +254,7 @@ void runDisplay(uint32_t now)
   static uint32_t microsAtStart = 0;
   static uint32_t microsForNext = micros();
   static uint32_t lastFps = 0;
+  static uint32_t displayFrameCount = 0;
   
   THREADED {
     // If it's time to draw the next frame, then do so
@@ -278,10 +279,21 @@ void runDisplay(uint32_t now)
     
     // Once a second, start counting all over again
     if (now >= nextResetMicros) {
-      lastFps = refreshCount;
+      uint32_t newFrameCount = ((TeensyDisplay *)g_display)->frameCount();
+      
+      // There are two "FPS" counters here, actually. One is how often
+      // we're polling the Apple //e memory to refresh the DMA buffer,
+      // and to show that, we'd use this:
+//      lastFps = refreshCount;
+      // The other is how often the DMA code is refreshing the actual
+      // display, and to show that, we'd use this:
+      lastFps =  newFrameCount - displayFrameCount;
 #ifdef DEBUG_TIMING
-      println("Display running at ", lastFps, " FPS");
+      // ... and this debugging code shows both.
+      println("DMA buffer refresh at ", refreshCount, " FPS");
+      println("Display refresh at ", newFrameCount - displayFrameCount, " FPS");
 #endif
+      displayFrameCount = newFrameCount;
       nextResetMicros = now + 1000000;
       refreshCount = 0;
       microsAtStart = now;

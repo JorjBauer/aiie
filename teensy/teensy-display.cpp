@@ -9,6 +9,7 @@
 
 #define _clock 75000000
 
+
 #define PIN_RST 8
 #define PIN_DC 9
 #define PIN_CS 10
@@ -29,14 +30,15 @@
 #include "globals.h"
 #include "applevm.h"
 
-volatile DMAMEM uint16_t dmaBuffer[240][320]; // 240 rows, 320 columns
+DMAMEM uint16_t dmaBuffer[240][320]; // 240 rows, 320 columns
 
 #define RGBto565(r,g,b) ((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
 #define _565toR(c) ( ((c) & 0xF800) >> 8 )
 #define _565toG(c) ( ((c) & 0x07E0) >> 5 )
 #define _565toB(c) ( ((c) & 0x001F) )
 
-ILI9341_t3 tft = ILI9341_t3(PIN_CS, PIN_DC, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
+//ILI9341_t3 tft = ILI9341_t3(PIN_CS, PIN_DC, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
+ILI9341_t3n tft = ILI9341_t3n(PIN_CS, PIN_DC, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
 
 DMAChannel dmatx;
 DMASetting dmaSetting;
@@ -100,37 +102,10 @@ TeensyDisplay::TeensyDisplay()
 {
   memset(dmaBuffer, 0x80, sizeof(dmaBuffer));
 
-  tft.begin();
+  tft.begin(_clock);
   tft.setRotation(3);
-  tft.setClock(_clock);
-
-  // Set up automatic DMA transfers. cf.
-  // https://forum.pjrc.com/threads/25778-Could-there-be-something-like-an-ISR-template-function/page4
-#if 0
-  dmaSetting.TCD->CSR = 0;
-  dmaSetting.TCD->SADDR = dmaBuffer;
-  dmaSetting.TCD->SOFF = 2; // 2 bytes per pixel
-  dmaSetting.TCD->ATTR_SRC = 1;
-  dmaSetting.TCD->NBYTES = 2;
-  dmaSetting.TCD->SLAST = -320*240*2;
-  dmaSetting.TCD->BITER = 320*240;
-  dmaSetting.TCD->CITER = 320*240;
-
-  dmaSetting.TCD->DADDR = &LPSPI4_TDR; // FIXME is this correct?
-  dmaSetting.TCD->DOFF = 0;
-  dmaSetting.TCD->ATTR_DST = 1;
-  dmaSetting.TCD->DLASTSGA = 0;
-  
-  // Make it loop on itself
-  dmaSetting.replaceSettingsOnCompletion(dmaSetting);
-  
-  dmatx.begin(false);
-  dmatx.triggerAtHardwareEvent(DMAMUX_SOURCE_LPSPI4_TX); // FIXME what's the right source ID
-  dmatx = &dmaSetting;
-#endif
-  
-  // LCD initialization complete
-
+  tft.setFrameBuffer((uint16_t *)dmaBuffer);
+  tft.useFrameBuffer(true);
   tft.fillScreen(ILI9341_BLACK);
 
   driveIndicator[0] = driveIndicator[1] = false;
@@ -181,12 +156,9 @@ void TeensyDisplay::flush()
 
 void TeensyDisplay::blit()
 {
-  // The goal here is for blitting to happen automatically in DMA transfers.
-
-  // Since that isn't the case yet, here's a manual blit of the whole
-  // screen (b/c the rect is kinda meaningless in the final "draw
-  // everything always" DMA mode)
-  tft.writeRect(0,0,320,240,(const uint16_t *)dmaBuffer);
+  // Start DMA transfers if they aren't running
+  if (!tft.asyncUpdateActive())
+    tft.updateScreenAsync(true);
   
   // draw overlay, if any, occasionally
   {
@@ -202,15 +174,7 @@ void TeensyDisplay::blit()
 
 void TeensyDisplay::blit(AiieRect r)
 {
-  // It's probably faster to just blit the whole thing, rather than a piece,
-  // because of how it streams data easily when the buffer aligns properly.
-  tft.writeRect(0,0,320,240,(const uint16_t *)dmaBuffer);
-  
-  // ... but if we wanted to blit just part, we'd have to create a new
-  // subset of teh dmaBuffer that has the right row length to match
-  // the rect width we're blitting, and then do something like this:
-  //
-  //  tft.writeRect(r.left+HOFFSET,,r.top+VOFFSET,r.right-r.left+HOFFSET,r.bottom-r.top+VOFFSET,(const uint16_t *)some_subset_of_dmaBuffer);
+  // Nothing to do here, since we're regularly blitting the whole screen via DMA
 }
 
 void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
@@ -380,4 +344,9 @@ void TeensyDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 #endif
     cacheDoubleWidePixel(x>>1, y, color);
   }
+}
+
+uint32_t TeensyDisplay::frameCount()
+{
+  return tft.frameCount();
 }

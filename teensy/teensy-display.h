@@ -2,11 +2,10 @@
 #define __TEENSY_DISPLAY_H
 
 #include <Arduino.h>
-#include <ILI9341_t3.h>
+#include <ILI9341_t3n.h>
 
 #include "physicaldisplay.h"
 
-class UTFT;
 class BIOS;
 
 class TeensyDisplay : public PhysicalDisplay {
@@ -32,6 +31,7 @@ class TeensyDisplay : public PhysicalDisplay {
   virtual void cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorA, uint8_t colorB);
   virtual void cachePixel(uint16_t x, uint16_t y, uint8_t color);
 
+  uint32_t frameCount();
  private:
   virtual void drawPixel(uint16_t x, uint16_t y, uint16_t color);
   virtual void drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b);
