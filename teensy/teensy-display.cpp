@@ -12,10 +12,10 @@
 
 #define PIN_RST 8
 #define PIN_DC 9
-#define PIN_CS 10
-#define PIN_MOSI 11
-#define PIN_MISO 12
-#define PIN_SCK 13
+#define PIN_CS 0
+#define PIN_MOSI 26
+#define PIN_MISO 1
+#define PIN_SCK 27
 
 // Inside the 320x240 display, the Apple display is 280x192.
 // (That's half the "correct" width, b/c of double-hi-res.)

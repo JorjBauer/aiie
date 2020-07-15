@@ -5,13 +5,14 @@
 #include <SPI.h>
 
 TeensyAudio audioDriver;
-//AudioMixer4             mixer2;                 //xy=280,253
+AudioMixer4             mixer2;                 //xy=280,253
 AudioMixer4             mixer1;                 //xy=280,175
-AudioOutputI2S          i2s;                    //xy=452,189
+//AudioOutputI2S          i2s;                    //xy=452,189
+AudioOutputMQS          i2s;                    //xy=452,189
 
 AudioConnection         patchCord1(audioDriver, 0, mixer1, 0);
-//AudioConnection         patchCord2(audioDriver, 0, mixer2, 0);
-//AudioConnection         patchCord3(mixer2, 0, i2s, 1);
+AudioConnection         patchCord2(audioDriver, 0, mixer2, 0);
+AudioConnection         patchCord3(mixer2, 0, i2s, 1);
 AudioConnection         patchCord4(mixer1, 0, i2s, 0);
 
 #include "globals.h"
@@ -55,6 +56,7 @@ TeensySpeaker::~TeensySpeaker()
 void TeensySpeaker::begin()
 {
   mixer1.gain(0, 0.1f); // left channel
+  mixer1.gain(1, 0.1f); // right channel
 
   memset(soundBuf, 0, sizeof(soundBuf));
   

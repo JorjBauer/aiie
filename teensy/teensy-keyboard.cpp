@@ -16,7 +16,7 @@ char keys[ROWS][COLS] = {
 };
 
 uint8_t rowsPins[ROWS] = { 33, 34, 35, 36, 37 };
-uint8_t colsPins[COLS] = { 0, 1, 3, 4, 24, 25, 26, 27, 28, 29, 30, 31, 32 };
+uint8_t colsPins[COLS] = { 41, 40, 3, 4, 24, 25, 39, 23, 28, 29, 30, 31, 32 }; // 0, 1, 26, 27 are moving to ... 41, 40, 39, 23?
 Keypad keypad(makeKeymap(keys), rowsPins, colsPins, ROWS, COLS);
 LRingBuffer buffer(10); // 10 keys should be plenty, right?
 
