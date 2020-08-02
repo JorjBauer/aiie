@@ -314,7 +314,7 @@ uint8_t BIOS::GetAction(int8_t selection)
 #ifdef TEENSYDUINO
     if (resetButtonDebouncer.read() == LOW) {
       // wait until it's no longer pressed
-      while (resetButtonDebouncer.read() == HIGH)
+      while (resetButtonDebouncer.read() == LOW)
 	runDebouncer();
       delay(100); // wait long enough for it to debounce
       // then return an exit code
