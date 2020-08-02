@@ -17,7 +17,7 @@ class AppleVM : public VM {
   void Suspend(const char *fn);
   void Resume(const char *fn);
 
-  void cpuMaintenance(uint32_t cycles);
+  void cpuMaintenance(int64_t cycles);
 
   virtual void Reset();
   void Monitor();

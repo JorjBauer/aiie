@@ -258,7 +258,7 @@ int main(int argc, char *argv[])
 
   g_speaker->begin();
 
-  uint32_t lastCycleCount = -1;
+  int64_t lastCycleCount = -1;
   while (1) {
 
     if (g_biosInterrupt) {
@@ -293,7 +293,7 @@ int main(int argc, char *argv[])
     }
 
 
-    static uint32_t usleepcycles = 16384*4; // step-down for display drawing. Dynamically updated based on FPS calculations.
+    static int64_t usleepcycles = 16384*4; // step-down for display drawing. Dynamically updated based on FPS calculations.
 
     if (g_vm->vmdisplay->needsRedraw()) {
       AiieRect what = g_vm->vmdisplay->getDirtyRect();
@@ -409,7 +409,7 @@ void doDebugging()
     g_display->debugMsg(buf);
     break;
   case D_SHOWCYCLES:
-    sprintf(buf, "%X", g_cpu->cycles);
+    sprintf(buf, "%llX", g_cpu->cycles);
     g_display->debugMsg(buf);
     break;
     /*

@@ -13,7 +13,7 @@ class AppleKeyboard : public VMKeyboard {
 
   virtual void keyDepressed(uint8_t k);
   virtual void keyReleased(uint8_t k);
-  virtual void maintainKeyboard(uint32_t cycleCount);
+  virtual void maintainKeyboard(int64_t cycleCount);
 
  protected:
   bool isVirtualKey(uint8_t kc);
@@ -49,9 +49,9 @@ class AppleKeyboard : public VMKeyboard {
   // repeatTimer is the cpu cycle count at which we would repeat again.
   // (It also has the rollover problem once every 82 minutes.)
  
-  uint32_t startRepeatTimer;
+  int64_t startRepeatTimer;
   uint8_t keyThatIsRepeating;
-  uint32_t repeatTimer;
+  int64_t repeatTimer;
 };
 
 #endif

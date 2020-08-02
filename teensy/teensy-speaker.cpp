@@ -32,7 +32,7 @@ static volatile uint32_t skippedSamples; // Who knows where this will
 					 // too long & restart all the
 					 // constants)
 static volatile uint8_t audioRunning = 0; // FIXME: needs constants abstracted
-static volatile uint32_t lastFilledTime = 0;
+static volatile int64_t lastFilledTime = 0;
 
 // how full do we want the audio buffer before we start it playing?
 #define AUDIO_WATERLEVEL 4096
@@ -66,7 +66,7 @@ void TeensySpeaker::begin()
   audioRunning = 0;
 }
 
-void TeensySpeaker::toggle(uint32_t c)
+void TeensySpeaker::toggle(int64_t c)
 {
   // Figure out when the last time was that we put data in the audio buffer;
   // then figure out how many audio buffer cycles we have to fill from that
@@ -74,7 +74,7 @@ void TeensySpeaker::toggle(uint32_t c)
   __disable_irq();
 
   // We expect to have filled to this cycle number...
-  uint32_t expectedCycleNumber = (float)c  * (float)AUDIO_SAMPLE_RATE_EXACT / (float)g_speed;
+  int64_t expectedCycleNumber = (float)c  * (float)AUDIO_SAMPLE_RATE_EXACT / (float)g_speed;
   // Dynamically initialize the lastFilledTime based on the start time of the
   // audio channel.
   if (lastFilledTime == 0)
@@ -133,7 +133,7 @@ void TeensySpeaker::toggle(uint32_t c)
   __enable_irq();
 }
 
-void TeensySpeaker::maintainSpeaker(uint32_t c, uint64_t microseconds)
+void TeensySpeaker::maintainSpeaker(int64_t c, uint64_t microseconds)
 {
   begin(); // flush! Hack. FIXME.
 }

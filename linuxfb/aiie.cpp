@@ -90,7 +90,7 @@ void write(void *arg, uint16_t address, uint8_t v)
 static void *cpu_thread(void *dummyptr) {
   struct timespec currentTime;
   struct timespec nextCycleTime;
-  uint32_t nextSpeakerCycle = 0;
+  int64_t nextSpeakerCycle = 0;
 
 #if 0
   int policy;

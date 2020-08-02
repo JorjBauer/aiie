@@ -127,7 +127,7 @@ void AppleVM::triggerPaddleInCycles(uint8_t paddleNum,uint16_t cycleCount)
   paddleCycleTrigger[paddleNum] = cycleCount + g_cpu->cycles;
 }
 
-void AppleVM::cpuMaintenance(uint32_t cycles)
+void AppleVM::cpuMaintenance(int64_t cycles)
 {
   for (uint8_t i=0; i<2; i++) {
     if (paddleCycleTrigger[i] && cycles >= paddleCycleTrigger[i]) {

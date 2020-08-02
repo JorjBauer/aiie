@@ -29,7 +29,7 @@ static volatile uint32_t skippedSamples = 0;
 #define SAMPLEBYTES sizeof(short)
 
 volatile uint8_t audioRunning = 0;
-volatile uint32_t lastFilledTime = 0;
+volatile int64_t lastFilledTime = 0;
 
 
 // Debugging by writing a wav file with the sound output...
@@ -157,11 +157,11 @@ void SDLSpeaker::begin()
   SDL_PauseAudio(0);
 }
 
-void SDLSpeaker::toggle(uint32_t c)
+void SDLSpeaker::toggle(int64_t c)
 {
   pthread_mutex_lock(&togmutex);
 
-  uint32_t expectedCycleNumber = (float)c * (float)44100 / (float)g_speed;
+  int64_t expectedCycleNumber = (float)c * (float)44100 / (float)g_speed;
   if (lastFilledTime == 0) {
     lastFilledTime = expectedCycleNumber;
   }
@@ -217,7 +217,7 @@ void SDLSpeaker::toggle(uint32_t c)
   pthread_mutex_unlock(&togmutex);
 }
 
-void SDLSpeaker::maintainSpeaker(uint32_t c, uint64_t microseconds)
+void SDLSpeaker::maintainSpeaker(int64_t c, uint64_t microseconds)
 {
 }
 

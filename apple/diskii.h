@@ -35,7 +35,7 @@ class DiskII : public Slot {
 
   const char *DiskName(int8_t num);
 
-  void maintenance(uint32_t cycles);
+  void maintenance(int64_t cycles);
 
   uint8_t selectedDrive();
   uint8_t headPosition(uint8_t drive);
@@ -66,18 +66,18 @@ private:
   volatile int8_t curPhase[2];
   volatile uint8_t readWriteLatch;
   volatile uint8_t sequencer, dataRegister; // diskII logic state sequencer vars
-  volatile uint64_t driveSpinupCycles[2];
-  volatile uint64_t deliveredDiskBits[2];
+  volatile int64_t driveSpinupCycles[2];
+  volatile int64_t deliveredDiskBits[2];
   
   bool writeMode;
   bool writeProt;
   AppleMMU *mmu;
 
-  volatile uint32_t diskIsSpinningUntil[2];
+  volatile int64_t diskIsSpinningUntil[2];
 
   volatile int8_t selectedDisk;
 
-  volatile uint32_t flushAt[2];
+  volatile int64_t flushAt[2];
 };
 
 #endif

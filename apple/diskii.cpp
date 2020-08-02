@@ -26,6 +26,9 @@
 // 10 second delay before flushing
 #define FLUSHDELAY (1023000 * 10)
 
+#define SPINFOREVER -2
+#define NOTSPINNING -1
+
 DiskII::DiskII(AppleMMU *mmu)
 {
   this->mmu = mmu;
@@ -39,11 +42,11 @@ DiskII::DiskII(AppleMMU *mmu)
   readWriteLatch = 0x00;
   sequencer = 0;
   dataRegister = 0;
-  driveSpinupCycles[0] = driveSpinupCycles[1] = 0;
+  driveSpinupCycles[0] = driveSpinupCycles[1] = 0; // CPU cycle number when the disk drive spins up
   deliveredDiskBits[0] = deliveredDiskBits[1] = 0;
 
   disk[0] = disk[1] = NULL;
-  diskIsSpinningUntil[0] = diskIsSpinningUntil[1] = 0;
+  diskIsSpinningUntil[0] = diskIsSpinningUntil[1] = -1;
   flushAt[0] = flushAt[1] = 0;
   selectedDisk = 0;
 }
@@ -54,7 +57,7 @@ DiskII::~DiskII()
 
 bool DiskII::Serialize(int8_t fd)
 {
-  uint8_t buf[23] = { DISKIIMAGIC,
+  uint8_t buf[27] = { DISKIIMAGIC,
 		      readWriteLatch,
 		      sequencer,
 		      dataRegister,
@@ -87,13 +90,17 @@ bool DiskII::Serialize(int8_t fd)
     buf[ptr++] = ((deliveredDiskBits[i] >> 16) & 0xFF);
     buf[ptr++] = ((deliveredDiskBits[i] >>  8) & 0xFF);
     buf[ptr++] = ((deliveredDiskBits[i]      ) & 0xFF);
+    buf[ptr++] = (diskIsSpinningUntil[i] >> 56) & 0xFF;
+    buf[ptr++] = (diskIsSpinningUntil[i] >> 48) & 0xFF;
+    buf[ptr++] = (diskIsSpinningUntil[i] >> 40) & 0xFF;
+    buf[ptr++] = (diskIsSpinningUntil[i] >> 32) & 0xFF;
     buf[ptr++] = (diskIsSpinningUntil[i] >> 24) & 0xFF;
     buf[ptr++] = (diskIsSpinningUntil[i] >> 16) & 0xFF;
     buf[ptr++] = (diskIsSpinningUntil[i] >>  8) & 0xFF;
     buf[ptr++] = (diskIsSpinningUntil[i]      ) & 0xFF;
-    // Safety check: keeping the hard-coded 23 and comparing against ptr.
-    // If we change the 23, also need to change the size of buf[] above
-    if (g_filemanager->write(fd, buf, 23) != ptr) {
+    // Safety check: keeping the hard-coded 27 and comparing against ptr.
+    // If we change the 27, also need to change the size of buf[] above
+    if (g_filemanager->write(fd, buf, 27) != ptr) {
       return false;
     }
     
@@ -144,7 +151,7 @@ bool DiskII::Deserialize(int8_t fd)
 
   for (int i=0; i<2; i++) {
     uint8_t ptr = 0;
-    if (g_filemanager->read(fd, buf, 23) != 23)
+    if (g_filemanager->read(fd, buf, 27) != 27)
       return false;
 
     curHalfTrack[i] = buf[ptr++];
@@ -170,6 +177,10 @@ bool DiskII::Deserialize(int8_t fd)
     deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
 
     diskIsSpinningUntil[i] = buf[ptr++];
+    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
+    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
+    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
+    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
     diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
     diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
     diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
@@ -228,12 +239,8 @@ void DiskII::Reset()
 
 void DiskII::driveOff()
 {
-  if (diskIsSpinningUntil[selectedDisk] == -1) {
+  if (diskIsSpinningUntil[selectedDisk] == SPINFOREVER) {
     diskIsSpinningUntil[selectedDisk] = g_cpu->cycles + SPINDOWNDELAY; // 1 second lag
-    if (diskIsSpinningUntil[selectedDisk] == -1 ||
-	diskIsSpinningUntil[selectedDisk] == 0)
-      diskIsSpinningUntil[selectedDisk] = 2; // fudge magic numbers; 0 is "off" and -1 is "forever".
-
     // The drive-is-on-indicator is turned off later, when the disk
     // actually spins down.
   }
@@ -247,13 +254,13 @@ void DiskII::driveOff()
 
 void DiskII::driveOn()
 {
-  if (diskIsSpinningUntil[selectedDisk] != -1) {
+  if (diskIsSpinningUntil[selectedDisk] != SPINFOREVER) {
     // If the drive isn't already spinning, then start keeping track of how
     // many bits we've delivered (so we can honor the disk bit-delivery time
     // that might be in the Woz disk image).
     driveSpinupCycles[selectedDisk] = g_cpu->cycles;
     deliveredDiskBits[selectedDisk] = 0;
-    diskIsSpinningUntil[selectedDisk] = -1; // magic "forever"
+    diskIsSpinningUntil[selectedDisk] = SPINFOREVER;
   }
   // FIXME: does the sequencer get reset? Maybe if it's the selected disk? Or no?
   // sequencer = 0;
@@ -301,9 +308,6 @@ uint8_t DiskII::readSwitches(uint8_t s)
   case 0x0C: // shift one read or write byte
     readWriteLatch = readOrWriteByte();
     if (readWriteLatch & 0x80) {
-      //      static uint32_t lastC = 0;
-      //      printf("%u: read data\n", g_cpu->cycles - lastC);
-      //      lastC = g_cpu->cycles;
       if (!(sequencer & 0x80)) {
 	//	printf("SEQ RESET EARLY [1]\n");
       }
@@ -478,17 +482,10 @@ bool DiskII::isWriteProtected()
 int64_t DiskII::calcExpectedBits()
 {
   // If the disk isn't spinning, then it can't be expected to deliver data
-  if (!diskIsSpinningUntil[selectedDisk])
+  if (diskIsSpinningUntil[selectedDisk]==NOTSPINNING)
     return 0;
 
-  // Handle potential messy counter rollover
-  if (driveSpinupCycles[selectedDisk] > g_cpu->cycles) {
-    driveSpinupCycles[selectedDisk] = g_cpu->cycles-1;
-    if (driveSpinupCycles[selectedDisk] == 0) // avoid sitting on 0
-      driveSpinupCycles[selectedDisk]++;
-  }
-
-  uint32_t cyclesPassed = g_cpu->cycles - driveSpinupCycles[selectedDisk];
+  int64_t cyclesPassed = g_cpu->cycles - driveSpinupCycles[selectedDisk];
   // This constant defines how fast the disk drive "spins".
   // 4.0 is good for DOS 3.3 writes, and reads as 205ms in
   //   Copy 2+'s drive speed verifier.
@@ -500,7 +497,7 @@ int64_t DiskII::calcExpectedBits()
   // As-is, this won't read NIB files for some reason I haven't
   // fully understood; but if you slow the disk down to /5.0,
   // then they load?
-  uint64_t expectedDiskBits = (float)cyclesPassed / 3.90;
+  int64_t expectedDiskBits = (float)cyclesPassed / 3.90;
 
   return expectedDiskBits - deliveredDiskBits[selectedDisk];
 }
@@ -585,19 +582,19 @@ void DiskII::select(int8_t which)
     return;
 
   if (which != selectedDisk) {
-    if (diskIsSpinningUntil[selectedDisk] == -1) {
+    if (diskIsSpinningUntil[selectedDisk] == SPINFOREVER) {
       // FIXME: I'm not sure what the right behavior is here (read
       // UTA2E and see if the state diagrams show the right
       // behavior). This spins it down immediately based on something
       // I read about the duoDisk not having both motors on
       // simultaneously.
-      diskIsSpinningUntil[selectedDisk] = 0;
+      diskIsSpinningUntil[selectedDisk] = NOTSPINNING;
       // FIXME: consume any disk bits that need to be consumed, and
       // spin it down
       g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false);
 
       // Spin up the other one though
-      diskIsSpinningUntil[which] = -1;
+      diskIsSpinningUntil[which] = SPINFOREVER;
       g_ui->drawOnOffUIElement(UIeDisk1_activity + which, true);
     }
     
@@ -625,13 +622,13 @@ void DiskII::select(int8_t which)
 uint8_t DiskII::readOrWriteByte()
 {
   if (!disk[selectedDisk]) {
-    //printf("reading from uninserted disk\n");
     return 0xFF;
   }
 
   int32_t bitsToDeliver;
   
-  if (diskIsSpinningUntil[selectedDisk] < g_cpu->cycles) {
+  if (diskIsSpinningUntil[selectedDisk] != SPINFOREVER &&
+      diskIsSpinningUntil[selectedDisk] < g_cpu->cycles) {
     // Uum, disk isn't spinning?
     goto done;
   }
@@ -740,15 +737,15 @@ void DiskII::loadROM(uint8_t *toWhere)
 #endif
 }
 
-void DiskII::maintenance(uint32_t cycle)
+void DiskII::maintenance(int64_t cycle)
 {
   // Handle spin-down for the drive. Drives stay on for a second after
   // the stop was noticed.
   for (int i=0; i<2; i++) {
-    if (diskIsSpinningUntil[i] && 
+    if (diskIsSpinningUntil[i] != SPINFOREVER && 
 	g_cpu->cycles > diskIsSpinningUntil[i]) {
       // Stop the given disk drive spinning
-      diskIsSpinningUntil[i] = 0;
+      diskIsSpinningUntil[i] = NOTSPINNING;
       // FIXME: consume any disk bits that need to be consumed, and spin it down
       g_ui->drawOnOffUIElement(UIeDisk1_activity + i, false);
     }

@@ -9,7 +9,7 @@ class VMKeyboard {
 
   virtual void keyDepressed(uint8_t k) = 0;
   virtual void keyReleased(uint8_t k) = 0;
-  virtual void maintainKeyboard(uint32_t cycleCount) = 0;
+  virtual void maintainKeyboard(int64_t cycleCount) = 0;
 };
 
 #endif

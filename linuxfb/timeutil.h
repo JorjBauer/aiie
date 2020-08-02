@@ -34,7 +34,7 @@ static int do_gettime(struct timespec *tp) {
 // adds the number of nanoseconds that 'cycles' takes to *start and
 // returns it in *out
 static void timespec_add_cycles(struct timespec *start,
-			 int32_t cycles,
+			 int64_t cycles,
 			 struct timespec *out)
 {
   out->tv_sec = start->tv_sec;

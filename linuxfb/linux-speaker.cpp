@@ -18,11 +18,11 @@ void LinuxSpeaker::begin()
 {
 }
 
-void LinuxSpeaker::toggle(uint32_t c)
+void LinuxSpeaker::toggle(int64_t c)
 {
 }
 
-void LinuxSpeaker::maintainSpeaker(uint32_t c, uint64_t microseconds)
+void LinuxSpeaker::maintainSpeaker(int64_t c, uint64_t microseconds)
 {
 }
 

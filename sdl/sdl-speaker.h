@@ -12,8 +12,8 @@ class SDLSpeaker : public PhysicalSpeaker {
 
   virtual void begin();
 
-  virtual void toggle(uint32_t c);
-  virtual void maintainSpeaker(uint32_t c, uint64_t microseconds);
+  virtual void toggle(int64_t c);
+  virtual void maintainSpeaker(int64_t c, uint64_t microseconds);
   virtual void beginMixing();
   virtual void mixOutput(uint8_t v);
 

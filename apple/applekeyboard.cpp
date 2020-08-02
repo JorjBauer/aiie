@@ -172,7 +172,7 @@ void AppleKeyboard::keyReleased(uint8_t k)
   }  
 }
 
-void AppleKeyboard::maintainKeyboard(uint32_t cycleCount)
+void AppleKeyboard::maintainKeyboard(int64_t cycleCount)
 {
   if (anyKeyIsDown) {
     if (startRepeatTimer) {

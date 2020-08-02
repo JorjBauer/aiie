@@ -183,7 +183,7 @@ class Cpu {
   uint8_t y;
   uint8_t flags;
 
-  uint32_t cycles;
+  int64_t cycles;
 
   bool irqPending;
   
