@@ -376,7 +376,7 @@ void doDebugging(uint32_t lastFps)
     g_display->debugMsg(debugBuf);
     break;
   case D_SHOWCYCLES:
-    sprintf(debugBuf, "%lX", g_cpu->cycles);
+    sprintf(debugBuf, "%llX", g_cpu->cycles);
     g_display->debugMsg(debugBuf);
     break;
   case D_SHOWTIME:
