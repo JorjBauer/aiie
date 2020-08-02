@@ -210,9 +210,9 @@ int NixFileManager::write(int8_t fd, const void *buf, int nbyte)
       close(ffd);
       return -1;
     }
-    ret = ::write(ffd, buf, nbyte);
-    if (ret != nbyte) {
-      printf("error writing: %d\n", errno);
+    ssize_t rv = ::write(ffd, buf, nbyte);
+    if (rv != nbyte) {
+      printf("error writing: %d; wanted to write %d got %d\n", errno, nbyte, ret);
     }
     close(ffd);
   } else {
