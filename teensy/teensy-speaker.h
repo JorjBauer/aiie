@@ -27,8 +27,8 @@ class TeensySpeaker : public PhysicalSpeaker {
 
  private:
 
-  uint32_t mixerValue;
-  uint8_t numMixed;
+   uint8_t mixerValue;
+   bool toggleState;
 };
 
 #endif

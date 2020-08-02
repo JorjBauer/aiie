@@ -10,8 +10,8 @@ extern "C"
 };
 
 // What values do we use for logical speaker-high and speaker-low?
-#define HIGHVAL (0x1FFF)
-#define LOWVAL (-(0x1FFF))
+#define HIGHVAL (0x4FFF)
+#define LOWVAL (-(0x4FFF))
 
 #include "globals.h"
 
@@ -21,11 +21,13 @@ extern "C"
 
 #define WATERLEVEL SDLSIZE
 
+#define AUDIO_SAMPLE_RATE_EXACT 44100
+
 // FIXME: Globals; ick.
 static volatile uint32_t bufIdx = 0;
 static volatile short soundBuf[CACHEMULTIPLIER*SDLSIZE];
 static pthread_mutex_t togmutex = PTHREAD_MUTEX_INITIALIZER;
-static volatile uint32_t skippedSamples = 0;
+static volatile uint64_t skippedSamples = 0;
 #define SAMPLEBYTES sizeof(short)
 
 volatile uint8_t audioRunning = 0;
@@ -63,7 +65,7 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
   
   static short lastKnownSample = 0; // saved for when the apple is quiescent
 
-  if (bufIdx >= SDLSIZE) {
+  if (bufIdx >= SDLSIZE) { // technically 'len/SAMPLEBYTES' but it should always be constant I think?
     memcpy(stream, (void *)soundBuf, SDLSIZE*SAMPLEBYTES);
     lastKnownSample = stream[SDLSIZE-1];
 
@@ -138,7 +140,7 @@ void SDLSpeaker::begin()
   SDL_AudioSpec audioDevice;
   SDL_AudioSpec audioActual;
   SDL_memset(&audioDevice, 0, sizeof(audioDevice));
-  audioDevice.freq = 44100; // count of 16-bit samples
+  audioDevice.freq = AUDIO_SAMPLE_RATE_EXACT; // count of 16-bit samples
   audioDevice.format = AUDIO_S16;
   audioDevice.channels = 1;
   audioDevice.samples = SDLSIZE; // SDLSIZE 16-bit samples @ 44100Hz: 4096 is about 1/10th second out of sync
@@ -161,13 +163,13 @@ void SDLSpeaker::toggle(int64_t c)
 {
   pthread_mutex_lock(&togmutex);
 
-  int64_t expectedCycleNumber = (float)c * (float)44100 / (float)g_speed;
+  int64_t expectedCycleNumber = (float)c * (float)AUDIO_SAMPLE_RATE_EXACT / (float)g_speed;
   if (lastFilledTime == 0) {
     lastFilledTime = expectedCycleNumber;
   }
   // This subtracts skippedSamples because those were filled automatically
   // by the audioCallback when we had no data.
-  int32_t audioBufferSamples = expectedCycleNumber - lastFilledTime - skippedSamples;
+  int64_t audioBufferSamples = expectedCycleNumber - lastFilledTime - skippedSamples;
   // If audioBufferSamples < 0, then we need to keep some
   // skippedSamples for later; otherwise we can keep moving forward.
   if (audioBufferSamples < 0) {

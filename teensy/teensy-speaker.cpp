@@ -24,13 +24,8 @@ AudioConnection         patchCord4(mixer1, 0, i2s, 0);
 #define BUFSIZE (4096)
 #define CACHEMULTIPLIER 2
 static volatile uint32_t bufIdx; // 0 .. BUFSIZE-1
-static volatile uint32_t skippedSamples; // Who knows where this will
-					 // wind up (FIXME: eventual
-					 // rollover means we need a
-					 // way to purge the queue
-					 // when it's quiescent for
-					 // too long & restart all the
-					 // constants)
+static volatile uint64_t skippedSamples; // Who knows where this will
+					 // wind up
 static volatile uint8_t audioRunning = 0; // FIXME: needs constants abstracted
 static volatile int64_t lastFilledTime = 0;
 
@@ -45,7 +40,8 @@ static bool toggleState = false;
 TeensySpeaker::TeensySpeaker(uint8_t sda, uint8_t scl) : PhysicalSpeaker()
 {
   toggleState = false;
-  mixerValue = numMixed = 0;
+  mixerValue = 0x80;
+
   AudioMemory(8);
 }
 
@@ -55,8 +51,8 @@ TeensySpeaker::~TeensySpeaker()
 
 void TeensySpeaker::begin()
 {
-  mixer1.gain(0, 0.1f); // left channel
-  mixer1.gain(1, 0.1f); // right channel
+  mixer1.gain(0, 0.1f); // left channel (off for now)
+  mixer1.gain(1, 0.1f); // right channel (full volume for now)
 
   memset(soundBuf, 0, sizeof(soundBuf));
   
@@ -83,7 +79,7 @@ void TeensySpeaker::toggle(int64_t c)
   // and we have filled to cycle number lastFilledTime. So how many do
   // we need?  This subtracts skippedSamples because those were filled
   // automatically by the audioCallback when we had no data.
-  int32_t audioBufferSamples = expectedCycleNumber - lastFilledTime - skippedSamples;
+  int64_t audioBufferSamples = expectedCycleNumber - lastFilledTime - skippedSamples;
   // If audioBufferSamples < 0, then we need to keep some
   // skippedSamples for later; otherwise we can keep moving forward.
   if (audioBufferSamples < 0) {
@@ -184,10 +180,7 @@ void TeensyAudio::update(void)
     goto done;
   }
 
-  // FROM THE SOUND OF IT, something below this line isn't filling buffers
-  // completely; or something isn't filling soundBuf completely in toggle().
-  
-  static short lastKnownSample = 0;
+  static short lastKnownSample = 0; // saved for when the apple is quiescent
   
   if (bufIdx >= AUDIO_BLOCK_SAMPLES) {
     memcpy(stream, (void *)soundBuf, AUDIO_BLOCK_SAMPLES * SAMPLEBYTES);
@@ -208,6 +201,7 @@ void TeensyAudio::update(void)
       for (int32_t i=0; i<AUDIO_BLOCK_SAMPLES-bufIdx; i++) {
 	stream[i+bufIdx] = lastKnownSample;
       }
+      bufIdx = 0;
     } else {
       // No big deal - buffer underrun might just mean nothing is
       // trying to play audio right now.
