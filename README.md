@@ -335,5 +335,12 @@ while the third says
     Test complete. Result: passed
 
 
+# Caveats
+
+For the Teensy 4, the SdFat library no longer works. SdFat-beta does:
+
+    https://github.com/greiman/SdFat-beta
+
+... but with a big caveat. The Teensy Audio library has two AudioStream objects that include SD.h, which causes a conflict. To get around the conflict, I have locally converted those two modules to also use SdFat-beta by (1) replacing the #include "SD.h" with #include "SdFat.h"; and (2) in both of the related .cpp files, added "SdFat SD;" after the includes. This is not ideal.
 
 
