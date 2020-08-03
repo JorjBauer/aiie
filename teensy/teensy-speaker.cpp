@@ -2,7 +2,6 @@
 #include "teensy-speaker.h"
 #include "teensy-println.h"
 #include <Audio.h>
-#include <SPI.h>
 
 TeensyAudio audioDriver;
 AudioMixer4             mixer2;                 //xy=280,253
