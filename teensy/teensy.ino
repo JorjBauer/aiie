@@ -1,6 +1,4 @@
 #include <Arduino.h>
-#include <Audio.h>
-#include <SPI.h>
 #include <TimeLib.h>
 #include <Bounce2.h>
 #include "bios.h"
