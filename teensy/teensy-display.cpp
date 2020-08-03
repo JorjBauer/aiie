@@ -211,11 +211,15 @@ void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
 
   for (int8_t y_off = 0; y_off <= ysize; y_off++) {
     uint8_t ch = pgm_read_byte(&BiosFont[temp]);
-    for (int8_t x_off = 0; x_off <= xsize; x_off++) {
-      if (ch & (1 << (7-x_off))) {
-	dmaBuffer[y+y_off][x+x_off] = onPixel;
-      } else {
-	dmaBuffer[y+y_off][x+x_off] = offPixel;
+    if (y + y_off < 240) { // FIXME constant
+      for (int8_t x_off = 0; x_off <= xsize; x_off++) {
+	if (x+x_off < 320) { // FIXME constant
+	  if (ch & (1 << (7-x_off))) {
+	    dmaBuffer[y+y_off][x+x_off] = onPixel;
+	  } else {
+	    dmaBuffer[y+y_off][x+x_off] = offPixel;
+	  }
+	}
       }
     }
     temp++;
@@ -229,6 +233,7 @@ void TeensyDisplay::drawString(uint8_t mode, uint16_t x, uint8_t y, const char *
   for (int8_t i=0; i<strlen(str); i++) {
     drawCharacter(mode, x, y, str[i]);
     x += xsize; // fixme: any inter-char spacing?
+    if (x >= 320) break; // FIXME constant
   }
 }
 
