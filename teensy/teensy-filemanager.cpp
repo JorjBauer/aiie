@@ -4,6 +4,13 @@
 #include <string.h> // strcpy
 #include "teensy-println.h"
 
+/* FIXME globals */
+static SdFat sd;
+static File cacheFile;
+static File outerDir;
+
+
+
 TeensyFileManager::TeensyFileManager()
 {
   numCached = 0;
@@ -11,7 +18,7 @@ TeensyFileManager::TeensyFileManager()
   // FIXME: used to have 'enabled = sd.begin()' here, but we weren't
   // using the enabled flag, so I've removed it to save the RAM for
   // now; but eventually we need better error handling here
-  SD.begin(BUILTIN_SDCARD);
+  sd.begin(SdioConfig(FIFO_SDIO));
 }
 
 TeensyFileManager::~TeensyFileManager()
@@ -72,8 +79,6 @@ const char *TeensyFileManager::fileName(int8_t fd)
   return cachedNames[fd];
 }
 
-File outerDir;
-
 void TeensyFileManager::closeDir()
 {
   // FIXME: this should Threads::Scope lock, but it's being called
@@ -90,9 +95,14 @@ int16_t TeensyFileManager::readDir(const char *where, const char *suffix, char *
   if (startIdx == 0 || !outerDir) {
     if (outerDir)
       closeDir();
-    outerDir = SD.open(where, FILE_READ);
-    if (!outerDir)
+    char buf[255];
+    strcpy(buf, where);
+    if (strlen(buf) > 1 && buf[strlen(buf)-1] == '/') {
+      buf[strlen(buf)-1] = 0;
+    }
+    if (!outerDir.open(buf, O_RDONLY)) {
       return -1;
+    }
     if (strcmp(where, "/")) { // FIXME: is this correct for the root?
       strcpy(outputFN, "../");
       return 0;
@@ -101,17 +111,14 @@ int16_t TeensyFileManager::readDir(const char *where, const char *suffix, char *
 
   outputFN[0] = '\0';
 
-  while (1) {
-    File e = outerDir.openNextFile();
-    if (!e) {
-      // No more - all done.
-      closeDir();
-      return -1;
-    }
+  File e;
+  while (e.openNext(&outerDir, O_RDONLY)) {
 
     // Skip MAC fork files
     // FIXME: strncpy
     strcpy(outputFN, e.name()); // and we need maxlen-1 for trailing '/' on directories
+    e.getName(outputFN, maxlen-1); // -1 for trailing '/' on directories
+
     if (outputFN[0] == '.') {
       e.close();
       continue;
@@ -153,7 +160,10 @@ int16_t TeensyFileManager::readDir(const char *where, const char *suffix, char *
     return startIdx;
   }
 
-  /* NOTREACHED */
+  /* Reached the end of the files */
+  
+  closeDir();
+  return -1;
 }
 
 bool TeensyFileManager::_prepCache(int8_t fd)
@@ -169,7 +179,7 @@ bool TeensyFileManager::_prepCache(int8_t fd)
     }
 
     // Open the new one
-    cacheFile = SD.open(cachedNames[fd], FILE_WRITE);
+    cacheFile.open(cachedNames[fd], O_RDWR);
     if (!cacheFile) {
       return false;
     }
@@ -201,7 +211,8 @@ bool TeensyFileManager::setSeekPosition(int8_t fd, uint32_t pos)
 // FIXME: this should be private
 void TeensyFileManager::seekToEnd(int8_t fd)
 {
-  File f = SD.open(cachedNames[fd], FILE_READ);
+  File f;
+  f.open(cachedNames[fd], O_RDONLY);
   if (!f) {
     return;
   }

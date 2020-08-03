@@ -3,7 +3,7 @@
 
 #include "filemanager.h"
 #include <stdint.h>
-#include <SD.h>
+#include <SdFat.h>
 #include <SPI.h>
 
 class TeensyFileManager : public FileManager {
@@ -35,7 +35,6 @@ class TeensyFileManager : public FileManager {
   int8_t numCached;
 
   int8_t cacheFd;
-  File cacheFile;
 };
 
 #endif
