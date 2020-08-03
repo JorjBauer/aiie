@@ -16,10 +16,12 @@
 
 //#define DEBUG_TIMING
 
-#define THREADED if (1)
-
 #if F_CPU < 240000000
 #pragma AiiE warning: performance will improve if you overclock the Teensy to 240MHz (F_CPU=240MHz) or 256MHz (F_CPU=256MHz)
+#endif
+
+#if F_CPU == 600000000
+#pragma AiiE suggestion: if you underclock to 528MHz (F_CPU=528MHz) then it will use significantly less power, and still perform perfectly
 #endif
 
 #define RESETPIN 38
@@ -226,18 +228,16 @@ void runMaintenance(uint32_t now)
 {
   static uint32_t nextRuntime = 0;
   
-  THREADED {
-    if (now >= nextRuntime) {
-      nextRuntime = now + 100000; // FIXME: what's a good time here? 1/10 sec?
-
-      if (!resetButtonDebouncer.read()) {
-	// This is the BIOS interrupt. We immediately act on it.
-	biosInterrupt();
-      }
-      
-      g_keyboard->maintainKeyboard();
-      usb.maintain();
+  if (now >= nextRuntime) {
+    nextRuntime = now + 100000; // FIXME: what's a good time here? 1/10 sec?
+    
+    if (!resetButtonDebouncer.read()) {
+      // This is the BIOS interrupt. We immediately act on it.
+      biosInterrupt();
     }
+    
+    g_keyboard->maintainKeyboard();
+    usb.maintain();
   }
 }
 
@@ -254,66 +254,63 @@ void runDisplay(uint32_t now)
   static uint32_t lastFps = 0;
   static uint32_t displayFrameCount = 0;
   
-  THREADED {
-    // If it's time to draw the next frame, then do so
-    if (now >= microsForNext) {
-      refreshCount++;
-      microsForNext = microsAtStart + (1000000.0*((float)refreshCount/(float)TARGET_FPS));
-
-      doDebugging(lastFps);
-      
-      g_ui->blit();
-      g_vm->vmdisplay->lockDisplay();
-      if (g_vm->vmdisplay->needsRedraw()) { // necessary for the VM to redraw
-	// Used to get the dirty rect and blit just that rect. Could still do,
-	// but instead, I'm just wildly wasting resources. MWAHAHAHA
-	//    AiieRect what = g_vm->vmdisplay->getDirtyRect();
-	g_vm->vmdisplay->didRedraw();
-	//    g_display->blit(what);
-      }
-      g_display->blit(); // Blit the whole thing, including UI area
-	g_vm->vmdisplay->unlockDisplay();
-    }
+  // If it's time to draw the next frame, then do so
+  if (now >= microsForNext) {
+    refreshCount++;
+    microsForNext = microsAtStart + (1000000.0*((float)refreshCount/(float)TARGET_FPS));
     
-    // Once a second, start counting all over again
-    if (now >= nextResetMicros) {
-      uint32_t newFrameCount = ((TeensyDisplay *)g_display)->frameCount();
-      
-      // There are two "FPS" counters here, actually. One is how often
-      // we're polling the Apple //e memory to refresh the DMA buffer,
-      // and to show that, we'd use this:
-//      lastFps = refreshCount;
-      // The other is how often the DMA code is refreshing the actual
-      // display, and to show that, we'd use this:
-      lastFps =  newFrameCount - displayFrameCount;
-#ifdef DEBUG_TIMING
-      // ... and this debugging code shows both.
-      println("DMA buffer refresh at ", refreshCount, " FPS");
-      println("Display refresh at ", newFrameCount - displayFrameCount, " FPS");
-#endif
-      displayFrameCount = newFrameCount;
-      nextResetMicros = now + 1000000;
-      refreshCount = 0;
-      microsAtStart = now;
-      microsForNext = microsAtStart + (1000000.0*((float)refreshCount/(float)TARGET_FPS));
+    doDebugging(lastFps);
+    
+    g_ui->blit();
+    g_vm->vmdisplay->lockDisplay();
+    if (g_vm->vmdisplay->needsRedraw()) { // necessary for the VM to redraw
+      // Used to get the dirty rect and blit just that rect. Could still do,
+      // but instead, I'm just wildly wasting resources. MWAHAHAHA
+      //    AiieRect what = g_vm->vmdisplay->getDirtyRect();
+      g_vm->vmdisplay->didRedraw();
+      //    g_display->blit(what);
     }
+    g_display->blit(); // Blit the whole thing, including UI area
+    g_vm->vmdisplay->unlockDisplay();
+  }
+  
+  // Once a second, start counting all over again
+  if (now >= nextResetMicros) {
+    uint32_t newFrameCount = ((TeensyDisplay *)g_display)->frameCount();
+    
+    // There are two "FPS" counters here, actually. One is how often
+    // we're polling the Apple //e memory to refresh the DMA buffer,
+    // and to show that, we'd use this:
+    //      lastFps = refreshCount;
+    // The other is how often the DMA code is refreshing the actual
+    // display, and to show that, we'd use this:
+    lastFps =  newFrameCount - displayFrameCount;
+#ifdef DEBUG_TIMING
+    // ... and this debugging code shows both.
+    println("DMA buffer refresh at ", refreshCount, " FPS");
+    println("Display refresh at ", newFrameCount - displayFrameCount, " FPS");
+#endif
+    displayFrameCount = newFrameCount;
+    nextResetMicros = now + 1000000;
+    refreshCount = 0;
+    microsAtStart = now;
+    microsForNext = microsAtStart + (1000000.0*((float)refreshCount/(float)TARGET_FPS));
   }
 }
 
 // The debouncer is used in the bios, which blocks the main loop
-// execution; so this thread updates the debouncer instead.
+// execution; so this function updates the debouncer instead. It used
+// to be a thread of its own, but now that this is single-threaded
+// again, it's a standalone method.
 void runDebouncer()
 {
   static uint32_t nextRuntime = 0;
-  //  while (1) {
-    if (millis() >= nextRuntime) {
-      nextRuntime = millis() + 10;
-      resetButtonDebouncer.update();
-    } else {
+  if (millis() >= nextRuntime) {
+    nextRuntime = millis() + 10;
+    resetButtonDebouncer.update();
+  } else {
     yield();
-//      threads.yield();
-    }
-    //  }
+  }
 }
 
 void runCPU(uint32_t now)
@@ -323,25 +320,23 @@ void runCPU(uint32_t now)
   static uint32_t microsAtStart = micros();
   static uint32_t microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
   
-  THREADED {
-    if (now >= microsForNext) {
-      countSinceLast += g_cpu->Run(24); // The CPU runs in bursts of cycles. This '24' is the max burst we perform.
-      ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
-
-      microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
-    }
-
-    if (now >= nextResetMicros) {
-      nextResetMicros = now + 1000000;
+  if (now >= microsForNext) {
+    countSinceLast += g_cpu->Run(24); // The CPU runs in bursts of cycles. This '24' is the max burst we perform.
+    ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
+    
+    microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
+  }
+  
+  if (now >= nextResetMicros) {
+    nextResetMicros = now + 1000000;
 #ifdef DEBUG_TIMING
-      float pct = (100.0 * (float)countSinceLast) / (float)g_speed;
-      sprintf(debugBuf, "CPU running at %f%%", pct);
-      println(debugBuf);
+    float pct = (100.0 * (float)countSinceLast) / (float)g_speed;
+    sprintf(debugBuf, "CPU running at %f%%", pct);
+    println(debugBuf);
 #endif      
-      countSinceLast = 0;
-      microsAtStart = now;
-      microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
-    }
+    countSinceLast = 0;
+    microsAtStart = now;
+    microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
   }
 }
 
