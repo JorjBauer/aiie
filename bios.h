@@ -15,10 +15,12 @@ class BIOS {
   BIOS();
   ~BIOS();
 
-  // return true if a persistent change needs to be stored in EEPROM
-  bool runUntilDone();
+  // return true as long as it's still running
+  bool loop();
 
  private:
+  uint16_t MainMenuHandler();
+  
   void DrawMenuBar();
   void DrawCurrentMenu();
   void DrawAiieMenu();
@@ -26,24 +28,26 @@ class BIOS {
   void DrawHardwareMenu();
   void DrawDisksMenu();
 
+  uint16_t AiieMenuHandler(bool needsRedraw, bool performAction);
+  uint16_t VmMenuHandler(bool needsRedraw, bool performAction);
+  uint16_t HardwareMenuHandler(bool needsRedraw, bool performAction);
+  uint16_t DisksMenuHandler(bool needsRedraw, bool performAction);
+  uint16_t AboutScreenHandler(bool needsRedraw, bool performAction);
+  uint16_t PaddlesScreenHandler(bool needsRedraw, bool performAction);
+  uint16_t SelectFileScreenHandler(bool needsRedraw, bool performAction);
+
   uint8_t GetAction(int8_t prevAction);
   bool isActionActive(int8_t action);
-  void DrawMainMenu();
 
   int8_t getCurrentMenuAction();
 
   void WarmReset();
   void ColdReboot();
 
-  bool SelectDiskImage(const char *filter);
   uint16_t DrawDiskNames(uint8_t page, int8_t selection, const char *filter);
   uint16_t GatherFilenames(uint8_t pageOffset, const char *filter);
 
-  void ConfigurePaddles();
-
   void stripDirectory();
-
-  void showAbout();
 
   uint16_t cacheAllEntries(const char *filter);
   void sortCachedEntries();

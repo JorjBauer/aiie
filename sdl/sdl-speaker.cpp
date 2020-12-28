@@ -60,6 +60,7 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
   } else if (audioRunning==1) {
     // waiting for first fill; return an empty buffer.
     memset(stream, 0, SDLSIZE*SAMPLEBYTES);
+    pthread_mutex_unlock(&togmutex);
     return;
   }
   

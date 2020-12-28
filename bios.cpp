@@ -14,7 +14,7 @@ extern Bounce resetButtonDebouncer;
 extern void runDebouncer();
 #endif
 
-// Experimenting with using EXTMEM to cache all the filenames in a directory
+// using EXTMEM to cache all the filenames in a directory
 #ifndef TEENSYDUINO
 #define EXTMEM
 #endif
@@ -28,6 +28,24 @@ EXTMEM char cachedFilter[BIOS_MAXPATH] = {0};
 EXTMEM struct _cacheEntry biosCache[BIOSCACHESIZE];
 uint16_t numCacheEntries = 0;
 
+// When selecting files...
+char fileFilter[16]; // FIXME length & Strcpy -> strncpy
+uint16_t fileSelectionFor; // define what the returned name is for
+
+// menu screen enums
+enum {
+  BIOS_AIIE = 0,
+  BIOS_VM = 1,
+  BIOS_HARDWARE = 2,
+  BIOS_DISKS = 3,
+  
+  BIOS_ABOUT = 4,
+  BIOS_PADDLES = 5,
+  BIOS_SELECTFILE = 6,
+  
+  BIOS_DONE = 99,
+};
+  
 
 enum {
   ACT_EXIT = 1,
@@ -81,7 +99,7 @@ const char *staticPathConcat(const char *rootPath, const char *filePath)
 
 BIOS::BIOS()
 {
-  selectedMenu = 1;
+  selectedMenu = BIOS_VM;
   selectedMenuItem = 0;
 
   selectedFile = -1;
@@ -124,7 +142,470 @@ void BIOS::DrawMenuBar()
   }
 }
 
+bool BIOS::loop()
+{
+  static bool needsinit = true;
+  if (needsinit) {
+    g_filemanager->getRootPath(rootPath, sizeof(rootPath));
+    needsinit = false;
+  }
 
+  static bool needsRedraw = true;
+
+  if (selectedMenu == BIOS_DONE) {
+    // We're returning to the bios a second time
+    selectedMenu = BIOS_VM;
+    needsRedraw = true;
+  }
+
+#ifdef TEENSYDUINO
+  if (resetButtonDebouncer.read() == LOW) {
+    // wait until it's no longer pressed
+    while (resetButtonDebouncer.read() == LOW)
+      runDebouncer();
+    delay(100); // wait long enough for it to debounce
+    return BIOS_DONE;
+  }
+#endif
+
+  bool hitReturn = false;
+  
+  uint16_t rv;
+  if (g_keyboard->kbhit()) {
+    switch (g_keyboard->read()) {
+    case PK_DARR:
+      selectedMenuItem++; // modded by current action
+      needsRedraw = true;
+      break;
+    case PK_UARR:
+      selectedMenuItem--; // modded by current action
+      needsRedraw = true;
+      break;
+    case PK_RARR:
+      selectedMenu++;
+      selectedMenu %= NUM_TITLES;
+      needsRedraw = true;
+      break;
+    case PK_LARR:
+      selectedMenu--;
+      if (selectedMenu < 0) {
+	selectedMenu = NUM_TITLES-1;
+      }
+      needsRedraw = true;
+      break;
+    case PK_RET:
+      hitReturn = true;
+      needsRedraw = true;
+      break;
+    default:
+      break;
+    }
+  }
+  
+  switch (selectedMenu) {
+  case BIOS_AIIE:
+    rv = AiieMenuHandler(needsRedraw, hitReturn);
+    break;
+  case BIOS_VM:
+    rv = VmMenuHandler(needsRedraw, hitReturn);
+    break;
+  case BIOS_HARDWARE:
+    rv = HardwareMenuHandler(needsRedraw, hitReturn);
+    break;
+  case BIOS_DISKS:
+    rv = DisksMenuHandler(needsRedraw, hitReturn);
+    break;
+  case BIOS_ABOUT:
+    rv = AboutScreenHandler(needsRedraw, hitReturn);
+    break;
+  case BIOS_PADDLES:
+    rv = PaddlesScreenHandler(needsRedraw, hitReturn);
+    break;
+  case BIOS_SELECTFILE:
+    rv = SelectFileScreenHandler(needsRedraw, hitReturn);
+    break;
+  }
+
+  if (rv != selectedMenu) {
+    needsRedraw = true;
+    selectedMenu = rv;
+  }
+  else
+    needsRedraw = false; // assume the handler drew
+
+  return ((selectedMenu == BIOS_DONE) ? false : true);
+}
+
+uint16_t BIOS::AiieMenuHandler(bool needsRedraw, bool performAction)
+{
+  static bool localRedraw = true;
+  if (selectedMenuItem < 0)
+    selectedMenuItem = sizeof(aiieActions)-1;
+  selectedMenuItem %= sizeof(aiieActions);
+  
+  if (needsRedraw || localRedraw) {
+    g_display->clrScr();
+    DrawMenuBar();
+    DrawAiieMenu();
+    g_display->flush();
+
+    localRedraw = false;
+  }
+
+  if (performAction) {
+    // there is only ACT_ABOUT
+    return BIOS_ABOUT;
+  }
+  
+  return BIOS_AIIE;
+}
+
+uint16_t BIOS::VmMenuHandler(bool needsRedraw, bool performAction)
+{
+  static bool localRedraw = true;
+
+  if (selectedMenuItem < 0)
+    selectedMenuItem = sizeof(vmActions)-1;
+  selectedMenuItem %= sizeof(vmActions);
+  
+  if (needsRedraw || localRedraw) {
+    g_display->clrScr();
+    DrawMenuBar();
+    DrawVMMenu();
+
+    g_display->flush();
+
+    localRedraw = false;
+  }
+
+  if (performAction) {
+    if (isActionActive(vmActions[selectedMenuItem])) {
+      switch (vmActions[selectedMenuItem]) {
+      case ACT_EXIT:
+	return BIOS_DONE;
+      case ACT_RESET:
+	WarmReset();
+	return BIOS_DONE;
+      case ACT_COLDBOOT:
+	ColdReboot();
+	return BIOS_DONE;
+      case ACT_MONITOR:
+	((AppleVM *)g_vm)->Monitor();
+	return BIOS_DONE;
+      case ACT_DEBUG:
+	g_debugMode++;
+	g_debugMode %= 9; // FIXME: abstract max #
+	localRedraw = true;
+	return BIOS_VM;
+      case ACT_SUSPEND:
+	g_display->clrScr();
+	g_display->drawString(M_SELECTED, 80, 100,"Suspending VM...");
+	g_display->flush();
+	// CPU is already suspended, so this is safe...
+	((AppleVM *)g_vm)->Suspend("suspend.vm");
+	localRedraw = true;
+	return BIOS_VM;
+      case ACT_RESTORE:
+	g_display->clrScr();
+	g_display->drawString(M_SELECTED, 80, 100,"Resuming VM...");
+	g_display->flush();
+	((AppleVM *)g_vm)->Resume("suspend.vm");
+	return BIOS_DONE;
+      }
+    }
+  }
+
+  return BIOS_VM;
+}
+
+uint16_t BIOS::HardwareMenuHandler(bool needsRedraw, bool performAction)
+{
+  static bool localRedraw = true;
+
+  if (selectedMenuItem < 0)
+    selectedMenuItem = sizeof(hardwareActions)-1;
+  selectedMenuItem %= sizeof(hardwareActions);
+  
+  if (needsRedraw || localRedraw) {
+    g_display->clrScr();
+    DrawMenuBar();
+    DrawHardwareMenu();
+    g_display->flush();
+
+    localRedraw = false;
+  }
+
+  if (performAction) {
+    if (isActionActive(hardwareActions[selectedMenuItem])) {
+     switch (hardwareActions[selectedMenuItem]) {
+      case ACT_DISPLAYTYPE:
+	g_displayType++;
+	g_displayType %= 4; // FIXME: abstract max #
+	((AppleDisplay*)g_display)->displayTypeChanged();
+	localRedraw = true;
+	break;
+	
+      case ACT_SPEED:
+	currentCPUSpeedIndex++;
+	currentCPUSpeedIndex %= 4;
+	switch (currentCPUSpeedIndex) {
+	case CPUSPEED_HALF:
+	  g_speed = 1023000/2;
+	  break;
+	case CPUSPEED_DOUBLE:
+	  g_speed = 1023000*2;
+	  break;
+	case CPUSPEED_QUAD:
+	  g_speed = 1023000*4;
+	  break;
+	default:
+	  g_speed = 1023000;
+	  break;
+	}
+	localRedraw = true;
+	break;
+
+      case ACT_PADX_INV:
+	g_invertPaddleX = !g_invertPaddleX;
+#ifdef TEENSYDUINO
+	((TeensyPaddles *)g_paddles)->setRev(g_invertPaddleX, g_invertPaddleY);
+#endif
+	localRedraw = true;
+	break;
+
+      case ACT_PADY_INV:
+	g_invertPaddleY = !g_invertPaddleY;
+#ifdef TEENSYDUINO
+	((TeensyPaddles *)g_paddles)->setRev(g_invertPaddleX, g_invertPaddleY);
+#endif
+	localRedraw = true;
+	break;
+
+     case ACT_PADDLES:
+       return BIOS_PADDLES;
+       
+     case ACT_VOLPLUS:
+       g_volume ++;
+       if (g_volume > 15) {
+	g_volume = 15;
+       }
+       localRedraw = true;
+       break;
+       
+     case ACT_VOLMINUS:
+       g_volume--;
+       if (g_volume < 0) {
+	 g_volume = 0;
+       }
+       localRedraw = true;
+       break;
+     }
+    }
+  }
+
+  return BIOS_HARDWARE;
+}
+
+uint16_t BIOS::DisksMenuHandler(bool needsRedraw, bool performAction)
+{
+  static bool localRedraw = true;
+
+  if (selectedMenuItem < 0)
+    selectedMenuItem = sizeof(diskActions)-1;
+  selectedMenuItem %= sizeof(diskActions);
+  
+  if (needsRedraw || localRedraw) {
+    g_display->clrScr();
+    DrawMenuBar();
+    DrawDisksMenu();
+    g_display->flush();
+
+    localRedraw = false;
+  }
+
+  if (performAction) {
+    if (isActionActive(diskActions[selectedMenuItem])) {
+     switch (diskActions[selectedMenuItem]) {
+    case ACT_DISK1:
+      if (((AppleVM *)g_vm)->DiskName(0)[0] != '\0') {
+	((AppleVM *)g_vm)->ejectDisk(0);
+	localRedraw = true;
+	break;
+      } else {
+	strcpy(fileFilter, "dsk,.po,nib,woz");
+	fileSelectionFor = ACT_DISK1;
+	return BIOS_SELECTFILE;
+      }
+      break;
+    case ACT_DISK2:
+      if (((AppleVM *)g_vm)->DiskName(1)[0] != '\0') {
+	((AppleVM *)g_vm)->ejectDisk(1);
+	localRedraw = true;
+	break;
+      } else {
+	strcpy(fileFilter, "dsk,.po,nib,woz");
+	fileSelectionFor = ACT_DISK2;
+	return BIOS_SELECTFILE;
+      }
+      break;
+    case ACT_HD1:
+      if (((AppleVM *)g_vm)->HDName(0)[0] != '\0') {
+	((AppleVM *)g_vm)->ejectHD(0);
+	localRedraw = true;
+	break;
+      } else {
+	strcpy(fileFilter, "img");
+	fileSelectionFor = ACT_HD1;
+	return BIOS_SELECTFILE;
+      }
+      break;
+    case ACT_HD2:
+      if (((AppleVM *)g_vm)->HDName(1)[0] != '\0') {
+	((AppleVM *)g_vm)->ejectHD(1);
+	localRedraw = true;
+	break;
+      } else {
+	strcpy(fileFilter, "img");
+	fileSelectionFor = ACT_HD2;
+	return BIOS_SELECTFILE;
+      }
+      break;
+     }
+    }
+  }
+  
+  return BIOS_DISKS;
+};
+
+uint16_t BIOS::AboutScreenHandler(bool needsRedraw, bool performAction)
+{
+  static bool localRedraw = true;
+  selectedMenuItem = 0;
+
+  if (needsRedraw || localRedraw) {
+    g_display->clrScr();
+
+    g_display->drawString(M_SELECTED,
+			  0,
+			  0,
+			  "Aiie! - an Apple //e emulator");
+    
+    g_display->drawString(M_NORMAL, 
+			  15, 20,
+			  "(c) 2017-2020 Jorj Bauer");
+    
+    g_display->drawString(M_NORMAL,
+			  15, 38,
+			  "https://github.com/JorjBauer/aiie/");
+    
+    g_display->drawString(M_NORMAL,
+			  0,
+			  200,
+			  "Press return");
+    
+    g_display->flush();
+
+    localRedraw = false;
+  }
+
+  if (performAction) {
+    return BIOS_AIIE;
+  }
+
+  return BIOS_ABOUT;
+}
+
+uint16_t BIOS::PaddlesScreenHandler(bool needsRedraw, bool performAction)
+{
+  static bool localRedraw = true;
+  selectedMenuItem = 0;
+  static uint8_t lastPaddleX = g_paddles->paddle0();
+  static uint8_t lastPaddleY = g_paddles->paddle1();
+
+  if (g_paddles->paddle0() != lastPaddleX) {
+    lastPaddleX = g_paddles->paddle0();
+    localRedraw = true;
+  }
+  if (g_paddles->paddle1() != lastPaddleY) {
+    lastPaddleY = g_paddles->paddle1();
+    localRedraw = true;
+  }
+  
+  if (needsRedraw || localRedraw) {
+    char buf[50];
+    g_display->clrScr();
+    sprintf(buf, "Paddle X: %d    ", lastPaddleX);
+    g_display->drawString(M_NORMAL, 0, 12, buf);
+    sprintf(buf, "Paddle Y: %d    ", lastPaddleY);
+    g_display->drawString(M_NORMAL, 0, 42, buf);
+    g_display->drawString(M_NORMAL, 0, 92, "Press return to exit");
+    g_display->flush();
+
+    localRedraw = false;
+  }
+
+  if (performAction) {
+    return BIOS_HARDWARE;
+  }
+  
+  return BIOS_PADDLES;
+}
+
+uint16_t BIOS::SelectFileScreenHandler(bool needsRedraw, bool performAction)
+{
+  if (selectedMenuItem < 0)
+    selectedMenuItem = BIOS_MAXFILES + 1;
+  selectedMenuItem %= BIOS_MAXFILES + 2;
+
+  static bool localRedraw = true;
+  static int8_t sel = 0;
+  static int8_t page = 0;
+  static uint16_t fileCount = 0;
+  
+  if (needsRedraw || localRedraw) {
+    fileCount = DrawDiskNames(page, sel, fileFilter);
+
+    localRedraw = false;
+  }
+  
+  if (performAction) {
+    if (sel == 0) {
+      page--;
+      if (page < 0) page = 0;
+      //      else sel = BIOS_MAXFILES + 1;
+      localRedraw = true;
+    }
+    else if (sel == BIOS_MAXFILES+1) {
+      if (fileCount == BIOS_MAXFILES) { // don't let them select
+					// 'Next' if there were no
+					// files in the list or if the
+					// list isn't full
+	page++;
+	//sel = 0;                                                                                                                      
+      localRedraw = true;
+      }
+    } else if (strcmp(fileDirectory[sel-1], "../") == 0) {
+      // Go up a directory (strip a directory name from rootPath)
+      stripDirectory();
+      page = 0;
+      //sel = 0;                                                                                                                        
+      localRedraw = true;
+    } else if (fileDirectory[sel-1][strlen(fileDirectory[sel-1])-1] == '/') {
+      // Descend in to the directory. FIXME: file path length?
+      strcat(rootPath, fileDirectory[sel-1]);
+      sel = 0;
+      page = 0;
+      localRedraw = true;
+    } else {
+      selectedFile = sel - 1;
+      g_display->flush();
+      return BIOS_DISKS;
+    }
+  }
+  return BIOS_SELECTFILE;
+}
+
+/*
 bool BIOS::runUntilDone()
 {
   // Reset the cache
@@ -145,129 +626,10 @@ bool BIOS::runUntilDone()
   int8_t prevAction = ACT_EXIT;
   while (1) {
     switch (prevAction = GetAction(prevAction)) {
-    case ACT_EXIT:
-      goto done;
-    case ACT_COLDBOOT:
-      ColdReboot();
-      goto done;
-    case ACT_RESET:
-      WarmReset();
-      goto done;
-    case ACT_MONITOR:
-      ((AppleVM *)g_vm)->Monitor();
-      goto done;
-    case ACT_DISPLAYTYPE:
-      g_displayType++;
-      g_displayType %= 4; // FIXME: abstract max #
-      ((AppleDisplay*)g_display)->displayTypeChanged();
-      break;
-    case ACT_ABOUT:
-      showAbout();
-      break;
-    case ACT_SPEED:
-      currentCPUSpeedIndex++;
-      currentCPUSpeedIndex %= 4;
-      switch (currentCPUSpeedIndex) {
-      case CPUSPEED_HALF:
-	g_speed = 1023000/2;
-	break;
-      case CPUSPEED_DOUBLE:
-	g_speed = 1023000*2;
-	break;
-      case CPUSPEED_QUAD:
-	g_speed = 1023000*4;
-	break;
-      default:
-	g_speed = 1023000;
-	break;
-      }
-      break;
-    case ACT_DEBUG:
-      g_debugMode++;
-      g_debugMode %= 9; // FIXME: abstract max #
-      break;
-    case ACT_DISK1:
-      if (((AppleVM *)g_vm)->DiskName(0)[0] != '\0') {
-	((AppleVM *)g_vm)->ejectDisk(0);
-      } else {
-	if (SelectDiskImage("dsk,.po,nib,woz")) {
-	  ((AppleVM *)g_vm)->insertDisk(0, staticPathConcat(rootPath, fileDirectory[selectedFile]), false);
-	  goto done;
-	}
-      }
-      break;
-    case ACT_DISK2:
-      if (((AppleVM *)g_vm)->DiskName(1)[0] != '\0') {
-	((AppleVM *)g_vm)->ejectDisk(1);
-      } else {
-	if (SelectDiskImage("dsk,.po,nib,woz")) {
-	  ((AppleVM *)g_vm)->insertDisk(1, staticPathConcat(rootPath, fileDirectory[selectedFile]), false);
-	  goto done;
-	}
-      }
-      break;
-    case ACT_HD1:
-      if (((AppleVM *)g_vm)->HDName(0)[0] != '\0') {
-	((AppleVM *)g_vm)->ejectHD(0);
-      } else {
-	if (SelectDiskImage("img")) {
-	  ((AppleVM *)g_vm)->insertHD(0, staticPathConcat(rootPath, fileDirectory[selectedFile]));
-	  goto done;
-	}
-      }
-      break;
-    case ACT_HD2:
-      if (((AppleVM *)g_vm)->HDName(1)[0] != '\0') {
-	((AppleVM *)g_vm)->ejectHD(1);
-      } else {
-	if (SelectDiskImage("img")) {
-	  ((AppleVM *)g_vm)->insertHD(1, staticPathConcat(rootPath, fileDirectory[selectedFile]));
-	  goto done;
-	}
-      }
-      break;
-    case ACT_PADX_INV:
-      g_invertPaddleX = !g_invertPaddleX;
-#ifdef TEENSYDUINO
-      ((TeensyPaddles *)g_paddles)->setRev(g_invertPaddleX, g_invertPaddleY);
-#endif
-      break;
-    case ACT_PADY_INV:
-      g_invertPaddleY = !g_invertPaddleY;
-#ifdef TEENSYDUINO
-      ((TeensyPaddles *)g_paddles)->setRev(g_invertPaddleX, g_invertPaddleY);
-#endif
-      break;
-    case ACT_PADDLES:
-      ConfigurePaddles();
-      break;
-    case ACT_VOLPLUS:
-      g_volume ++;
-      if (g_volume > 15) {
-	g_volume = 15;
-      }
-      break;
-    case ACT_VOLMINUS:
-      g_volume--;
-      if (g_volume < 0) {
-	g_volume = 0;
-      }
-      break;
 
-    case ACT_SUSPEND:
-      g_display->clrScr();
-      g_display->drawString(M_SELECTED, 80, 100,"Suspending VM...");
-      g_display->flush();
-      // CPU is already suspended, so this is safe...
-      ((AppleVM *)g_vm)->Suspend("suspend.vm");
-      break;
-    case ACT_RESTORE:
-      // CPU is already suspended, so this is safe...
-      g_display->clrScr();
-      g_display->drawString(M_SELECTED, 80, 100,"Resuming VM...");
-      g_display->flush();
-      ((AppleVM *)g_vm)->Resume("suspend.vm");
-      break;
+      ***
+      //      ConfigurePaddles();
+***
     }
   }
 
@@ -280,6 +642,7 @@ bool BIOS::runUntilDone()
   // return true if any persistent setting changed that we want to store in eeprom
   return true;
 }
+*/
 
 void BIOS::WarmReset()
 {
@@ -290,91 +653,6 @@ void BIOS::ColdReboot()
 {
   g_vm->Reset();
   g_cpu->Reset();
-}
-
-uint8_t BIOS::GetAction(int8_t selection)
-{
-  while (1) {
-    DrawMainMenu();
-    while (!g_keyboard->kbhit() 
-#ifdef TEENSYDUINO
-	   &&
-	   (resetButtonDebouncer.read() == HIGH)
-#endif
-	   ) {
-#ifdef TEENSYDUINO
-      runDebouncer();
-      delay(10);
-#else
-      usleep(100);
-#endif
-      // Wait for either a keypress or the reset button to be pressed
-    }
-
-#ifdef TEENSYDUINO
-    if (resetButtonDebouncer.read() == LOW) {
-      // wait until it's no longer pressed
-      while (resetButtonDebouncer.read() == LOW)
-	runDebouncer();
-      delay(100); // wait long enough for it to debounce
-      // then return an exit code
-      return ACT_EXIT;
-    }
-#else
-    // FIXME: look for F10 or ESC & return ACT_EXIT?
-#endif
-
-    // selectedMenuItem and selectedMenu can go out of bounds here, and that's okay;
-    // the current menu (and the menu bar) will re-pin it appropriately...
-    switch (g_keyboard->read()) {
-    case PK_DARR:
-      selectedMenuItem++;
-      break;
-    case PK_UARR:
-      selectedMenuItem--;
-      break;
-    case PK_RARR:
-      selectedMenu++;
-      break;
-    case PK_LARR:
-      selectedMenu--;
-      break;
-    case PK_RET:
-      {
-	int8_t activeAction = getCurrentMenuAction();
-	if (activeAction > 0) {
-	  return activeAction;
-	}
-      }
-      break;
-    }
-  }
-}
-
-int8_t BIOS::getCurrentMenuAction()
-{
-  int8_t ret = -1;
-
-  switch (selectedMenu) {
-  case 0: // Aiie
-    if (isActionActive(aiieActions[selectedMenuItem]))
-      return aiieActions[selectedMenuItem];
-    break;
-  case 1: // VM
-    if (isActionActive(vmActions[selectedMenuItem]))
-      return vmActions[selectedMenuItem];
-    break;
-  case 2: // Hardware
-    if (isActionActive(hardwareActions[selectedMenuItem]))
-      return hardwareActions[selectedMenuItem];
-    break;
-  case 3: // Disks
-    if (isActionActive(diskActions[selectedMenuItem]))
-      return diskActions[selectedMenuItem];
-    break;
-  }
-
-  return ret;
 }
 
 bool BIOS::isActionActive(int8_t action)
@@ -673,110 +951,6 @@ void BIOS::DrawCurrentMenu()
   }
 }
 
-void BIOS::DrawMainMenu()
-{
-  g_display->clrScr();
-  //  g_display->drawString(M_NORMAL, 0, 0, "BIOS Configuration");
-
-  DrawMenuBar();
-
-  DrawCurrentMenu();
-
-  g_display->flush();
-}
-
-void BIOS::ConfigurePaddles()
-{
-  while (1) {
-    bool needsUpdate = true;
-    uint8_t lastPaddleX = g_paddles->paddle0();
-    uint8_t lastPaddleY = g_paddles->paddle1();
-
-    if (g_paddles->paddle0() != lastPaddleX) {
-      lastPaddleX = g_paddles->paddle0();
-      needsUpdate = true;
-    }
-    if (g_paddles->paddle1() != lastPaddleY) {
-      lastPaddleY = g_paddles->paddle1();
-      needsUpdate = true;
-    }
-    
-    if (needsUpdate) {
-      char buf[50];
-      g_display->clrScr();
-      sprintf(buf, "Paddle X: %d    ", lastPaddleX);
-      g_display->drawString(M_NORMAL, 0, 12, buf);
-      sprintf(buf, "Paddle Y: %d    ", lastPaddleY);
-      g_display->drawString(M_NORMAL, 0, 42, buf);
-      g_display->drawString(M_NORMAL, 0, 92, "Exit with any key");
-      g_display->flush();
-  }
-
-    if (g_keyboard->kbhit()) {
-      g_keyboard->read(); // throw out keypress
-      return;
-    }
-  }
-}
-
-// return true if the user selects an image
-// sets selectedFile (index; -1 = "nope") and fileDirectory[][] (names of up to BIOS_MAXFILES files)
-bool BIOS::SelectDiskImage(const char *filter)
-{
-  int8_t sel = 0;
-  int8_t page = 0;
-  uint16_t fileCount = 0;
-  while (1) {
-    fileCount = DrawDiskNames(page, sel, filter);
-
-    while (!g_keyboard->kbhit())
-      ;
-    switch (g_keyboard->read()) {
-    case PK_DARR:
-      sel++;
-      sel %= BIOS_MAXFILES + 2;
-      break;
-    case PK_UARR:
-      sel--;
-      if (sel < 0)
-	sel = BIOS_MAXFILES + 1;
-      break;
-    case PK_ESC:
-      return false;
-    case PK_RET:
-      if (sel == 0) {
-	page--;
-	if (page < 0) page = 0;
-	//	else sel = BIOS_MAXFILES + 1;
-      }
-      else if (sel == BIOS_MAXFILES+1) {
-	if (fileCount == BIOS_MAXFILES) { // don't let them select 'Next' if there were no files in the list or if the list isn't full
-	  page++;
-	  //sel = 0;
-	}
-      } else if (strcmp(fileDirectory[sel-1], "../") == 0) {
-	// Go up a directory (strip a directory name from rootPath)
-	stripDirectory();
-	page = 0;
-	//sel = 0;
-	continue;
-      } else if (fileDirectory[sel-1][strlen(fileDirectory[sel-1])-1] == '/') {
-	// Descend in to the directory. FIXME: file path length?
-	strcat(rootPath, fileDirectory[sel-1]);
-	sel = 0;
-	page = 0;
-	continue;
-      } else {
-	selectedFile = sel - 1;
-	g_display->flush();
-	return true;
-      }
-      break;
-    }
-  }
-  /* NOTREACHED */
-}
-
 void BIOS::stripDirectory()
 {
   rootPath[strlen(rootPath)-1] = '\0'; // remove the last character
@@ -919,31 +1093,45 @@ uint16_t BIOS::GatherFilenames(uint8_t pageOffset, const char *filter)
   }
 }
 
-void BIOS::showAbout()
-{
-  g_display->clrScr();
+#if 0
+	***
+	switch (fileSelectionFor) {
+case ACT_DISK1:
+	if (SelectDiskImage("dsk,.po,nib,woz")) {
+	  ((AppleVM *)g_vm)->insertDisk(0, staticPathConcat(rootPath, fileDirectory[selectedFile]), false);
+	  return BIOS_DONE;
+	  ...
+case ACT_DISK2:
+	if (SelectDiskImage("dsk,.po,nib,woz")) {
+	  ((AppleVM *)g_vm)->insertDisk(1, staticPathConcat(rootPath, fileDirectory[selectedFile]), false);
+	  return BIOS_DONE;
 
-  g_display->drawString(M_SELECTED,
-			0,
-			0,
-			"Aiie! - an Apple //e emulator");
+...
+case ACT_HD1:
+	***
+	if (SelectDiskImage("img")) {
+	  ((AppleVM *)g_vm)->insertHD(0, staticPathConcat(rootPath, fileDirectory[selectedFile]));
+	  return BIOS_DONE;
+	}
 
-  g_display->drawString(M_NORMAL, 
-			15, 20,
-			"(c) 2017-2020 Jorj Bauer");
+case ACT_HD2:
+	***
+	if (SelectDiskImage("img")) {
+	  ((AppleVM *)g_vm)->insertHD(1, staticPathConcat(rootPath, fileDirectory[selectedFile]));
+	  return BIOS_DONE;
+	}
 
-  g_display->drawString(M_NORMAL,
-			15, 38,
-			"https://github.com/JorjBauer/aiie/");
 
-  g_display->drawString(M_NORMAL,
-			0,
-			200,
-			"Press any key");
+...
 
-  g_display->flush();
+	  /*
+  int8_t sel = 0;
+  int8_t page = 0;
+  uint16_t fileCount = 0;
+  while (1) {
+    fileCount = DrawDiskNames(page, sel, filter);
+ */
 
-  while (!g_keyboard->kbhit())
-    ;
-  g_keyboard->read(); // throw out the keypress
-}
+
+#endif
+	

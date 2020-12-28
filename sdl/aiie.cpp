@@ -20,21 +20,13 @@
 
 #include "timeutil.h"
 
-//#define SHOWFPS
-//#define SHOWPC
-//#define SHOWMEMPAGE
-
 BIOS bios;
 Debugger debugger;
-
-struct timespec nextInstructionTime, startTime;
 
 #define NB_ENABLE 1
 #define NB_DISABLE 0
 
 int send_rst = 0;
-
-pthread_t cpuThreadID;
 
 char disk1name[256] = "\0";
 char disk2name[256] = "\0";
@@ -91,106 +83,275 @@ void write(void *arg, uint16_t address, uint8_t v)
   // no action; this is a dummy function until we've finished initializing...
 }
 
-static void *cpu_thread(void *dummyptr) {
-  struct timespec currentTime;
+static struct timespec runBIOS(struct timespec now)
+{
+  static bool initialized = false;
+  static struct timespec startTime;
+  static struct timespec nextRuntime;
+  static uint64_t cycleCount = 0;
 
-#if 0
-  int policy;
-  struct sched_param param;
-  pthread_getschedparam(pthread_self(), &policy, &param);
-  param.sched_priority = sched_get_priority_max(policy);
-  pthread_setschedparam(pthread_self(), policy, &param);
-#endif
+  if (!initialized) {
+    do_gettime(&startTime);
+    do_gettime(&nextRuntime);
+    initialized = true;
+  }
+
+  timespec_add_us(&startTime, 100000*cycleCount, &nextRuntime); // FIXME: what's a good time here? 1/10 sec?
+
+  // Check if it's time to run - and if not, return how long it will
+  // be until we need to run
+  struct timespec diff = tsSubtract(nextRuntime, now);
+  if (diff.tv_sec > 0 || diff.tv_nsec > 0) {
+    // The caller can decide to nanosleep(&diff, NULL)
+    return diff;
+  }
+
+  cycleCount++;
+
+  if (!bios.loop()) {
+    printf("BIOS loop has exited\n");
+    g_biosInterrupt = false; // that's all she wrote!
+  }
+  
+  return diff;
+}
+
+static struct timespec runCPU(struct timespec now)
+{
+  static bool initialized = false;
+  static struct timespec startTime;
+  static struct timespec nextInstructionTime;
+  
+  if (!initialized) {
+    do_gettime(&startTime);
+    do_gettime(&nextInstructionTime);
+    initialized = true;
+  }
+
+  // Check for interrupt-like actions before running the CPU
+  if (wantSuspend) {
+    printf("CPU halted; suspending VM\n");
+    g_vm->Suspend("suspend.vm");
+    printf("... done; resuming CPU.\n");
+    wantSuspend = false;
+  }
+  if (wantResume) {
+    printf("CPU halted; resuming VM\n");
+    g_vm->Resume("suspend.vm");
+    printf("... done. resuming CPU.\n");
+    wantResume = false;
+  }
+
+  // Determine correct time for next CPU cycle
+  timespec_add_cycles(&startTime, g_cpu->cycles, &nextInstructionTime);
+
+  // Check if it's time to run - and if not, return how long it will be until we need to run
+  struct timespec diff = tsSubtract(nextInstructionTime, now);
+  if (diff.tv_sec > 0 || diff.tv_nsec > 0) {
+    // The caller can decide to nanosleep(&diff, NULL)
+    return diff;
+  }
+
+  // Run the CPU
+  uint8_t executed = 0;
+  if (debugger.active()) {
+    // With the debugger running, we need to single-step through
+    // instructions.
+    executed = g_cpu->Run(1);
+  } else {
+    // Otherwise we can run a bunch of instructions at once to
+    // save on the overhead.
+    executed = g_cpu->Run(24);
+  }
+
+  // The paddles need to be triggered in real-time on the CPU
+  // clock. That happens from the VM's CPU maintenance poller.
+  ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
+  
+  if (debugger.active()) {
+    debugger.step();
+    // FIXME need to reset starttime for this and g_cpu->cycles
+  }
+  
+  if (send_rst) {
+    cpuDebuggerRunning = true;
     
-  _init_darwin_shim();
-  do_gettime(&startTime);
-      printf("Start time: %lu,%lu\n", startTime.tv_sec, startTime.tv_nsec);
-  do_gettime(&nextInstructionTime);
+    printf("Sending reset\n");
+    g_cpu->Reset();
+    
+    send_rst = 0;
+  }
+  
+  return diff;
+}
 
-  printf("free-running\n");
+#define TARGET_FPS 30
+struct timespec runDisplay(struct timespec now)
+{
+  static bool initialized = false;
+  static struct timespec startTime;
+  static struct timespec nextRuntime;
+  static uint64_t cycleCount = 0;
 
-  // In this loop, we determine when the next CPU event is; sleep until 
-  // that event; and then perform the event. There are also peripheral 
-  // maintenance calls embedded in the loop...
+  if (!initialized) {
+    do_gettime(&startTime);
+    do_gettime(&nextRuntime);
+    initialized = true;
+  }
+  
+  timespec_add_us(&startTime, (1000000/TARGET_FPS)*cycleCount, &nextRuntime); // 1000000 uS/S and 30fps target
 
-  while (1) {
-    if (g_biosInterrupt) {
-      printf("BIOS blocking\n");
-      while (g_biosInterrupt) {
-	usleep(100);
-      }
-      printf("BIOS block complete\n");
+  // Check if it's time to run - and if not, return how long it will
+  // be until we need to run
+  struct timespec diff = tsSubtract(nextRuntime, now);
+  if (diff.tv_sec > 0 || diff.tv_nsec > 0) {
+    // The caller can decide to nanosleep(&diff, NULL)
+    return diff;
+  }
+
+  cycleCount++;
+
+  if (!g_biosInterrupt) {
+    g_ui->blit();
+    g_vm->vmdisplay->lockDisplay();
+    if (g_vm->vmdisplay->needsRedraw()) {
+      AiieRect what = g_vm->vmdisplay->getDirtyRect();
+      g_vm->vmdisplay->didRedraw();
+      g_display->blit(what);
     }
+    g_vm->vmdisplay->unlockDisplay();
+    
+    // For SDL, I'm throwing the printer update in with the display update...
+    g_printer->update();
+  }
+  
+  return diff;
+}
 
-    if (wantSuspend) {
-      printf("CPU halted; suspending VM\n");
-      g_vm->Suspend("suspend.vm");
-      printf("... done; resuming CPU.\n");
 
-      wantSuspend = false;
-    }
-    if (wantResume) {
-      printf("CPU halted; resuming VM\n");
-      g_vm->Resume("suspend.vm");
-      printf("... done. resuming CPU.\n");
+void doDebugging()
+{
+  char buf[25];
+  static time_t startAt = time(NULL);
+  static uint32_t loopCount = 0;
 
-      wantResume = false;
-    }
-
-    do_gettime(&currentTime);
-
-    // Determine the next CPU runtime (nextInstructionTime)
-    timespec_add_cycles(&startTime, g_cpu->cycles, &nextInstructionTime);
-
-    // Sleep until the CPU is ready to run.
-
-    // tsSubtract doesn't return negatives; it bounds at zero. So if
-    // either result is zero then it's time to run something.
-
-    struct timespec cpudiff = tsSubtract(nextInstructionTime, currentTime);
-
-    if (cpudiff.tv_sec > 0 || cpudiff.tv_nsec > 0) {
-      // Sleep until the it's ready and loop...
-      nanosleep(&cpudiff, NULL);
-      continue;
-    }
-
-    if (cpudiff.tv_sec == 0 && cpudiff.tv_nsec == 0) {
-      // Run the CPU; it's caught up to "real time"
-
-      uint8_t executed = 0;
-      if (debugger.active()) {
-	// With the debugger running, we need to single-step through
-	// instructions.
-	executed = g_cpu->Run(1);
-      } else {
-	// Otherwise we can run a bunch of instructions at once to
-	// save on the overhead.
-	executed = g_cpu->Run(24);
-      }
-
-      // The paddles need to be triggered in real-time on the CPU
-      // clock. That happens from the VM's CPU maintenance poller.
-      ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
-
-      if (debugger.active()) {
-	debugger.step();
-      }
-
-      if (send_rst) {
-	cpuDebuggerRunning = true;
-	
-	printf("Sending reset\n");
-	g_cpu->Reset();
-	
-	send_rst = 0;
+  switch (g_debugMode) {
+  case D_SHOWFPS:
+    {
+      // display some FPS data
+      loopCount++;
+      uint32_t lenSecs = time(NULL) - startAt;
+      if (lenSecs >= 5) {
+	sprintf(buf, "%u FPS", loopCount / lenSecs);
+	g_display->debugMsg(buf);
+	startAt = time(NULL);
+	loopCount = 0;
       }
     }
+    break;
+  case D_SHOWMEMFREE:
+    //    sprintf(buf, "%lu %u", FreeRamEstimate(), heapSize());
+    //    g_display->debugMsg(buf);
+    break;
+  case D_SHOWPADDLES:
+    sprintf(buf, "%u %u", g_paddles->paddle0(), g_paddles->paddle1());
+    g_display->debugMsg(buf);
+    break;
+  case D_SHOWPC:
+    sprintf(buf, "%X", g_cpu->pc);
+    g_display->debugMsg(buf);
+    break;
+  case D_SHOWCYCLES:
+    sprintf(buf, "%llX", g_cpu->cycles);
+    g_display->debugMsg(buf);
+    break;
+    /*
+  case D_SHOWBATTERY:
+    //    sprintf(buf, "BAT %d", analogRead(BATTERYPIN));
+    //    g_display->debugMsg(buf);
+    break;
+  case D_SHOWTIME:
+    //    sprintf(buf, "%.2d:%.2d:%.2d", hour(), minute(), second());
+    //    g_display->debugMsg(buf);
+    break;*/
+  }
+}
+
+struct timespec runMaintenance(struct timespec now)
+{
+  static bool initialized = false;
+  static struct timespec startTime;
+  static struct timespec nextRuntime;
+  static uint64_t cycleCount = 0;
+
+  if (!initialized) {
+    do_gettime(&startTime);
+    do_gettime(&nextRuntime);
+    initialized = true;
+  }
+
+  timespec_add_us(&startTime, 100000*cycleCount, &nextRuntime); // FIXME: what's a good time here? 1/10 sec?
+
+  // Check if it's time to run - and if not, return how long it will
+  // be until we need to run
+  struct timespec diff = tsSubtract(nextRuntime, now);
+  if (diff.tv_sec > 0 || diff.tv_nsec > 0) {
+    // The caller can decide to nanosleep(&diff, NULL)
+    return diff;
+  }
+
+  cycleCount++;
+  if (!g_biosInterrupt) {
+    // If the BIOS is running, then let it handle the keyboard directly
+    g_keyboard->maintainKeyboard();
+  }
+
+  doDebugging();
+  g_ui->drawPercentageUIElement(UIePowerPercentage, 100);
+
+  return diff;
+}
+
+void loop()
+{
+  struct timespec now;
+  do_gettime(&now);
+
+  struct timespec shortest;
+  
+  static bool wasBios = false; // so we can tell when it's done
+  if (g_biosInterrupt) {
+    shortest = runBIOS(now);
+    wasBios = true;
+  } else {
+    if (wasBios) {
+      // bios has just exited
+      writePrefs();
+      wasBios = false;
+    }
+  }
+
+  if (!g_biosInterrupt) {
+    shortest = runCPU(now); // about 13% CPU utilization on my laptop
+  }
+  struct timespec diff;
+  diff = runDisplay(now); // about 47% CPU utilization on my laptop
+  if (tsCompare(&shortest, &diff) > 0)
+        shortest = diff;
+  diff = runMaintenance(now); // about 1% CPU utilization on my laptop
+  if (tsCompare(&shortest, &diff) > 0)
+    shortest = diff;
+
+  // If they all have time remaining then sleep until one is ready
+  if (shortest.tv_sec || shortest.tv_nsec) {
+    nanosleep(&shortest, NULL);
   }
 }
 
 int main(int argc, char *argv[])
 {
+  _init_darwin_shim();
+  
   SDL_Init(SDL_INIT_EVERYTHING);
 
   g_speaker = new SDLSpeaker();
@@ -250,177 +411,11 @@ int main(int argc, char *argv[])
   signal(SIGINT, sigint_handler);
   signal(SIGPIPE, SIG_IGN); // debugger might have a SIGPIPE happen if the remote end drops
 
-  printf("creating CPU thread\n");
-  if (!pthread_create(&cpuThreadID, NULL, &cpu_thread, (void *)NULL)) {
-    printf("thread created\n");
-    //    pthread_setschedparam(cpuThreadID, SCHED_RR, PTHREAD_MAX_PRIORITY);
-  }
-
   g_speaker->begin();
 
-  int64_t lastCycleCount = -1;
+  printf("Starting loop\n");
   while (1) {
-
-    if (g_biosInterrupt) {
-      printf("Invoking BIOS\n");
-      if (bios.runUntilDone()) {
-	// if it returned true, we have something to store persistently in EEPROM.
-	writePrefs();
-      }
-      printf("BIOS done\n");
-      
-      // if we turned off debugMode, make sure to clear the debugMsg
-      if (g_debugMode == D_NONE) {
-	g_display->debugMsg("");
-      }
-
-      g_biosInterrupt = false;
-
-      // clear the CPU next-step counters
-      g_cpu->cycles = 0;
-      do_gettime(&startTime);
-      do_gettime(&nextInstructionTime);
-
-      // FIXME: drain whatever's in the speaker queue
-
-      /* FIXME
-      // Force the display to redraw
-      ((AppleDisplay*)(g_vm->vmdisplay))->modeChange();
-      */
-
-      // Poll the keyboard before we start, so we can do selftest on startup
-      g_keyboard->maintainKeyboard();
-    }
-
-
-    static int64_t usleepcycles = 16384*4; // step-down for display drawing. Dynamically updated based on FPS calculations.
-
-    if (g_vm->vmdisplay->needsRedraw()) {
-      AiieRect what = g_vm->vmdisplay->getDirtyRect();
-      // make sure to clear the flag before drawing; there's no lock
-      // on didRedraw, so the other thread might update it
-      g_vm->vmdisplay->didRedraw();
-      g_display->blit(what);
-    }
-    g_ui->blit();
-
-    g_printer->update();
-    g_keyboard->maintainKeyboard();
-
-    doDebugging();
-
-    g_ui->drawPercentageUIElement(UIePowerPercentage, 100);
-
-    // calculate FPS & dynamically step up/down as necessary
-    static time_t startAt = time(NULL);
-    static uint32_t loopCount = 0;
-    loopCount++;
-    uint32_t lenSecs = time(NULL) - startAt;
-    if (lenSecs >= 5) {
-      float fps = loopCount / lenSecs;
-
-#ifdef SHOWFPS
-      char buf[25];
-      sprintf(buf, "%f FPS [delay %u]", fps, usleepcycles);
-      g_display->debugMsg(buf);
-#endif
-
-      if (fps > 30 && usleepcycles < 0x3FFFFFFF) {
-	usleepcycles *= 2;
-      } else if (fps < 20 && usleepcycles > 0xF) {
-	usleepcycles /= 2;
-      }
-
-      // reset the counter & we'll adjust again in 5 seconds
-      loopCount = 0;
-      startAt = time(NULL);
-    }
-    if (usleepcycles >= 2) {
-      usleep(usleepcycles);
-    }
-
-#ifdef SHOWPC
-    {
-      char buf[25];
-      sprintf(buf, "%X", g_cpu->pc);
-      g_display->debugMsg(buf);
-    }
-#endif
-#ifdef SHOWMEMPAGE
-    { 
-      char buf[40];
-      sprintf(buf, "AUX %c/%c BNK %d BSR %c/%c ZP %c 80 %c INT %c",
-	      g_vm->auxRamRead?'R':'_',
-	      g_vm->auxRamWrite?'W':'_',
-	      g_vm->bank1,
-	      g_vm->readbsr ? 'R':'_',
-	      g_vm->writebsr ? 'W':'_',
-	      g_vm->altzp ? 'Y':'_',
-	      g_vm->_80store ? 'Y' : '_',
-	      g_vm->intcxrom ? 'Y' : '_');
-      g_display->debugMsg(buf);
-    }
-
-#endif
-
-    if (g_cpu->cycles == lastCycleCount) {
-      // If the CPU didn't advance during our last loop, then delay
-      // here; there can't be any substantial updates, so no need to
-      // beat up the host machine
-
-      usleep(100000);
-    } else {
-      lastCycleCount = g_cpu->cycles;
-    }
-
-  }
-}
-
-void doDebugging()
-{
-  char buf[25];
-  static time_t startAt = time(NULL);
-  static uint32_t loopCount = 0;
-
-  switch (g_debugMode) {
-  case D_SHOWFPS:
-    {
-      // display some FPS data
-      loopCount++;
-      uint32_t lenSecs = time(NULL) - startAt;
-      if (lenSecs >= 5) {
-	sprintf(buf, "%u FPS", loopCount / lenSecs);
-	g_display->debugMsg(buf);
-	startAt = time(NULL);
-	loopCount = 0;
-      }
-    }
-    break;
-  case D_SHOWMEMFREE:
-    //    sprintf(buf, "%lu %u", FreeRamEstimate(), heapSize());
-    //    g_display->debugMsg(buf);
-    break;
-  case D_SHOWPADDLES:
-    sprintf(buf, "%u %u", g_paddles->paddle0(), g_paddles->paddle1());
-    g_display->debugMsg(buf);
-    break;
-  case D_SHOWPC:
-    sprintf(buf, "%X", g_cpu->pc);
-    g_display->debugMsg(buf);
-    break;
-  case D_SHOWCYCLES:
-    sprintf(buf, "%llX", g_cpu->cycles);
-    g_display->debugMsg(buf);
-    break;
-    /*
-  case D_SHOWBATTERY:
-    //    sprintf(buf, "BAT %d", analogRead(BATTERYPIN));
-    //    g_display->debugMsg(buf);
-    break;
-  case D_SHOWTIME:
-    //    sprintf(buf, "%.2d:%.2d:%.2d", hour(), minute(), second());
-    //    g_display->debugMsg(buf);
-    break;*/
+    loop();
   }
 }
 

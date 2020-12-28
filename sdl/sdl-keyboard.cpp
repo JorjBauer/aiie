@@ -169,46 +169,52 @@ uint8_t keyPending;
 bool SDLKeyboard::kbhit()
 {
   SDL_Event event;
-  if (SDL_PollEvent( &event ) &&
-      event.type == SDL_KEYDOWN) {
-    SDL_KeyboardEvent *key = &event.key;
-    if ( (key->keysym.sym >= 'a' && key->keysym.sym <= 'z') ||
-	 (key->keysym.sym >= '0' && key->keysym.sym <= '9') ||
-	 key->keysym.sym == '-' ||
-	 key->keysym.sym == '=' ||
-	 key->keysym.sym == '[' ||
-	 key->keysym.sym == '`' ||
-	 key->keysym.sym == ']' ||
-	 key->keysym.sym == '\\' ||
-	 key->keysym.sym == ';' ||
-	 key->keysym.sym == '\'' ||
-	 key->keysym.sym == ',' ||
-	 key->keysym.sym == '.' ||
-	 key->keysym.sym == '/' ||
-	 key->keysym.sym == ' ' ||
-	 key->keysym.sym == 27 || // ESC
-	 key->keysym.sym == 13 || // return
-	 key->keysym.sym == 9) { // tab
-      keyPending = key->keysym.sym;
-      hasKeyPending = true;
-    } else {
-      switch (key->keysym.sym) {
-      case SDLK_UP:
-	keyPending = PK_UARR;
+  if (SDL_PollEvent( &event )) {
+    if (event.type == SDL_QUIT) {
+      exit(0);
+    }
+    
+    if (event.type == SDL_KEYDOWN) {
+      SDL_KeyboardEvent *key = &event.key;
+      
+      if ( (key->keysym.sym >= 'a' && key->keysym.sym <= 'z') ||
+	   (key->keysym.sym >= '0' && key->keysym.sym <= '9') ||
+	   key->keysym.sym == '-' ||
+	   key->keysym.sym == '=' ||
+	   key->keysym.sym == '[' ||
+	   key->keysym.sym == '`' ||
+	   key->keysym.sym == ']' ||
+	   key->keysym.sym == '\\' ||
+	   key->keysym.sym == ';' ||
+	   key->keysym.sym == '\'' ||
+	   key->keysym.sym == ',' ||
+	   key->keysym.sym == '.' ||
+	   key->keysym.sym == '/' ||
+	   key->keysym.sym == ' ' ||
+	   key->keysym.sym == 27 || // ESC
+	   key->keysym.sym == 13 || // return
+	   key->keysym.sym == 9) { // tab
+	keyPending = key->keysym.sym;
 	hasKeyPending = true;
-	break;
-      case SDLK_DOWN:
-	keyPending = PK_DARR;
-	hasKeyPending = true;
-	break;
-      case SDLK_RIGHT:
-	keyPending = PK_RARR;
-	hasKeyPending = true;
-	break;
-      case SDLK_LEFT:
-	keyPending = PK_LARR;
-	hasKeyPending = true;
-	break;
+      } else {
+	switch (key->keysym.sym) {
+	case SDLK_UP:
+	  keyPending = PK_UARR;
+	  hasKeyPending = true;
+	  break;
+	case SDLK_DOWN:
+	  keyPending = PK_DARR;
+	  hasKeyPending = true;
+	  break;
+	case SDLK_RIGHT:
+	  keyPending = PK_RARR;
+	  hasKeyPending = true;
+	  break;
+	case SDLK_LEFT:
+	  keyPending = PK_LARR;
+	  hasKeyPending = true;
+	  break;
+	}
       }
     }
   }
