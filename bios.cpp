@@ -182,11 +182,13 @@ bool BIOS::loop()
       needsRedraw = true;
       break;
     case PK_RARR:
+      selectedMenuItem = 0;
       selectedMenu++;
       selectedMenu %= NUM_TITLES;
       needsRedraw = true;
       break;
     case PK_LARR:
+      selectedMenuItem = 0;
       selectedMenu--;
       if (selectedMenu < 0) {
 	selectedMenu = NUM_TITLES-1;
@@ -227,6 +229,7 @@ bool BIOS::loop()
   }
 
   if (rv != selectedMenu) {
+    selectedMenuItem = 0;
     needsRedraw = true;
     selectedMenu = rv;
   }
