@@ -192,38 +192,6 @@ int heapSize(){
   return mallinfo().uordblks;
 }
 
-void biosInterrupt()
-{
-  // wait for the interrupt button to be released
-  while (!resetButtonDebouncer.read())
-    resetButtonDebouncer.update();
-
-  // Invoke the BIOS
-  if (bios.runUntilDone()) {
-    // if it returned true, we have something to store persistently in EEPROM.
-    writePrefs();
-
-    // Also might have changed the paddles state
-    TeensyPaddles *tmp = (TeensyPaddles *)g_paddles;
-    tmp->setRev(g_invertPaddleX, g_invertPaddleY);
-  }
-
-  // if we turned off debugMode, make sure to clear the debugMsg
-  if (g_debugMode == D_NONE) {
-    g_display->debugMsg("");
-  }
-
-  // Drain the speaker queue (FIXME: a little hacky)
-  g_speaker->maintainSpeaker(-1, -1);
-
-  // Force the display to redraw
-  g_display->redraw(); // Redraw the UI
-  ((AppleDisplay*)(g_vm->vmdisplay))->modeChange(); // force a full re-draw and blit
-
-  // Poll the keyboard before we start, so we can do selftest on startup
-  g_keyboard->maintainKeyboard();
-}
-
 void runMaintenance(uint32_t now)
 {
   static uint32_t nextRuntime = 0;
@@ -232,12 +200,17 @@ void runMaintenance(uint32_t now)
     nextRuntime = now + 100000; // FIXME: what's a good time here? 1/10 sec?
     
     if (!resetButtonDebouncer.read()) {
-      // This is the BIOS interrupt. We immediately act on it.
-      biosInterrupt();
+      // This is the BIOS interrupt. Wait for it to clear and process it.
+      while (!resetButtonDebouncer.read())
+	resetButtonDebouncer.update();
+
+      g_biosInterrupt = true;
     }
-    
-    g_keyboard->maintainKeyboard();
-    usb.maintain();
+
+    if (!g_biosInterrupt) {
+        g_keyboard->maintainKeyboard();
+    	usb.maintain();
+    }	
   }
 }
 
@@ -260,18 +233,20 @@ void runDisplay(uint32_t now)
     microsForNext = microsAtStart + (1000000.0*((float)refreshCount/(float)TARGET_FPS));
     
     doDebugging(lastFps);
-    
-    g_ui->blit();
-    g_vm->vmdisplay->lockDisplay();
-    if (g_vm->vmdisplay->needsRedraw()) { // necessary for the VM to redraw
-      // Used to get the dirty rect and blit just that rect. Could still do,
-      // but instead, I'm just wildly wasting resources. MWAHAHAHA
-      //    AiieRect what = g_vm->vmdisplay->getDirtyRect();
-      g_vm->vmdisplay->didRedraw();
-      //    g_display->blit(what);
+
+    if (!g_biosInterrupt) {
+      g_ui->blit();
+      g_vm->vmdisplay->lockDisplay();
+      if (g_vm->vmdisplay->needsRedraw()) { // necessary for the VM to redraw
+	// Used to get the dirty rect and blit just that rect. Could still do,
+	// but instead, I'm just wildly wasting resources. MWAHAHAHA
+	//    AiieRect what = g_vm->vmdisplay->getDirtyRect();
+	g_vm->vmdisplay->didRedraw();
+	//    g_display->blit(what);
+      }
+      g_display->blit(); // Blit the whole thing, including UI area
+      g_vm->vmdisplay->unlockDisplay();
     }
-    g_display->blit(); // Blit the whole thing, including UI area
-    g_vm->vmdisplay->unlockDisplay();
   }
   
   // Once a second, start counting all over again
@@ -313,6 +288,21 @@ void runDebouncer()
   }
 }
 
+void runBIOS(uint32_t now)
+{
+  static uint32_t nextResetMicros = 0;
+  static uint32_t countSinceLast = 0;
+  static uint32_t microsAtStart = micros();
+  static uint32_t microsForNext = microsAtStart + 100000; // 1/10 second
+
+  if (now >= microsForNext) {
+    microsForNext = now + 100000; // 1/10 second
+    if (!bios.loop()) {
+      g_biosInterrupt = false;
+    }
+  }
+}
+
 void runCPU(uint32_t now)
 {
   static uint32_t nextResetMicros = 0;
@@ -343,7 +333,41 @@ void runCPU(uint32_t now)
 void loop()
 {
   uint32_t now = micros();
-  runCPU(now);
+
+  static bool wasBios = false; // so we can tell when it's done
+  if (g_biosInterrupt) {
+    runBIOS(now);
+    wasBios = true;
+  } else {
+    if (wasBios) {
+      // bios has just exited
+      writePrefs();
+
+      // Also might have changed the paddles state
+      TeensyPaddles *tmp = (TeensyPaddles *)g_paddles;
+      tmp->setRev(g_invertPaddleX, g_invertPaddleY);
+
+      // if we turned off debugMode, make sure to clear the debugMsg                
+      if (g_debugMode == D_NONE) {
+	g_display->debugMsg("");
+      }
+      // Drain the speaker queue (FIXME: a little hacky)
+      g_speaker->maintainSpeaker(-1, -1);
+      
+      // Force the display to redraw
+      g_display->redraw(); // Redraw the UI
+      ((AppleDisplay*)(g_vm->vmdisplay))->modeChange(); // force a full re-draw and blit
+      
+      // Poll the keyboard before we start, so we can do selftest on startup
+      g_keyboard->maintainKeyboard();
+
+      wasBios = false;
+    }
+  }
+  
+  if (!g_biosInterrupt) {
+    runCPU(now);
+  }
   runDisplay(now);
   runMaintenance(now);
   runDebouncer();
