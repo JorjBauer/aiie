@@ -327,6 +327,16 @@ void loop()
     if (wasBios) {
       // bios has just exited
       writePrefs();
+
+      // if we turned off debugMode, make sure to clear the debugMsg
+      if (g_debugMode == D_NONE) {
+        g_display->debugMsg("");
+      }
+      
+      // Force the display to redraw
+      g_display->redraw(); // Redraw the UI
+      ((AppleDisplay*)(g_vm->vmdisplay))->modeChange(); // force a full re-draw	and blit
+
       wasBios = false;
     }
   }

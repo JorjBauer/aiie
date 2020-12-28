@@ -551,6 +551,19 @@ uint16_t BIOS::PaddlesScreenHandler(bool needsRedraw, bool performAction)
   return BIOS_PADDLES;
 }
 
+static void insertDisk(int forWhat, const char *path,
+		       const char *fileName)
+{
+  // drawIt is false b/c we don't want to draw it immediately -- that
+  // would draw over the bios screen
+  if (forWhat == ACT_DISK1 || forWhat == ACT_DISK2) {
+    ((AppleVM *)g_vm)->insertDisk(forWhat == ACT_DISK1 ? 0 : 1, staticPathConcat(path, fileName), false);
+  } else {
+    // must be a hard drive
+    ((AppleVM *)g_vm)->insertHD(forWhat == ACT_HD1 ? 0 : 1, staticPathConcat(path, fileName));
+  }
+}
+
 uint16_t BIOS::SelectFileScreenHandler(bool needsRedraw, bool performAction)
 {
   if (selectedMenuItem < 0)
@@ -558,24 +571,23 @@ uint16_t BIOS::SelectFileScreenHandler(bool needsRedraw, bool performAction)
   selectedMenuItem %= BIOS_MAXFILES + 2;
 
   static bool localRedraw = true;
-  static int8_t sel = 0;
   static int8_t page = 0;
   static uint16_t fileCount = 0;
   
   if (needsRedraw || localRedraw) {
-    fileCount = DrawDiskNames(page, sel, fileFilter);
+    fileCount = DrawDiskNames(page, selectedMenuItem, fileFilter);
 
     localRedraw = false;
   }
   
   if (performAction) {
-    if (sel == 0) {
+    if (selectedMenuItem == 0) {
       page--;
       if (page < 0) page = 0;
       //      else sel = BIOS_MAXFILES + 1;
       localRedraw = true;
     }
-    else if (sel == BIOS_MAXFILES+1) {
+    else if (selectedMenuItem == BIOS_MAXFILES+1) {
       if (fileCount == BIOS_MAXFILES) { // don't let them select
 					// 'Next' if there were no
 					// files in the list or if the
@@ -584,20 +596,22 @@ uint16_t BIOS::SelectFileScreenHandler(bool needsRedraw, bool performAction)
 	//sel = 0;                                                                                                                      
       localRedraw = true;
       }
-    } else if (strcmp(fileDirectory[sel-1], "../") == 0) {
+    } else if (strcmp(fileDirectory[selectedMenuItem-1], "../") == 0) {
       // Go up a directory (strip a directory name from rootPath)
       stripDirectory();
       page = 0;
       //sel = 0;                                                                                                                        
       localRedraw = true;
-    } else if (fileDirectory[sel-1][strlen(fileDirectory[sel-1])-1] == '/') {
+    } else if (fileDirectory[selectedMenuItem-1][strlen(fileDirectory[selectedMenuItem-1])-1] == '/') {
       // Descend in to the directory. FIXME: file path length?
-      strcat(rootPath, fileDirectory[sel-1]);
-      sel = 0;
+      strcat(rootPath, fileDirectory[selectedMenuItem-1]);
+      selectedMenuItem = 0;
       page = 0;
       localRedraw = true;
     } else {
-      selectedFile = sel - 1;
+      selectedFile = selectedMenuItem - 1;
+      insertDisk(fileSelectionFor, rootPath, fileDirectory[selectedFile]);
+
       g_display->flush();
       return BIOS_DISKS;
     }
@@ -1092,46 +1106,4 @@ uint16_t BIOS::GatherFilenames(uint8_t pageOffset, const char *filter)
     nextEntry++;
   }
 }
-
-#if 0
-	***
-	switch (fileSelectionFor) {
-case ACT_DISK1:
-	if (SelectDiskImage("dsk,.po,nib,woz")) {
-	  ((AppleVM *)g_vm)->insertDisk(0, staticPathConcat(rootPath, fileDirectory[selectedFile]), false);
-	  return BIOS_DONE;
-	  ...
-case ACT_DISK2:
-	if (SelectDiskImage("dsk,.po,nib,woz")) {
-	  ((AppleVM *)g_vm)->insertDisk(1, staticPathConcat(rootPath, fileDirectory[selectedFile]), false);
-	  return BIOS_DONE;
-
-...
-case ACT_HD1:
-	***
-	if (SelectDiskImage("img")) {
-	  ((AppleVM *)g_vm)->insertHD(0, staticPathConcat(rootPath, fileDirectory[selectedFile]));
-	  return BIOS_DONE;
-	}
-
-case ACT_HD2:
-	***
-	if (SelectDiskImage("img")) {
-	  ((AppleVM *)g_vm)->insertHD(1, staticPathConcat(rootPath, fileDirectory[selectedFile]));
-	  return BIOS_DONE;
-	}
-
-
-...
-
-	  /*
-  int8_t sel = 0;
-  int8_t page = 0;
-  uint16_t fileCount = 0;
-  while (1) {
-    fileCount = DrawDiskNames(page, sel, filter);
- */
-
-
-#endif
 	
