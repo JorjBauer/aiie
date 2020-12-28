@@ -206,9 +206,9 @@ void SDLDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
     uint8_t ch = BiosFont[temp];
     for (int8_t x_off = 0; x_off <= xsize; x_off++) {
       if (ch & (1 << (7-x_off))) {
-	drawPixel(x + x_off, y + y_off, onPixel);
+	drawUIPixel(x + x_off, y + y_off, onPixel);
       } else {
-	drawPixel(x + x_off, y + y_off, offPixel);
+	drawUIPixel(x + x_off, y + y_off, offPixel);
       }
     }
     temp++;
@@ -223,6 +223,7 @@ void SDLDisplay::drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str
   for (int8_t i=0; i<strlen(str); i++) {
     drawCharacter(mode, x, y, str[i]);
     x += xsize; // fixme: any inter-char spacing?
+    if (x >= 320) break; // FIXME constant - and pre-scaling, b/c that's in drawCharacter
   }
 }
 
