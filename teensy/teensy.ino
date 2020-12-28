@@ -41,6 +41,8 @@ TeensyUSB usb;
 
 Bounce resetButtonDebouncer = Bounce();
 
+volatile bool cpuClockInitialized = false;
+
 void onKeypress(int unicode)
 {
   /*
@@ -309,6 +311,16 @@ void runCPU(uint32_t now)
   static uint32_t countSinceLast = 0;
   static uint32_t microsAtStart = micros();
   static uint32_t microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
+
+  // Allow the BIOS to reset our timing
+  if (!cpuClockInitialized) {
+    nextResetMicros = 0;
+    countSinceLast = 0;
+    microsAtStart = micros();
+    microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
+
+    cpuClockInitialized = true;
+  }
   
   if (now >= microsForNext) {
     countSinceLast += g_cpu->Run(24); // The CPU runs in bursts of cycles. This '24' is the max burst we perform.
@@ -361,6 +373,8 @@ void loop()
       // Poll the keyboard before we start, so we can do selftest on startup
       g_keyboard->maintainKeyboard();
 
+      // Reset the CPU clock so it doesn't fast-forward
+      cpuClockInitialized = false;
       wasBios = false;
     }
   }

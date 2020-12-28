@@ -36,6 +36,8 @@ volatile bool wantResume = false;
 
 volatile bool cpuDebuggerRunning = false;
 
+volatile bool cpuClockInitialized = false;
+
 void doDebugging();
 void readPrefs();
 void writePrefs();
@@ -118,14 +120,13 @@ static struct timespec runBIOS(struct timespec now)
 
 static struct timespec runCPU(struct timespec now)
 {
-  static bool initialized = false;
   static struct timespec startTime;
   static struct timespec nextInstructionTime;
   
-  if (!initialized) {
+  if (!cpuClockInitialized) {
     do_gettime(&startTime);
     do_gettime(&nextInstructionTime);
-    initialized = true;
+    cpuClockInitialized = true;
   }
 
   // Check for interrupt-like actions before running the CPU
@@ -337,6 +338,7 @@ void loop()
       g_display->redraw(); // Redraw the UI
       ((AppleDisplay*)(g_vm->vmdisplay))->modeChange(); // force a full re-draw	and blit
 
+      cpuClockInitialized = false; // force it to reset so it doesn't fast-forward
       wasBios = false;
     }
   }
