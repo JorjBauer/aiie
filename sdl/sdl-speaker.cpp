@@ -10,8 +10,8 @@ extern "C"
 };
 
 // What values do we use for logical speaker-high and speaker-low?
-#define HIGHVAL (0x4FFF)
-#define LOWVAL (-(0x4FFF))
+#define HIGHVAL ((0x4FFF) >> (15-g_volume))
+#define LOWVAL (-((0x4FFF) >> (15-g_volume)))
 
 #include "globals.h"
 
