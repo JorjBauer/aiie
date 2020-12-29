@@ -8,9 +8,10 @@
 #include "globals.h"
 
 #ifdef TEENSYDUINO
-EXTMEM uint8_t preallocatedRam[591*256];
+EXTMEM uint8_t preallocatedRam[599*256];
 #else
-uint8_t preallocatedRam[591*256];
+#include <stdio.h>
+uint8_t preallocatedRam[599*256];
 #endif
 
 #ifndef TEENSYDUINO
@@ -42,6 +43,13 @@ uint8_t VMRam::readByte(uint32_t addr)
 void VMRam::writeByte(uint32_t addr, uint8_t value)
 { 
   preallocatedRam[addr] = value;
+}
+
+uint8_t *VMRam::memPtr(uint32_t addr)
+{
+  printf("Asked for preallocated RAM pointer at 0x%X\n", addr);
+  printf("Base is 0x%llX\n", (unsigned long long) preallocatedRam);
+  return &preallocatedRam[addr];
 }
 
 bool VMRam::Serialize(int8_t fd)

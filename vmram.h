@@ -15,13 +15,15 @@ class VMRam {
   uint8_t readByte(uint32_t addr);
   void writeByte(uint32_t addr, uint8_t value);
 
+  uint8_t *memPtr(uint32_t addr);
+
   bool Serialize(int8_t fd);
   bool Deserialize(int8_t fd);
 
   bool Test();
 
  private:
-  // We need 591 pages of 256 bytes for the //e.
+  // We need 599 pages of 256 bytes for the //e.
   //
   // This previously used a split memory model where some of this was
   // in internal ram and some was external - and while that's not true
@@ -37,7 +39,7 @@ class VMRam {
   // Pages 4-7 are 0x200 - 0x3FF. We want those in RAM too (text pages).
 
   // Has to be static if we're using the EXTMEM sectioning, so it's now in vmram.cpp :/
-  //EXTMEM uint8_t preallocatedRam[591*256];
+  //EXTMEM uint8_t preallocatedRam[599*256];
 
 
 };

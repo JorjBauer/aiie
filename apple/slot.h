@@ -22,6 +22,9 @@ class Slot {
   virtual void writeSwitches(uint8_t s, uint8_t v) = 0;
 
   virtual void loadROM(uint8_t *toWhere) = 0;
+
+  virtual bool hasExtendedRom() { return false; };
+  virtual void loadExtendedRom(uint8_t *toWhere, uint16_t byteOffset) {};
 };
 
 #endif

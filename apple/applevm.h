@@ -7,6 +7,7 @@
 #include "hd32.h"
 #include "vmkeyboard.h"
 #include "parallelcard.h"
+#include "mouse.h"
 
 #include "vm.h"
 class AppleVM : public VM {
@@ -39,6 +40,7 @@ class AppleVM : public VM {
  protected:
   VMKeyboard *keyboard;
   ParallelCard *parallel;
+  Mouse *mouse;
 };
 
 

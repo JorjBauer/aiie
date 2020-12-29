@@ -32,6 +32,9 @@ AppleVM::AppleVM()
 
   hd32 = new HD32((AppleMMU *)mmu);
   ((AppleMMU *)mmu)->setSlot(7, hd32);
+
+  mouse = new Mouse();
+  ((AppleMMU *)mmu)->setSlot(4, mouse);
 }
 
 AppleVM::~AppleVM()
