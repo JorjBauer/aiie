@@ -142,7 +142,7 @@ void setup()
     yield();
   }
 #endif
-  delay(120); // let the power settle
+  delay(200); // let the power settle & serial to get its bearings
 
   pinMode(DEBUGPIN, OUTPUT); // for debugging
   pinMode(BATTERYSELECT, OUTPUT);
@@ -220,7 +220,8 @@ void setup()
 
   println("Reading prefs");
   readPrefs(); // read from eeprom and set anything we need setting
-
+  g_speaker->begin(); // let the speaker reset its volume from g_volume
+  
   // Debugging: insert a disk on startup...
   //((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/UTIL/mock2dem.dsk", false);
   //((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/JORJ/disk_s6d1.dsk", false);
@@ -475,6 +476,10 @@ void loop()
 
       // Reset the CPU clock so it doesn't fast-forward
       cpuClockInitialized = false;
+
+      // Reset the speaker so it picks up its new volume (FIXME kinda hacky)
+      g_speaker->begin();
+
       wasBios = false;
     }
   }

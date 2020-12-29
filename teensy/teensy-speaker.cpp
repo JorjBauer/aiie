@@ -50,8 +50,11 @@ TeensySpeaker::~TeensySpeaker()
 
 void TeensySpeaker::begin()
 {
-  mixer1.gain(0, 0.1f); // left channel (off for now)
-  mixer1.gain(1, 0.1f); // right channel (full volume for now)
+  float curVolume = (float)g_volume / 15.0;
+  mixer1.gain(0, curVolume); // left channel
+  mixer1.gain(1, curVolume); // right channel
+  mixer2.gain(0, curVolume); // left channel
+  mixer2.gain(1, curVolume); // right channel
 
   memset(soundBuf, 0, sizeof(soundBuf));
   
