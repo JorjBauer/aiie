@@ -1,7 +1,7 @@
 # Aiie!
 
 Aiie! is an Apple //e emulator, written ground-up for the Teensy
-3.6.
+4.1 (originally for the Teensy 3.6).
 
 The name comes from a game I used to play on the Apple //e back
 around 1986 - Ali Baba and the Forty Thieves, published by Quality
@@ -71,45 +71,35 @@ perfect. Do as you see fit :)
 
 ## Environment and Libraries
 
-I built this with arduino 1.8.5 and TeensyDuino 1.40.
+I built this with arduino 1.8.13 and TeensyDuino 1.54b5.
 
       https://www.pjrc.com/teensy/td_download.html
 
 These libraries I'm using right from Teensy's environment: TimerOne;
-SPI; EEPROM; Time; Keypad.
-
-I'm also using these libraries that don't come with TeensyDuino:
-
-### SdFat
-
-SD card support - accelerated for the Teensy, and with long filename support.
-
-     https://github.com/greiman/SdFat
-
-
-
-
+SPI; EEPROM; Time; Keypad; SdFat (previously called "SdFat-beta" but
+renamed in TeensyDuino 1.54).
 
 # Running (on the Teensy)
 
-The reset/menu button brings up a BIOS menu:
+The reset/menu button brings up a BIOS menu with options like:
 
     Resume
     Reset
     Cold Reboot
     Drop to Monitor
-    Display: RGB
     Debug: off
+    Suspend/Restore VM
+
+    Display: RGB
+    CPU Speed: Normal (1.023 MHz)
+    Paddle X/Y inverted
+    Configure paddles
+    Volume +/-
+    
     Insert/Eject Disk 1
     Insert/Eject Disk 2
     Insert/Eject HD 1
     Insert/Eject HD 2
-    Volume +
-    Volume -
-    Suspend
-    Restore
-    Prioritize Display/Audio
-
 
 ## Reset
 
@@ -120,7 +110,8 @@ joystick buttons; hit the reset/menu key; and select "Reset".
 ## Cold Reboot
 
 This resets much of the hardware to a default state and forces a
-reboot. (You can get the self-test using this, too.)
+reboot. It ejects any inserted disks. (You can get the self-test using
+this, too.)
 
 ## Drop to Monitor
 
@@ -162,16 +153,17 @@ This has several settings:
 	Show FPS
 	Show mem free
 	Show paddles
-	Show PC
-	Show cycles
-	Show battery
-	Show time
+	Show PC (program counter)
+	Show cycles (CPU run cycle count)
+	Show battery (raw data and percentage)
+	Show time (clock time)
+	Show disk (selected drive / head position)
 
 ... these are all fairly self-explanatory.
 
 ## Insert/Eject Disk1/2 HD1/2
 
-Fairly self-explanatory. Disks may be .dsk, .po, or .nib images
+Fairly self-explanatory. Disks may be .dsk, .po, .nib, or .woz images
 (although .nib images aren't very heavily tested, particularly for
 write support). Hard drives are raw 32MB files, whose filenames must
 end in .img.
@@ -185,46 +177,6 @@ to be able to select from multiple suspend/restore files
 eventually. It wouldn't be terribly hard; it's just that the BIOS
 interface is very limited.)
 
-## Prioritize Display/Audio
-
-Any Apple emulator needs real-time support for audio. The hardware is
-very direct: when a particular memory location ($C030) is read from or
-written to, the speaker's state is toggled. By doing this at specific
-times, the Apple generates a square wave - and this is the basis of
-the built-in audio. Obviously, then, the CPU has to be running at a
-specific frequency and the updates to the speaker have to come at
-exactly the right time.
-
-The Mac version of AiiE runs the CPU a few cycles fast; and then while
-it's waiting for the CPU to catch up, it's slowly toggling the speaker
-at the right time. This works well because the actual computer it's
-running on is so much faster than the CPU it's emulating.
-
-The Teensy verison can't afford all that overhead. It runs the virtual
-CPU in batches of 24-ish cycles, unless it updates the speaker; in
-which case, the virtual CPU returns control to the main program
-early. This was important while the Teensy code was queueing... but
-the queueing has since been removed, and its virtual MMU directly
-toggles the speaker as the virtual CPU is running. (This isn't quite
-as accurate as the Mac verison but it's close enough; uses less RAM;
-and uses less CPU.)
-
-While all that's running, the display is also updating from the main
-loop. The trobule is that it takes quite a lot of time to update the
-display. Much longer than one CPU cycle. Much longer than hundreds of
-CPU cycles. Which means that one of two bad things happens.
-
-Either (a) the CPU can run and update the video while you're still
-pushing that video to the screen - which means you can wind up with
-(e.g.) half a cloud in Skyfox at the top of the screen, and nothing
-immediately below it, because the video is "tearing" (getting partial
-results that change over time as it scans down the screen); or (b) you
-block the CPU from running while updating the display, which means the
-CPU runs in fits and starts. Since the audio is directly coupled to
-the CPU that also means the audio will be very messed up.
-
-So this BIOS option lets you choose whether you want good audio or good video.
-
 # Building (on a Mac)
 
 While this isn't the purpose of the emulator, it is functional, and is
@@ -233,7 +185,7 @@ Homebrew, you can build and run it like this:
 
 ```
 <pre>
-  $ make 
+  $ make sdl
   $ ./aiie-sdl /path/to/disk.dsk
 </pre>
 ```
@@ -246,6 +198,8 @@ As the name implies, this requires that SDL is installed and in
   $ brew install sdl2
 </pre>
 ```
+
+When running, F10 enters the BIOS.
 
 # Building (on Linux)
 
@@ -265,11 +219,8 @@ the Apple II Documentation Project:
 
 https://mirrors.apple2.org.za/Apple%20II%20Documentation%20Project/Interface%20Cards/Audio/Sweet%20Microsystems%20Mockingboard/Schematics/Mockingboard%20Schematic.gif
 
-I'm not sure the Teensy 3.6 has enough horsepower to run this, so I'm
-not sure it will ever come to be. It struggles to refresh the display
-and run the speaker at full tilt; but maybe that's primarily a
-function of the throughput to the display, and adding the Mockingboard
-support won't require further sacrifice...
+It was difficult to shoehorn this in to the Teensy 3.6, but with the
+Teensy 4.1 it might be possible. More work required, though.
 
 # VM
 
@@ -337,10 +288,40 @@ while the third says
 
 # Caveats
 
-For the Teensy 4, the SdFat library no longer works. SdFat-beta does:
+This *requires* TeensyDuino 1.54 beta 5, which is the most recent
+release as of this writing. There are two sets of functionality needed
+here: first, SdFat with long file name support that works with the
+Teensy 4; and second, raw USB keyboard scancode support.
 
-    https://github.com/greiman/SdFat-beta
+Suspend/Restore is untested with the Teensy 4.1 hardware.
 
-... but with a big caveat. The Teensy Audio library has two AudioStream objects that include SD.h, which causes a conflict. To get around the conflict, I have locally converted those two modules to also use SdFat-beta by (1) replacing the #include "SD.h" with #include "SdFat.h"; and (2) in both of the related .cpp files, added "SdFat SD;" after the includes. This is not ideal.
+The Audio channel needs antialiasing and downsampling support for
+cleaner audio. This wasn't a problem on the Teensy 3.6 because the
+code was live toggling an actual speaker, just like the Apple did, in
+real-time; but on the 4.1, we're using a digital audio interface so
+we're experiencing real analog/digital conversion issues in some
+situations (particularly code that exploits the physical hardware to
+make really sophisticsated sounds).
+
+CPU speed regulation isn't working at the moment; no matter what speed
+you pick, you'll get normal full speed.
+
+NIB disks are completely broken at the moment due to the Woz disk
+format implementation. Internally, the NIB is converted to a WOZ and
+apparently there's a bug somewhere.
+
+The LinuxFB build is currently unmaintained, and definitely broken.
+
+Many, but not all, copy-protected Woz disks work. There appears to be
+a subtle timing bug in my disk driver code.
+
+Disk write protection isn't implemented.
+
+If you don't have an SD card inserted when you turn on Aiie, you can't
+insert one and use it without power cycling. (The card driver is only
+initialized on hardware startup.)
+
+While I do have an ESP-01 wired in to the hardware, I don't have a
+working driver written yet.
 
 
