@@ -515,6 +515,11 @@ void doDebugging(uint32_t lastFps)
     sprintf(debugBuf, "%llX", g_cpu->cycles);
     g_display->debugMsg(debugBuf);
     break;
+  case D_SHOWBATTERY:
+    sprintf(debugBuf, "B: %d %d%%     ", currentBatteryReading,
+	    map(currentBatteryReading, BATTERYMIN, BATTERYMAX, 0, 100));
+    g_display->debugMsg(debugBuf);
+    break;
   case D_SHOWTIME:
     sprintf(debugBuf, "%.2d:%.2d:%.2d", hour(), minute(), second());
     g_display->debugMsg(debugBuf);
