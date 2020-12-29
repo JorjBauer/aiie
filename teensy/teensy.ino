@@ -26,6 +26,8 @@
 
 #define RESETPIN 38
 #define DEBUGPIN 23
+#define BATTERYLEVEL 20 // analog reading of battery voltage (scaled to half)
+#define BATTERYSELECT 21 // digital select that turns on the power reading ckt
 
 #include "globals.h"
 #include "teensy-crash.h"
@@ -42,6 +44,23 @@ TeensyUSB usb;
 Bounce resetButtonDebouncer = Bounce();
 
 volatile bool cpuClockInitialized = false;
+
+// The battery voltage measurement comes through a 50% ratio voltage
+// divider; and the analog resolution is set to 8 bits (so a max of
+// 256); with a fixed voltage reference of 3.3v (standard in the
+// Teensy 4.1).  Since the voltage of a 16550 battery is 4.2v (at
+// 100%) to 2.5v (at 0%), that means we should expect the
+// currentBatteryReading to be about 97 - 163.  Since this is
+// imperfect due to tolerance in the resistors and whatnot, we might
+// as well call that 100 - 160.
+volatile uint16_t currentBatteryReading = 0;
+volatile uint16_t currentBatteryCount = 0;
+volatile uint16_t currentBatterySum = 0;
+
+#define BATTERYMIN 100
+#define BATTERYMAX 160
+// how often should we read the battery level?
+#define BATTERYPERIOD (60 * 100000)
 
 void onKeypress(int unicode)
 {
@@ -80,6 +99,9 @@ void setup()
   delay(120); // let the power settle
 
   pinMode(DEBUGPIN, OUTPUT); // for debugging
+  pinMode(BATTERYSELECT, OUTPUT);
+  digitalWrite(BATTERYSELECT, false); // leave it off by default
+  pinMode(BATTERYLEVEL, INPUT);
 
 //  enableFaultHandler();
 //  SCB_SHCSR |= SCB_SHCSR_BUSFAULTENA | SCB_SHCSR_USGFAULTENA | SCB_SHCSR_MEMFAULTENA;
@@ -344,7 +366,39 @@ void runCPU(uint32_t now)
 
 void loop()
 {
+  static uint32_t readingBattery = 0; // set to millis() + a settle time constant when we start reading
+  static uint32_t nextReadBattery = micros() + BATTERYPERIOD;
+  
   uint32_t now = micros();
+
+  if (readingBattery && now >= readingBattery) {
+    // Take 10 readings over a second and average them
+    currentBatterySum += analogRead(BATTERYLEVEL);
+    readingBattery = now + 100000; // 100 ms
+    if (++currentBatteryCount >= 10) {
+      currentBatteryReading = currentBatterySum / currentBatteryCount;
+      readingBattery = 0;
+      digitalWrite(BATTERYSELECT, false);
+      nextReadBattery = now + BATTERYPERIOD;
+
+      // Set up the displayed battery level
+      if (currentBatteryReading < BATTERYMIN)
+	currentBatteryReading = BATTERYMIN;
+      if (currentBatteryReading > BATTERYMAX)
+	currentBatteryReading = BATTERYMAX;
+	
+      ((AppleUI *)g_ui)->drawBatteryStatus(map(currentBatteryReading,
+					       BATTERYMIN, BATTERYMAX,
+					       0, 100));
+    }
+  }
+  else if (!readingBattery && now >= nextReadBattery) {
+    // start reading the battery
+    readingBattery = now + 1 * 1000000; // let it settle for 1 second
+    currentBatterySum = 0;
+    currentBatteryCount = 0;
+    digitalWrite(BATTERYSELECT, true);
+  }
 
   static bool wasBios = false; // so we can tell when it's done
   if (g_biosInterrupt) {

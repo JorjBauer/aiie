@@ -54,9 +54,9 @@ void AppleUI::drawPercentageUIElement(uint8_t element, uint8_t percent)
 
 void AppleUI::drawBatteryStatus(uint8_t percent)
 {
-  uint16_t xoff = 301*2;
+  uint16_t xoff = 301;
   uint16_t yoff = 222;
-  
+
   // the area around the apple is 12 wide; it's exactly 11 high the
   // color is 210/202/159
 
@@ -93,7 +93,8 @@ void AppleUI::drawBatteryStatus(uint8_t percent)
       g = (float)g * alpha + (bgg * (1.0 - alpha));
       b = (float)b * alpha + (bgb * (1.0 - alpha));
 
-      g_display->drawPixel(x+xoff, y+yoff, r, g, b);
+      uint16_t color16 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | ((b & 0xF8) >> 3);
+      g_display->drawUIPixel(x+xoff, y+yoff, color16);
     }
   }
 }
