@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <USBHost_t36.h>
 
-typedef void (*keyboardCallback)(int unicode);
+typedef void (*keyboardCallback)(uint8_t keycode);
 
 class TeensyUSB {
  public:

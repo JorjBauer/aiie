@@ -24,14 +24,14 @@ void TeensyUSB::init()
 
 void TeensyUSB::attachKeypress(keyboardCallback cb)
 {
-  keyboard1.attachPress(cb);
-  keyboard2.attachPress(cb);
+  keyboard1.attachRawPress(cb);
+  keyboard2.attachRawPress(cb);
 }
 
 void TeensyUSB::attachKeyrelease(keyboardCallback cb)
 {
-  keyboard1.attachRelease(cb);
-  keyboard2.attachRelease(cb);
+  keyboard1.attachRawRelease(cb);
+  keyboard2.attachRawRelease(cb);
 }
 
 void TeensyUSB::maintain()

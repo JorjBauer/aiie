@@ -62,14 +62,20 @@ volatile uint16_t currentBatterySum = 0;
 // how often should we read the battery level?
 #define BATTERYPERIOD (60 * 100000)
 
-void onKeypress(int unicode)
+void onKeypress(uint8_t keycode)
 {
+  uint8_t mods = usb.getModifiers();
+  uint8_t oem = usb.getOemKey();
+  char buf[256];
+  sprintf(buf, "%d [%c] [0x%X] [0x%X]", keycode, (char)keycode, mods, oem);
+  Serial.println(buf);
+
   /*
 shift/control/command are automatically applied
 caps lock is oemkey 57
   set the keyboard LED w/ ::capsLock(bool)
 modifiers are <<8 bits for the right side:
-  command: 0x08; option/alt: 0x04; shift: 0x02; control: 0x01
+command: 0x08; option/alt: 0x04; shift: 0x02; control: 0x01
 F1..F12 are 194..205
 Arrows: l/r/u/d 216/215/218/217
 Delete: 127 (control-delete is 31)
@@ -82,7 +88,7 @@ keypad: 210..218 as arrows &c, or digit ascii values w/ numlock on
   //  vmkeyboard->keyDepressed(keypad.key[i].kchar);
 }
 
-void onKeyrelease(int unicode)
+void onKeyrelease(uint8_t keycode)
 {
   //  vmkeyboard->keyReleased(keypad.key[i].kchar);
 }

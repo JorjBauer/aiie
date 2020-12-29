@@ -6,8 +6,8 @@
 
 /* FIXME globals */
 static SdFat sd;
-static File cacheFile;
-static File outerDir;
+static FsFile cacheFile;
+static FsFile outerDir;
 
 
 
@@ -111,7 +111,7 @@ int16_t TeensyFileManager::readDir(const char *where, const char *suffix, char *
 
   outputFN[0] = '\0';
 
-  File e;
+  FsFile e;
   while (e.openNext(&outerDir, O_RDONLY)) {
 
     // Skip MAC fork files
@@ -211,7 +211,7 @@ bool TeensyFileManager::setSeekPosition(int8_t fd, uint32_t pos)
 // FIXME: this should be private
 void TeensyFileManager::seekToEnd(int8_t fd)
 {
-  File f;
+  FsFile f;
   f.open(cachedNames[fd], O_RDONLY);
   if (!f) {
     return;

@@ -1,5 +1,6 @@
 #include "teensy-prefs.h"
 
+#include <Arduino.h>
 #include <EEPROM.h>
 
 TeensyPrefs::TeensyPrefs()
