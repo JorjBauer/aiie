@@ -882,7 +882,7 @@ void BIOS::DrawHardwareMenu()
   uint16_t volCutoff = 300.0 * (float)((float) g_volume / 15.0);
   for (uint8_t y=234; y<=235; y++) {
     for (uint16_t x = 0; x< 300; x++) {
-      g_display->drawPixel( x, y, x <= volCutoff ? 0xFFFF : 0x0010 );
+      g_display->drawUIPixel( x, y, x <= volCutoff ? 0xFFFF : 0x0010 );
     }
   }
 }
