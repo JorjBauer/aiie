@@ -62,35 +62,75 @@ volatile uint16_t currentBatterySum = 0;
 // how often should we read the battery level?
 #define BATTERYPERIOD (60 * 100000)
 
+// FIXME: abstract this into the USB code; doesn't belong in the root...
+#include "physicalkeyboard.h"
+// https://www.win.tue.nl/~aeb/linux/kbd/scancodes-14.html
+static uint8_t usb_scanmap[256] = {
+  0, 0, 0, 0, // 0-3 don't exist
+  'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', // keycodes 4-29
+  'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v',
+  'w', 'x', 'y', 'z',
+  '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', // keycodes 30-39
+  PK_RET, // keycode 40
+  PK_ESC, // 41
+  PK_DEL, // 42
+  PK_TAB,
+  ' ', // space bar
+  '-', '=',
+  '[', ']', '\\',
+  0, // 50
+  ';', '\'', '`', ',', '.', '/',
+  PK_LOCK, // 57
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 58-69, F1-F12 keys
+  0, 0, 0, 0, 0, 0, 0, 0, 0, // PrtScr, scroll lock, pause, insert, home, PgUp, Delete, End, PgDown
+  PK_RARR, PK_LARR, PK_DARR, PK_UARR, // 79-82, arrow keys
+  0, // 83 num lock
+  '/', '*', '-', '+', PK_RET, '0', '1', '2', // 84-99 keypad, which we just...
+  '3', '4', '5', '6', '7', '8', '9', '.',  //   ... use as their "normal" keys
+  0, // 100 undefined
+  PK_RA, // 101: "application" key
+  0, // 102 "power" key
+  PK_CTRL, // 103 keypad '=' but it's my left control key
+  PK_LSHFT, // 104, "f13" but it's my left shift key
+  PK_LA, // 105: "f14" but it's my left alt key
+  PK_LA, // 106: "f15" but it's the windows/command key
+  PK_CTRL, // 107: "f16" but it's my right control key
+  PK_RSHFT, // 108: "f17" but it's my right shift key
+  PK_RA, // 109: "f18" but it's my right alt key
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 110-119
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 120-129
+  0, 0, 0, // 130-132
+  ',', // 133: keypad ,
+  '=', // 134: keypad =
+  0, 0, 0, 0, 0,  // 135-139
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 140-149
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 150-159
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 160-169
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 170-179
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 180-189
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 190-199
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 200-209
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 210-219
+  0, 0, 0, 0, // 220-223
+  PK_CTRL, // 224: left control (but not on my keyboard)
+  PK_LSHFT, // 225: left shift (but not on my keyboard)
+  PK_LA, PK_LA, // 226, 227: left alt, left GUI (but not on my keyboard)
+  PK_CTRL, // 228: right control (but not on my keyboard)
+  PK_RSHFT, // 229: right shift (but not on my keyboard)
+  PK_RA, PK_RA, // 230, 231: right alt, right GUI (but not on my keyboard)
+  0, 0, 0, 0, 0, 0, 0, 0, // 232-239
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 240-249
+  0, 0, 0, 0, 0, 0 // 250-255
+};
+  
 void onKeypress(uint8_t keycode)
 {
-  uint8_t mods = usb.getModifiers();
-  uint8_t oem = usb.getOemKey();
-  char buf[256];
-  sprintf(buf, "%d [%c] [0x%X] [0x%X]", keycode, (char)keycode, mods, oem);
-  Serial.println(buf);
-
-  /*
-shift/control/command are automatically applied
-caps lock is oemkey 57
-  set the keyboard LED w/ ::capsLock(bool)
-modifiers are <<8 bits for the right side:
-command: 0x08; option/alt: 0x04; shift: 0x02; control: 0x01
-F1..F12 are 194..205
-Arrows: l/r/u/d 216/215/218/217
-Delete: 127 (control-delete is 31)
-home/pgup/down/delete/end: 210,211,214,212,213
-numlock: oem 83
-keypad: 210..218 as arrows &c, or digit ascii values w/ numlock on
-  enter: 10
-   */
-
-  //  vmkeyboard->keyDepressed(keypad.key[i].kchar);
+  ((AppleVM *)g_vm)->getKeyboard()->keyDepressed(usb_scanmap[keycode]);
 }
 
 void onKeyrelease(uint8_t keycode)
 {
-  //  vmkeyboard->keyReleased(keypad.key[i].kchar);
+  ((AppleVM *)g_vm)->getKeyboard()->keyReleased(usb_scanmap[keycode]);
 }
 
 void setup()
