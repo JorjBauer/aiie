@@ -34,7 +34,7 @@ class SDLDisplay : public PhysicalDisplay {
 
   virtual void drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c);
   virtual void drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str);
-  virtual void clrScr();
+  virtual void clrScr(uint8_t coloridx);
 
   virtual void cachePixel(uint16_t x, uint16_t y, uint8_t color);
   virtual void cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color);

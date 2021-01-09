@@ -19,7 +19,7 @@ class TeensyDisplay : public PhysicalDisplay {
   virtual void blit(AiieRect r);
   virtual void redraw();
 
-  virtual void clrScr();
+  virtual void clrScr(uint8_t coloridx);
   virtual void flush();
 
   virtual void drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c);

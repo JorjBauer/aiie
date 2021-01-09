@@ -3,8 +3,15 @@
 
 #include "teensy-display.h"
 
-#include "bios-font.h"
 #include "appleui.h"
+// FIXME should be able to omit this include and relay on the xterns, which
+// would prove it's linking properly
+#include "font.h"
+extern const unsigned char ucase_glyphs[512];
+extern const unsigned char lcase_glyphs[256];
+extern const unsigned char mousetext_glyphs[256];
+extern const unsigned char interface_glyphs[256];
+
 #include <SPI.h>
 
 #define _clock 75000000
@@ -126,9 +133,27 @@ void TeensyDisplay::redraw()
   }
 }
 
-void TeensyDisplay::clrScr()
+void TeensyDisplay::clrScr(uint8_t coloridx)
 {
-  memset(dmaBuffer, 0x00, sizeof(dmaBuffer));
+  if (coloridx == c_black) {
+    memset(dmaBuffer, 0x00, sizeof(dmaBuffer));
+  } else if (coloridx == c_white) {
+    memset(dmaBuffer, 0xFF, sizeof(dmaBuffer));
+  } else {
+    const uint8_t *rgbptr = &loresPixelColors[0][0];
+    if (coloridx <= 16)
+      rgbptr = loresPixelColors[coloridx];
+    uint16_t color16 = ((rgbptr[0] & 0xF8) << 8) |
+      ((rgbptr[1] & 0xFC) << 3) |
+      ((rgbptr[2] & 0xF8) >> 3);
+    // This could be faster - make one line, then memcpy the line to the other
+    // lines?
+    for (uint8_t y=0; y<sizey; y++) {
+      for (uint16_t x=0; x<sizex; x++) {
+	dmaBuffer[y][x] = color16;
+      }
+    }
+  }
 }
 
 void TeensyDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
@@ -180,11 +205,7 @@ void TeensyDisplay::blit(AiieRect r)
 void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
 {
   int8_t xsize = 8,
-    ysize = 0x0C,
-    offset = 0x20;
-  uint16_t temp;
-
-  c -= offset;// font starts with a space
+    ysize = 0x07;
 
   uint16_t offPixel, onPixel;
   switch (mode) {
@@ -207,14 +228,13 @@ void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
     break;
   }
 
-  temp=(c*ysize);
-
+  // This does not scale when drawing, because drawPixel scales.
+  const unsigned char *ch = asciiToAppleGlyph(c);
   for (int8_t y_off = 0; y_off <= ysize; y_off++) {
-    uint8_t ch = pgm_read_byte(&BiosFont[temp]);
     if (y + y_off < 240) { // FIXME constant
       for (int8_t x_off = 0; x_off <= xsize; x_off++) {
 	if (x+x_off < 320) { // FIXME constant
-	  if (ch & (1 << (7-x_off))) {
+	  if (*ch & (1 << (x_off))) {
 	    dmaBuffer[y+y_off][x+x_off] = onPixel;
 	  } else {
 	    dmaBuffer[y+y_off][x+x_off] = offPixel;
@@ -222,7 +242,7 @@ void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
 	}
       }
     }
-    temp++;
+    ch++;
   }
 }
 
