@@ -200,6 +200,10 @@ void SDLDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
     onPixel = 0x7BEF;
     offPixel = 0xFFE0;
     break;
+  case M_PLAIN:
+    onPixel = 0xFFFF;
+    offPixel = 0x0000;
+    break;
   }
 
 

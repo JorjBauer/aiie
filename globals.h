@@ -19,7 +19,8 @@ enum {
   M_NORMAL = 0,
   M_SELECTED = 1,
   M_DISABLED = 2,
-  M_SELECTDISABLED = 3
+  M_SELECTDISABLED = 3,
+  M_PLAIN = 4
 };
 
 // debug modes
