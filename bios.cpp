@@ -173,6 +173,7 @@ bool BIOS::loop()
   bool hitReturn = false;
   
   uint16_t rv;
+  bool changingMenu = false;
   if (g_keyboard->kbhit()) {
     switch (g_keyboard->read()) {
     case PK_DARR:
@@ -187,11 +188,13 @@ bool BIOS::loop()
       selectedMenuItem = 0;
       selectedMenu++;
       selectedMenu %= NUM_TITLES;
+      changingMenu = true;
       needsRedraw = true;
       break;
     case PK_LARR:
       selectedMenuItem = 0;
       selectedMenu--;
+      changingMenu = true;
       if (selectedMenu < 0) {
 	selectedMenu = NUM_TITLES-1;
       }
@@ -202,6 +205,29 @@ bool BIOS::loop()
       needsRedraw = true;
       break;
     default:
+      break;
+    }
+  }
+
+  if (changingMenu && selectedMenu == BIOS_HARDWARE) {
+    // Need to initialize the CPU speed from g_speed
+    switch (g_speed) {
+    case 1023000:
+      currentCPUSpeedIndex = CPUSPEED_FULL;
+      break;
+    case 1023000/2:
+      currentCPUSpeedIndex = CPUSPEED_HALF;
+      break;
+    case 1023000*2:
+      currentCPUSpeedIndex = CPUSPEED_DOUBLE;
+      break;
+    case 1023000*4:
+      currentCPUSpeedIndex = CPUSPEED_QUAD;
+      break;
+    default:
+      // Dunno what happened, but we'll default back to full (normal) speed
+      currentCPUSpeedIndex = CPUSPEED_FULL;
+      g_speed = 1023000;
       break;
     }
   }
