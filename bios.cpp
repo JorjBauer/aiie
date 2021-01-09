@@ -50,23 +50,24 @@ enum {
 enum {
   ACT_EXIT = 1,
   ACT_RESET = 2,
-  ACT_COLDBOOT = 3,
-  ACT_MONITOR = 4,
-  ACT_DISPLAYTYPE = 5,
-  ACT_DEBUG = 6,
-  ACT_DISK1 = 7,
-  ACT_DISK2 = 8,
-  ACT_HD1 = 9,
-  ACT_HD2 = 10,
-  ACT_VOLPLUS = 11,
-  ACT_VOLMINUS = 12,
-  ACT_SUSPEND = 13,
-  ACT_RESTORE = 14,
-  ACT_PADX_INV = 15,
-  ACT_PADY_INV = 16,
-  ACT_PADDLES = 17,
-  ACT_SPEED = 18,
-  ACT_ABOUT = 19,
+  ACT_REBOOT = 3,
+  ACT_REBOOTANDEJECT = 4,
+  ACT_MONITOR = 5,
+  ACT_DISPLAYTYPE = 6,
+  ACT_DEBUG = 7,
+  ACT_DISK1 = 8,
+  ACT_DISK2 = 9,
+  ACT_HD1 = 10,
+  ACT_HD2 = 11,
+  ACT_VOLPLUS = 12,
+  ACT_VOLMINUS = 13,
+  ACT_SUSPEND = 14,
+  ACT_RESTORE = 15,
+  ACT_PADX_INV = 16,
+  ACT_PADY_INV = 17,
+  ACT_PADDLES = 18,
+  ACT_SPEED = 19,
+  ACT_ABOUT = 20,
 };
 
 #define NUM_TITLES 4
@@ -75,7 +76,8 @@ const uint8_t titleWidths[NUM_TITLES] = {45, 28, 80, 45 };
 
 const uint8_t aiieActions[] = { ACT_ABOUT };
 
-const uint8_t vmActions[] = { ACT_EXIT, ACT_RESET, ACT_COLDBOOT, ACT_MONITOR,
+const uint8_t vmActions[] = { ACT_EXIT, ACT_RESET, ACT_REBOOT, ACT_REBOOTANDEJECT,
+                              ACT_MONITOR,
 			      ACT_DEBUG, ACT_SUSPEND, ACT_RESTORE };
 const uint8_t hardwareActions[] = { ACT_DISPLAYTYPE,  ACT_SPEED,
 				    ACT_PADX_INV, ACT_PADY_INV,
@@ -289,7 +291,12 @@ uint16_t BIOS::VmMenuHandler(bool needsRedraw, bool performAction)
       case ACT_RESET:
 	WarmReset();
 	return BIOS_DONE;
-      case ACT_COLDBOOT:
+      case ACT_REBOOT:
+	// Reboot, but don't eject disks
+	RebootAsIs();
+	return BIOS_DONE;
+      case ACT_REBOOTANDEJECT:
+	// Power off and on, ejecting disks
 	ColdReboot();
 	return BIOS_DONE;
       case ACT_MONITOR:
@@ -666,6 +673,28 @@ void BIOS::WarmReset()
   g_cpu->Reset();
 }
 
+void BIOS::RebootAsIs()
+{
+  // g_vm->Reset() will eject disks. We don't want to do that, so we need to
+  // grab the inserted disk names; reset the VM; then restore the disks.
+  const char *disk6s1 = ((AppleVM *)g_vm)->DiskName(0);
+  const char *disk6s2 = ((AppleVM *)g_vm)->DiskName(1);
+  const char *hdd1 = ((AppleVM *)g_vm)->HDName(0);
+  const char *hdd2 = ((AppleVM *)g_vm)->HDName(1);
+  
+  g_vm->Reset();
+  g_cpu->Reset();
+
+  if (disk6s1)
+    ((AppleVM *)g_vm)->insertDisk(0, disk6s1);
+  if (disk6s2)
+    ((AppleVM *)g_vm)->insertDisk(1, disk6s2);
+  if (hdd1)
+    ((AppleVM *)g_vm)->insertHD(0, hdd1);
+  if (hdd2)
+    ((AppleVM *)g_vm)->insertHD(2, hdd2);
+}
+
 void BIOS::ColdReboot()
 {
   g_vm->Reset();
@@ -678,7 +707,8 @@ bool BIOS::isActionActive(int8_t action)
   switch (action) {
   case ACT_EXIT:
   case ACT_RESET:
-  case ACT_COLDBOOT:
+  case ACT_REBOOT:
+  case ACT_REBOOTANDEJECT:
   case ACT_MONITOR:
   case ACT_DISPLAYTYPE:
   case ACT_SPEED:
@@ -776,10 +806,13 @@ void BIOS::DrawVMMenu()
       strcpy(buf, "Resume");
       break;
     case ACT_RESET:
-      strcpy(buf, "Reset");
+      strcpy(buf, "Reset (press Reset key)");
       break;
-    case ACT_COLDBOOT:
-      strcpy(buf, "Cold Reboot");
+    case ACT_REBOOT:
+      strcpy(buf, "Reboot (reboot emulator)");
+      break;
+    case ACT_REBOOTANDEJECT:
+      strcpy(buf, "Reboot and eject disks");
       break;
     case ACT_MONITOR:
       strcpy(buf, "Drop to Monitor");
