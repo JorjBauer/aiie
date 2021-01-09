@@ -670,22 +670,27 @@ void BIOS::RebootAsIs()
 {
   // g_vm->Reset() will eject disks. We don't want to do that, so we need to
   // grab the inserted disk names; reset the VM; then restore the disks.
-  const char *disk6s1 = ((AppleVM *)g_vm)->DiskName(0);
-  const char *disk6s2 = ((AppleVM *)g_vm)->DiskName(1);
-  const char *hdd1 = ((AppleVM *)g_vm)->HDName(0);
-  const char *hdd2 = ((AppleVM *)g_vm)->HDName(1);
-  
+  char *disk6s1 = strdup(((AppleVM *)g_vm)->DiskName(0) ? ((AppleVM *)g_vm)->DiskName(0) : "");
+  char *disk6s2 = strdup(((AppleVM *)g_vm)->DiskName(1) ? ((AppleVM *)g_vm)->DiskName(1) : "");
+  char *hdd1 = strdup(((AppleVM *)g_vm)->HDName(0) ? ((AppleVM *)g_vm)->HDName(0) : "");
+  char *hdd2 = strdup(((AppleVM *)g_vm)->HDName(1) ? ((AppleVM *)g_vm)->HDName(1) : "");
+
   g_vm->Reset();
   g_cpu->Reset();
 
-  if (disk6s1)
+  if (disk6s1[0])
     ((AppleVM *)g_vm)->insertDisk(0, disk6s1);
-  if (disk6s2)
+  if (disk6s2[0])
     ((AppleVM *)g_vm)->insertDisk(1, disk6s2);
-  if (hdd1)
+  if (hdd1[0])
     ((AppleVM *)g_vm)->insertHD(0, hdd1);
-  if (hdd2)
+  if (hdd2[0])
     ((AppleVM *)g_vm)->insertHD(2, hdd2);
+
+  free(disk6s1);
+  free(disk6s2);
+  free(hdd1);
+  free(hdd2);
 }
 
 void BIOS::ColdReboot()
