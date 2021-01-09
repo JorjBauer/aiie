@@ -527,6 +527,13 @@ uint16_t BIOS::AboutScreenHandler(bool needsRedraw, bool performAction)
   if (needsRedraw || localRedraw) {
     g_display->clrScr(c_darkblue);
 
+    // Draw a black area where we're going to "boot" a fake //e for the about screen. Don't put the whole graphic around it so it's obvious it's not a //e.
+    for (uint8_t y=12; y<12+192; y++) {
+      for (uint16_t x=20; x<280+20; x++) {
+	g_display->drawUIPixel( x, y, 0x0000 );
+      }
+    }
+    /*
     g_display->drawString(M_SELECTED,
 			  0,
 			  0,
@@ -544,13 +551,80 @@ uint16_t BIOS::AboutScreenHandler(bool needsRedraw, bool performAction)
 			  0,
 			  200,
 			  "Press return");
-    
+    */
     g_display->flush();
 
     localRedraw = false;
   }
 
+  const char *str =
+    "                                   "
+    "               Aiie!               "
+    "                                   "
+    "                                   "
+    "                                   "
+    "                                   "
+    "                                   "
+    "                                   "
+    "  ... an Apple //e emulator        "
+    "      written by                   "
+    "        Jorj Bauer <jorj@jorj.org> "
+    "                                   "
+    "                                   "
+    "                                   "
+    "  (c) 2017-2021 Jorj Bauer         "
+    "                                   "
+    "                                   "
+    " Source code is available at       "
+    "        github.com/JorjBauer/aiie/ "
+    "                                   "
+    "                                   "
+    "                                   "
+    " Press <Return>... " // intentionally short so cursor stays here
+    ;
+
+  static uint16_t ptr = 0;
+  static bool didFinish = false;
+
+  if (!didFinish) {
+    // Draw the next character
+    bool didOne = false;
+    while (!didOne || ptr < 35*2) { // draw the first 2 lines in one go, no matter what
+      char charToDraw = str[ptr];
+      didOne = true;
+      int xpos = ptr % 35;
+      int ypos = (int)(ptr / 35);
+      if (charToDraw != ' ') {
+	// First 2 lines have a blue background on any text; others are black
+	g_display->drawCharacter(ptr < 70 ? M_NORMAL : M_PLAIN, xpos * 8 + 20, ypos * 8 + 12, charToDraw);
+      }
+      ptr++;
+      if (ptr >= strlen(str)) {
+	didFinish = true;
+      } else {
+	if (charToDraw == ' ') {
+	  // Just blep the spaces to the screen toot-sweet
+	  didOne = false;
+	}
+      }
+    }
+  } else {
+    // Flash the cursor until the user exits
+    static bool cursorOn = false;
+    static bool flopTime = false;
+    flopTime = !flopTime;
+    if (flopTime) {
+      cursorOn = !cursorOn;
+    }
+    int xpos = strlen(str) % 35;
+    int ypos = (int)(strlen(str) / 35);
+    g_display->drawCharacter(M_PLAIN, xpos * 8 + 20, ypos * 8 + 12, cursorOn ? 127 : 32);
+  }
+  g_display->flush();
+  
   if (performAction) {
+    ptr = 0;
+    didFinish = false;
     return BIOS_AIIE;
   }
 
