@@ -42,6 +42,7 @@ class BIOS {
   int8_t getCurrentMenuAction();
 
   void WarmReset();
+  void RebootAsIs();
   void ColdReboot();
 
   uint16_t DrawDiskNames(uint8_t page, int8_t selection, const char *filter);
