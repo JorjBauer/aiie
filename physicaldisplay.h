@@ -26,7 +26,7 @@ class PhysicalDisplay {
 
   virtual void drawUIPixel(uint16_t x, uint16_t y, uint16_t color) = 0;
 
-  virtual void clrScr() = 0;
+  virtual void clrScr(uint8_t coloridx) = 0;
 
   // methods to draw in to the buffer - not directly to the screen.
 

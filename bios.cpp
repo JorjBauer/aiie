@@ -6,6 +6,7 @@
 #include "physicalkeyboard.h"
 #include "physicaldisplay.h"
 #include "cpu.h"
+#include "appledisplay.h"
 
 #ifdef TEENSYDUINO
 #include <Bounce2.h>
@@ -31,6 +32,8 @@ uint16_t numCacheEntries = 0;
 // When selecting files...
 char fileFilter[16]; // FIXME length & Strcpy -> strncpy
 uint16_t fileSelectionFor; // define what the returned name is for
+
+#define LINEHEIGHT 10
 
 // menu screen enums
 enum {
@@ -129,9 +132,9 @@ void BIOS::DrawMenuBar()
   for (int i=0; i<NUM_TITLES; i++) {
     for (int x=0; x<titleWidths[i] + 2*XPADDING; x++) {
       g_display->drawUIPixel(xpos+x, 0, 0xFFFF);
-      g_display->drawUIPixel(xpos+x, 16, 0xFFFF);
+      g_display->drawUIPixel(xpos+x, 10, 0xFFFF);
     }
-    for (int y=0; y<=16; y++) {
+    for (int y=0; y<=10; y++) {
       g_display->drawUIPixel(xpos, y, 0xFFFF);
       g_display->drawUIPixel(xpos + titleWidths[i] + 2*XPADDING, y, 0xFFFF);
     }
@@ -275,7 +278,7 @@ uint16_t BIOS::AiieMenuHandler(bool needsRedraw, bool performAction)
   selectedMenuItem %= sizeof(aiieActions);
   
   if (needsRedraw || localRedraw) {
-    g_display->clrScr();
+    g_display->clrScr(c_darkblue);
     DrawMenuBar();
     DrawAiieMenu();
     g_display->flush();
@@ -300,7 +303,7 @@ uint16_t BIOS::VmMenuHandler(bool needsRedraw, bool performAction)
   selectedMenuItem %= sizeof(vmActions);
   
   if (needsRedraw || localRedraw) {
-    g_display->clrScr();
+    g_display->clrScr(c_darkblue);
     DrawMenuBar();
     DrawVMMenu();
 
@@ -334,7 +337,7 @@ uint16_t BIOS::VmMenuHandler(bool needsRedraw, bool performAction)
 	localRedraw = true;
 	return BIOS_VM;
       case ACT_SUSPEND:
-	g_display->clrScr();
+	g_display->clrScr(c_darkblue);
 	g_display->drawString(M_SELECTED, 80, 100,"Suspending VM...");
 	g_display->flush();
 	// CPU is already suspended, so this is safe...
@@ -342,7 +345,7 @@ uint16_t BIOS::VmMenuHandler(bool needsRedraw, bool performAction)
 	localRedraw = true;
 	return BIOS_VM;
       case ACT_RESTORE:
-	g_display->clrScr();
+	g_display->clrScr(c_darkblue);
 	g_display->drawString(M_SELECTED, 80, 100,"Resuming VM...");
 	g_display->flush();
 	((AppleVM *)g_vm)->Resume("suspend.vm");
@@ -363,7 +366,7 @@ uint16_t BIOS::HardwareMenuHandler(bool needsRedraw, bool performAction)
   selectedMenuItem %= sizeof(hardwareActions);
   
   if (needsRedraw || localRedraw) {
-    g_display->clrScr();
+    g_display->clrScr(c_darkblue);
     DrawMenuBar();
     DrawHardwareMenu();
     g_display->flush();
@@ -451,7 +454,7 @@ uint16_t BIOS::DisksMenuHandler(bool needsRedraw, bool performAction)
   selectedMenuItem %= sizeof(diskActions);
   
   if (needsRedraw || localRedraw) {
-    g_display->clrScr();
+    g_display->clrScr(c_darkblue);
     DrawMenuBar();
     DrawDisksMenu();
     g_display->flush();
@@ -519,7 +522,7 @@ uint16_t BIOS::AboutScreenHandler(bool needsRedraw, bool performAction)
   selectedMenuItem = 0;
 
   if (needsRedraw || localRedraw) {
-    g_display->clrScr();
+    g_display->clrScr(c_darkblue);
 
     g_display->drawString(M_SELECTED,
 			  0,
@@ -569,7 +572,7 @@ uint16_t BIOS::PaddlesScreenHandler(bool needsRedraw, bool performAction)
   
   if (needsRedraw || localRedraw) {
     char buf[50];
-    g_display->clrScr();
+    g_display->clrScr(c_darkblue);
     sprintf(buf, "Paddle X: %d    ", lastPaddleX);
     g_display->drawString(M_NORMAL, 0, 12, buf);
     sprintf(buf, "Paddle Y: %d    ", lastPaddleY);
@@ -776,9 +779,9 @@ void BIOS::DrawAiieMenu()
     }
 
     if (isActionActive(aiieActions[i])) {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, 10, 20 + 14 * i, buf);
+      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, 10, 20 + LINEHEIGHT * i, buf);
     } else {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, 10, 20 + 14 * i,
+      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, 10, 20 + LINEHEIGHT * i,
 			    buf);
     }
   }
@@ -852,9 +855,9 @@ void BIOS::DrawVMMenu()
     }
 
     if (isActionActive(vmActions[i])) {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, 10, 20 + 14 * i, buf);
+      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, 10, 20 + LINEHEIGHT * i, buf);
     } else {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, 10, 20 + 14 * i, buf);
+      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, 10, 20 + LINEHEIGHT * i, buf);
     }
   }
 }
@@ -931,9 +934,9 @@ void BIOS::DrawHardwareMenu()
     }
 
     if (isActionActive(hardwareActions[i])) {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, 10, 20 + 14 * i, buf);
+      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, 10, 20 + LINEHEIGHT * i, buf);
     } else {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, 10, 20 + 14 * i, buf);
+      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, 10, 20 + LINEHEIGHT * i, buf);
     }
   }
   
@@ -1001,9 +1004,9 @@ void BIOS::DrawDisksMenu()
     }
 
     if (isActionActive(diskActions[i])) {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, 10, 20 + 14 * i, buf);
+      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, 10, 20 + LINEHEIGHT * i, buf);
     } else {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, 10, 20 + 14 * i, buf);
+      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, 10, 20 + LINEHEIGHT * i, buf);
     }
   }
 }
@@ -1046,7 +1049,7 @@ void BIOS::stripDirectory()
 uint16_t BIOS::DrawDiskNames(uint8_t page, int8_t selection, const char *filter)
 {
   uint16_t fileCount = GatherFilenames(page, filter);
-  g_display->clrScr();
+  g_display->clrScr(c_darkblue);
   g_display->drawString(M_NORMAL, 0, 12, "BIOS Configuration - pick disk");
 
   if (page == 0) {
@@ -1058,18 +1061,18 @@ uint16_t BIOS::DrawDiskNames(uint8_t page, int8_t selection, const char *filter)
   uint8_t i;
   for (i=0; i<BIOS_MAXFILES; i++) {
     if (i < fileCount) {
-      g_display->drawString((i == selection-1) ? M_SELECTED : M_NORMAL, 10, 50 + 14 * (i+1), fileDirectory[i]);
+      g_display->drawString((i == selection-1) ? M_SELECTED : M_NORMAL, 10, 50 + LINEHEIGHT * (i+1), fileDirectory[i]);
     } else {
-      g_display->drawString((i == selection-1) ? M_SELECTDISABLED : M_DISABLED, 10, 50+14*(i+1), "-");
+      g_display->drawString((i == selection-1) ? M_SELECTDISABLED : M_DISABLED, 10, 50+LINEHEIGHT*(i+1), "-");
     }
 
   }
 
   // FIXME: this doesn't accurately say whether or not there *are* more.
   if (fileCount < BIOS_MAXFILES) {
-    g_display->drawString((i+1 == selection) ? M_SELECTDISABLED : M_DISABLED, 10, 50 + 14 * (i+1), "<Next>");
+    g_display->drawString((i+1 == selection) ? M_SELECTDISABLED : M_DISABLED, 10, 50 + LINEHEIGHT * (i+1), "<Next>");
   } else {
-    g_display->drawString(i+1 == selection ? M_SELECTED : M_NORMAL, 10, 50 + 14 * (i+1), "<Next>");
+    g_display->drawString(i+1 == selection ? M_SELECTED : M_NORMAL, 10, 50 + LINEHEIGHT * (i+1), "<Next>");
   }
 
   g_display->flush();
@@ -1089,7 +1092,7 @@ uint16_t BIOS::cacheAllEntries(const char *filter)
   strcpy(cachedFilter, filter);
   
   // This could be a lengthy process, so...
-  g_display->clrScr();
+  g_display->clrScr(c_darkblue);
   g_display->drawString(M_SELECTED,
                         0,
                         0,

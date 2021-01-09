@@ -1,13 +1,19 @@
 #include <ctype.h> // isgraph
 #include "sdl-display.h"
 
-#include "bios-font.h"
 #include "images.h"
 
 #include "globals.h"
 #include "applevm.h"
 
 #include "apple/appleui.h"
+// FIXME should be able to omit this include and relay on the xterns, which
+// would prove it's linking properly
+#include "apple/font.h"
+extern const unsigned char ucase_glyphs[512];
+extern const unsigned char lcase_glyphs[256];
+extern const unsigned char mousetext_glyphs[256];
+extern const unsigned char interface_glyphs[256];
 
 #define SCREENINSET_X (18*SDLDISPLAY_SCALE)
 #define SCREENINSET_Y (13*SDLDISPLAY_SCALE)
@@ -173,12 +179,8 @@ void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t
 void SDLDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
 {
   int8_t xsize = 8,
-    ysize = 0x0C,
-    offset = 0x20;
-  uint16_t temp;
-
-  c -= offset;// font starts with a space                                                     
-
+    ysize = 0x07;
+  
   uint16_t offPixel, onPixel;
   switch (mode) {
   case M_NORMAL:
@@ -200,20 +202,19 @@ void SDLDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
     break;
   }
 
-  temp=(c*ysize);
-  // This does not scale, because drawPixel scales.
+
+  // This does not scale when drawing, because drawPixel scales.
+  const unsigned char *ch = asciiToAppleGlyph(c);
   for (int8_t y_off = 0; y_off <= ysize; y_off++) {
-    uint8_t ch = BiosFont[temp];
     for (int8_t x_off = 0; x_off <= xsize; x_off++) {
-      if (ch & (1 << (7-x_off))) {
+      if (*ch & (1 << (x_off))) {
 	drawUIPixel(x + x_off, y + y_off, onPixel);
       } else {
 	drawUIPixel(x + x_off, y + y_off, offPixel);
       }
     }
-    temp++;
+    ch++;
   }
-
 }
 
 void SDLDisplay::drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str)
@@ -227,9 +228,13 @@ void SDLDisplay::drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str
   }
 }
 
-void SDLDisplay::clrScr()
+void SDLDisplay::clrScr(uint8_t coloridx)
 {
-  SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255); // set to white
+  const uint8_t *rgbptr = &loresPixelColors[0][0];
+  if (coloridx <= 16)
+    rgbptr = loresPixelColors[coloridx];
+
+  SDL_SetRenderDrawColor(renderer, rgbptr[0], rgbptr[1], rgbptr[2], 255); // select a color
   SDL_RenderClear(renderer); // clear it to the selected color
   SDL_RenderPresent(renderer); // perform the render
 }
