@@ -34,6 +34,9 @@ char fileFilter[16]; // FIXME length & Strcpy -> strncpy
 uint16_t fileSelectionFor; // define what the returned name is for
 
 #define LINEHEIGHT 10
+#define MENUINDENT 10
+#define MAXFILESPERPAGE BIOS_MAXFILES
+#define FILEMENUSTARTAT (LINEHEIGHT+1)
 
 // menu screen enums
 enum {
@@ -132,9 +135,9 @@ void BIOS::DrawMenuBar()
   for (int i=0; i<NUM_TITLES; i++) {
     for (int x=0; x<titleWidths[i] + 2*XPADDING; x++) {
       g_display->drawUIPixel(xpos+x, 0, 0xFFFF);
-      g_display->drawUIPixel(xpos+x, 10, 0xFFFF);
+      g_display->drawUIPixel(xpos+x, LINEHEIGHT, 0xFFFF);
     }
-    for (int y=0; y<=10; y++) {
+    for (int y=0; y<=LINEHEIGHT; y++) {
       g_display->drawUIPixel(xpos, y, 0xFFFF);
       g_display->drawUIPixel(xpos + titleWidths[i] + 2*XPADDING, y, 0xFFFF);
     }
@@ -658,45 +661,6 @@ uint16_t BIOS::SelectFileScreenHandler(bool needsRedraw, bool performAction)
   return BIOS_SELECTFILE;
 }
 
-/*
-bool BIOS::runUntilDone()
-{
-  // Reset the cache
-  cachedPath[0] = 0;
-  numCacheEntries = 0;
-
-  g_filemanager->getRootPath(rootPath, sizeof(rootPath));
-
-  // FIXME: abstract these constant speeds
-  currentCPUSpeedIndex = CPUSPEED_FULL;
-  if (g_speed == 1023000/2)
-    currentCPUSpeedIndex = CPUSPEED_HALF;
-  if (g_speed == 1023000*2)
-    currentCPUSpeedIndex = CPUSPEED_DOUBLE;
-  if (g_speed == 1023000*4)
-    currentCPUSpeedIndex = CPUSPEED_QUAD;
-
-  int8_t prevAction = ACT_EXIT;
-  while (1) {
-    switch (prevAction = GetAction(prevAction)) {
-
-      ***
-      //      ConfigurePaddles();
-***
-    }
-  }
-
- done:
-  // Undo whatever damage we've done to the screen
-  g_display->redraw();
-  AiieRect r = { 0, 0, 191, 279 };
-  g_display->blit(r);
-
-  // return true if any persistent setting changed that we want to store in eeprom
-  return true;
-}
-*/
-
 void BIOS::WarmReset()
 {
   g_cpu->Reset();
@@ -779,9 +743,9 @@ void BIOS::DrawAiieMenu()
     }
 
     if (isActionActive(aiieActions[i])) {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, 10, 20 + LINEHEIGHT * i, buf);
+      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     } else {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, 10, 20 + LINEHEIGHT * i,
+      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * i,
 			    buf);
     }
   }
@@ -855,9 +819,9 @@ void BIOS::DrawVMMenu()
     }
 
     if (isActionActive(vmActions[i])) {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, 10, 20 + LINEHEIGHT * i, buf);
+      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     } else {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, 10, 20 + LINEHEIGHT * i, buf);
+      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     }
   }
 }
@@ -934,9 +898,9 @@ void BIOS::DrawHardwareMenu()
     }
 
     if (isActionActive(hardwareActions[i])) {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, 10, 20 + LINEHEIGHT * i, buf);
+      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     } else {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, 10, 20 + LINEHEIGHT * i, buf);
+      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     }
   }
   
@@ -1004,9 +968,9 @@ void BIOS::DrawDisksMenu()
     }
 
     if (isActionActive(diskActions[i])) {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, 10, 20 + LINEHEIGHT * i, buf);
+      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     } else {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, 10, 20 + LINEHEIGHT * i, buf);
+      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     }
   }
 }
@@ -1039,7 +1003,6 @@ void BIOS::stripDirectory()
   }
 
   // We're either at the previous directory, or we've nulled out the whole thing.
-
   if (rootPath[0] == '\0') {
     // Never go beyond this
     strcpy(rootPath, "/");
@@ -1050,29 +1013,66 @@ uint16_t BIOS::DrawDiskNames(uint8_t page, int8_t selection, const char *filter)
 {
   uint16_t fileCount = GatherFilenames(page, filter);
   g_display->clrScr(c_darkblue);
-  g_display->drawString(M_NORMAL, 0, 12, "BIOS Configuration - pick disk");
-
-  if (page == 0) {
-    g_display->drawString(selection == 0 ? M_SELECTDISABLED : M_DISABLED, 10, 50, "<Prev>");
-  } else {
-    g_display->drawString(selection == 0 ? M_SELECTED : M_NORMAL, 10, 50, "<Prev>");
+  const char *title="BIOS Configuration - pick disk image";
+  g_display->drawString(M_NORMAL, 0, 0, title);
+  
+  for (int x=0; x<strlen(title)*8; x++) {
+      g_display->drawUIPixel(x, LINEHEIGHT-1, 0xFFFF);
   }
 
+  uint8_t vpos = FILEMENUSTARTAT;
+  g_display->drawString(page==0 ? (selection == 0 ? M_SELECTDISABLED : M_DISABLED) :
+			          (selection == 0 ? M_SELECTED : M_NORMAL),
+			MENUINDENT, vpos, "<Prev>");
+  vpos += LINEHEIGHT * 1.5;
+  
+  bool endsHere = false;
   uint8_t i;
-  for (i=0; i<BIOS_MAXFILES; i++) {
-    if (i < fileCount) {
-      g_display->drawString((i == selection-1) ? M_SELECTED : M_NORMAL, 10, 50 + LINEHEIGHT * (i+1), fileDirectory[i]);
-    } else {
-      g_display->drawString((i == selection-1) ? M_SELECTDISABLED : M_DISABLED, 10, 50+LINEHEIGHT*(i+1), "-");
-    }
 
+  for (i=0; i<BIOS_MAXFILES; i++) {
+    // If the file name is less than 39 characters, it fits on one
+    // line; but if it's longer, we need to use two lines.
+    const char *name = "-";
+    if (i < fileCount) {
+      name = fileDirectory[i];
+    }
+    g_display->drawString(
+			  (i < fileCount) ? ((i == selection-1) ? M_SELECTED : M_NORMAL) :
+			  (i == selection-1) ? M_SELECTDISABLED : M_DISABLED,
+			  
+			  MENUINDENT, vpos,
+			  
+			  name);
+    vpos += LINEHEIGHT;
+    
+    if (strlen(fileDirectory[i]) > 39) {
+      // Break the string at 39 characters and start drawing the second line indented more
+      char restOfString[BIOS_MAXPATH-39+1];
+      strcpy(restOfString, (char *)&name[39]);
+      g_display->drawString(
+			    (i < fileCount) ? ((i == selection-1) ? M_SELECTED : M_NORMAL) :
+			    (i == selection-1) ? M_SELECTDISABLED : M_DISABLED,
+			    
+			    MENUINDENT+15,
+			    vpos,
+			    
+			    restOfString);
+      vpos += LINEHEIGHT;
+      
+    }
+    if (i >= fileCount)
+      endsHere = true;
   }
 
-  // FIXME: this doesn't accurately say whether or not there *are* more.
-  if (fileCount < BIOS_MAXFILES) {
-    g_display->drawString((i+1 == selection) ? M_SELECTDISABLED : M_DISABLED, 10, 50 + LINEHEIGHT * (i+1), "<Next>");
+  vpos += LINEHEIGHT/2;
+  if (endsHere || fileCount < BIOS_MAXFILES) {
+    g_display->drawString((i+1 == selection) ? M_SELECTDISABLED : M_DISABLED,
+			  MENUINDENT, vpos,
+			  "<Next>");
   } else {
-    g_display->drawString(i+1 == selection ? M_SELECTED : M_NORMAL, 10, 50 + LINEHEIGHT * (i+1), "<Next>");
+    g_display->drawString(i+1 == selection ? M_SELECTED : M_NORMAL,
+			  MENUINDENT, vpos,
+			  "<Next>");
   }
 
   g_display->flush();
@@ -1144,7 +1144,7 @@ void BIOS::sortCachedEntries()
 
 uint16_t BIOS::GatherFilenames(uint8_t pageOffset, const char *filter)
 {
-  uint8_t startNum = 10 * pageOffset;
+  uint8_t startNum = MAXFILESPERPAGE * pageOffset;
   uint8_t count = 0; // number we're including in our listing
 
   uint16_t numEntriesTotal = cacheAllEntries(filter);
