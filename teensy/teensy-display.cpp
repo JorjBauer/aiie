@@ -37,7 +37,9 @@ extern const unsigned char interface_glyphs[256];
 #include "globals.h"
 #include "applevm.h"
 
-DMAMEM uint16_t dmaBuffer[240][320]; // 240 rows, 320 columns
+#define PHYSMAXX 320
+#define PHYSMAXY 240
+DMAMEM uint16_t dmaBuffer[PHYSMAXY][PHYSMAXX]; // 240 rows, 320 columns
 
 #define RGBto565(r,g,b) ((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
 #define _565toR(c) ( ((c) & 0xF800) >> 8 )
@@ -140,16 +142,13 @@ void TeensyDisplay::clrScr(uint8_t coloridx)
   } else if (coloridx == c_white) {
     memset(dmaBuffer, 0xFF, sizeof(dmaBuffer));
   } else {
-    const uint8_t *rgbptr = &loresPixelColors[0][0];
-    if (coloridx <= 16)
-      rgbptr = loresPixelColors[coloridx];
-    uint16_t color16 = ((rgbptr[0] & 0xF8) << 8) |
-      ((rgbptr[1] & 0xFC) << 3) |
-      ((rgbptr[2] & 0xF8) >> 3);
+    uint16_t color16 = loresPixelColors[c_black];
+    if (coloridx < 16)
+      color16 = loresPixelColors[coloridx];
     // This could be faster - make one line, then memcpy the line to the other
     // lines?
-    for (uint8_t y=0; y<sizey; y++) {
-      for (uint16_t x=0; x<sizex; x++) {
+    for (uint8_t y=0; y<PHYSMAXY; y++) {
+      for (uint16_t x=0; x<PHYSMAXX; x++) {
 	dmaBuffer[y][x] = color16;
       }
     }
@@ -190,7 +189,7 @@ void TeensyDisplay::blit()
     static uint32_t nextMessageTime = 0;
     if (millis() >= nextMessageTime) {
       if (overlayMessage[0]) {
-	drawString(M_SELECTDISABLED, 1, 240 - 16 - 12, overlayMessage);
+	drawString(M_SELECTDISABLED, 1, PHYSMAXY - 16 - 12, overlayMessage);
       }
       nextMessageTime = millis() + 1000;
     }
@@ -231,9 +230,9 @@ void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
   // This does not scale when drawing, because drawPixel scales.
   const unsigned char *ch = asciiToAppleGlyph(c);
   for (int8_t y_off = 0; y_off <= ysize; y_off++) {
-    if (y + y_off < 240) { // FIXME constant
+    if (y + y_off < PHYSMAXY) {
       for (int8_t x_off = 0; x_off <= xsize; x_off++) {
-	if (x+x_off < 320) { // FIXME constant
+	if (x+x_off < PHYSMAXX) {
 	  if (*ch & (1 << (x_off))) {
 	    dmaBuffer[y+y_off][x+x_off] = onPixel;
 	  } else {
@@ -252,8 +251,8 @@ void TeensyDisplay::drawString(uint8_t mode, uint16_t x, uint8_t y, const char *
 
   for (int8_t i=0; i<strlen(str); i++) {
     drawCharacter(mode, x, y, str[i]);
-    x += xsize; // fixme: any inter-char spacing?
-    if (x >= 320) break; // FIXME constant
+    x += xsize;
+    if (x >= PHYSMAXX) break;
   }
 }
 
@@ -289,7 +288,6 @@ void TeensyDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
 void TeensyDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y, 
 					   uint8_t colorA, uint8_t colorB)
 {
-  // FIXME: Convert 4-bit colors to 16-bit colors?
   dmaBuffer[y+VOFFSET][x+  HOFFSET] = loresPixelColors[colorB&0xF];
   dmaBuffer[y+VOFFSET][x+1+HOFFSET] = loresPixelColors[colorA&0xF];
 }
