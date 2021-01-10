@@ -6,10 +6,13 @@
 #include "applekeyboard.h"
 #include "physicalkeyboard.h"
 
+#include "serialize.h"
+
 #include "globals.h"
 
 #ifdef TEENSYDUINO
 #include "teensy-println.h"
+#include "iocompat.h"
 #endif
 
 #include <errno.h>
@@ -43,83 +46,75 @@ AppleVM::~AppleVM()
   delete parallel;
 }
 
-void AppleVM::Suspend(const char *fn)
+bool AppleVM::Suspend(const char *fn)
 {
   /* Open a new suspend file via the file manager; tell all our
      objects to serialize in to it; close the file */
 
-  int8_t fh = g_filemanager->openFile(fn);
-  if (fh == -1) {
+  int8_t fd = g_filemanager->openFile(fn);
+  if (fd == -1) {
     // Unable to open; skip suspend
-    return;
+    printf("failed to open suspend file\n");
+    return false;
   }
 
   /* Header */
-  if (g_filemanager->write(fh, suspendHdr, strlen(suspendHdr)) != strlen(suspendHdr))
-    return;
+  serializeString(suspendHdr);
 
   /* Tell all of the peripherals to suspend */
-  if (g_cpu->Serialize(fh) &&
-      disk6->Serialize(fh) &&
-      hd32->Serialize(fh)
+  if (g_cpu->Serialize(fd) &&
+      disk6->Serialize(fd) &&
+      hd32->Serialize(fd)
       ) {
-#ifdef TEENSYDUINO
-    println("All serialized successfully");
-#else
     printf("All serialized successfully\n");
-#endif
   }
 
-  g_filemanager->closeFile(fh);
+  g_filemanager->closeFile(fd);
+  return true;
+  
+ err:
+  g_filemanager->closeFile(fd);
+  return false;
 }
 
-void AppleVM::Resume(const char *fn)
+bool AppleVM::Resume(const char *fn)
 {
   /* Open the given suspend file via the file manager; tell all our
      objects to deserialize from it; close the file */
 
-  int8_t fh = g_filemanager->openFile(fn);
-  if (fh == -1) {
+  int8_t fd = g_filemanager->openFile(fn);
+  if (fd == -1) {
     // Unable to open; skip resume
-#ifdef TEENSYDUINO
-    print("Unable to open resume file ");
-    println(fn);
-#else
-    printf("Unable to open resume file\n");
-#endif
-    g_filemanager->closeFile(fh);
-    return;
+    printf("Unable to open resume file '%s'\n", fn);
+    goto err;
   }
 
   /* Header */
-  uint8_t c;
-  for (int i=0; i<strlen(suspendHdr); i++) {
-    if (g_filemanager->read(fh, &c, 1) != 1 ||
-	c != suspendHdr[i]) {
-      /* Failed to read correct header; abort */
-      g_filemanager->closeFile(fh);
-      return;
-    }
+  deserializeString(debugBuf);
+  if (strcmp(debugBuf, suspendHdr)) {
+    printf("Bad file header while resuming\n");
+    goto err;
   }
 
   /* Tell all of the peripherals to resume */
-  if (g_cpu->Deserialize(fh) &&
-      disk6->Deserialize(fh) &&
-      hd32->Deserialize(fh)
+  if (g_cpu->Deserialize(fd) &&
+      disk6->Deserialize(fd) &&
+      hd32->Deserialize(fd)
       ) {
-#ifdef TEENSYDUINO
-    println("Deserialization successful");
-#else
     printf("All deserialized successfully\n");
-#endif
   } else {
-#ifndef TEENSYDUINO
     printf("Deserialization failed\n");
+#ifndef TEENSYDUINO
     exit(1);
 #endif
+    goto err;
   }
 
-  g_filemanager->closeFile(fh);
+  g_filemanager->closeFile(fd);
+  return true;
+ err:
+  g_filemanager->closeFile(fd);
+  return false;
 }
 
 // fixme: make member vars

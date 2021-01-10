@@ -3,6 +3,7 @@
 #ifdef TEENSYDUINO
 #include <Arduino.h>
 #include "teensy-println.h"
+#include "iocompat.h"
 #else
 #include <unistd.h>
 #include <fcntl.h>
@@ -15,6 +16,8 @@
 
 #include "globals.h"
 #include "appleui.h"
+
+#include "serialize.h"
 
 #include "diskii-rom.h"
 
@@ -57,171 +60,101 @@ DiskII::~DiskII()
 
 bool DiskII::Serialize(int8_t fd)
 {
-  uint8_t buf[27] = { DISKIIMAGIC,
-		      readWriteLatch,
-		      sequencer,
-		      dataRegister,
-		      writeMode,
-		      writeProt,
-		      selectedDisk };
+  serializeMagic(DISKIIMAGIC);
+  serialize8(readWriteLatch);
+  serialize8(sequencer);
+  serialize8(dataRegister);
+  serialize8(writeMode);
+  serialize8(writeProt);
+  serialize8(selectedDisk);
   
-  if (g_filemanager->write(fd, buf, 7) != 7) {
-    return false;
-  }
-
   for (int i=0; i<2; i++) {
-    uint8_t ptr = 0;
-    buf[ptr++] = curHalfTrack[i];
-    buf[ptr++] = curWozTrack[i];
-    buf[ptr++] = curPhase[i];
-    buf[ptr++] = ((driveSpinupCycles[i] >> 56) & 0xFF);
-    buf[ptr++] = ((driveSpinupCycles[i] >> 48) & 0xFF);
-    buf[ptr++] = ((driveSpinupCycles[i] >> 40) & 0xFF);
-    buf[ptr++] = ((driveSpinupCycles[i] >> 32) & 0xFF);
-    buf[ptr++] = ((driveSpinupCycles[i] >> 24) & 0xFF);
-    buf[ptr++] = ((driveSpinupCycles[i] >> 16) & 0xFF);
-    buf[ptr++] = ((driveSpinupCycles[i] >>  8) & 0xFF);
-    buf[ptr++] = ((driveSpinupCycles[i]      ) & 0xFF);
-    buf[ptr++] = ((deliveredDiskBits[i] >> 56) & 0xFF);
-    buf[ptr++] = ((deliveredDiskBits[i] >> 48) & 0xFF);
-    buf[ptr++] = ((deliveredDiskBits[i] >> 40) & 0xFF);
-    buf[ptr++] = ((deliveredDiskBits[i] >> 32) & 0xFF);
-    buf[ptr++] = ((deliveredDiskBits[i] >> 24) & 0xFF);
-    buf[ptr++] = ((deliveredDiskBits[i] >> 16) & 0xFF);
-    buf[ptr++] = ((deliveredDiskBits[i] >>  8) & 0xFF);
-    buf[ptr++] = ((deliveredDiskBits[i]      ) & 0xFF);
-    buf[ptr++] = (diskIsSpinningUntil[i] >> 56) & 0xFF;
-    buf[ptr++] = (diskIsSpinningUntil[i] >> 48) & 0xFF;
-    buf[ptr++] = (diskIsSpinningUntil[i] >> 40) & 0xFF;
-    buf[ptr++] = (diskIsSpinningUntil[i] >> 32) & 0xFF;
-    buf[ptr++] = (diskIsSpinningUntil[i] >> 24) & 0xFF;
-    buf[ptr++] = (diskIsSpinningUntil[i] >> 16) & 0xFF;
-    buf[ptr++] = (diskIsSpinningUntil[i] >>  8) & 0xFF;
-    buf[ptr++] = (diskIsSpinningUntil[i]      ) & 0xFF;
-    // Safety check: keeping the hard-coded 27 and comparing against ptr.
-    // If we change the 27, also need to change the size of buf[] above
-    if (g_filemanager->write(fd, buf, 27) != ptr) {
-      return false;
-    }
+    serialize8(curHalfTrack[i]);
+    serialize8(curWozTrack[i]);
+    serialize8(curPhase[i]);
+    serialize64(driveSpinupCycles[i]);
+    serialize64(deliveredDiskBits[i]);
+    serialize64(diskIsSpinningUntil[i]);
     
     if (disk[i]) {
       // Make sure we have flushed the disk images
       disk[i]->flush();
       flushAt[i] = 0; // and there's no need to re-flush them now
 
-      buf[0] = 1;
-      if (g_filemanager->write(fd, buf, 1) != 1)
-	return false;
+      serialize8(1);
 
       // FIXME: this ONLY works for builds using the filemanager to read
       // the disk image, so it's broken until we port Woz to do that!
       const char *fn = disk[i]->diskName();
-      if (g_filemanager->write(fd, fn, strlen(fn)+1) != strlen(fn)+1)  // include null terminator
-	return false;
+      serializeString(fn);
       if (!disk[i]->Serialize(fd))
-	return false;
+	goto err;
     } else {
-      buf[0] = 0;
-      if (g_filemanager->write(fd, buf, 0) != 1)
-	return false;
+      serialize8(0);
     }
   }
 
-  buf[0] = DISKIIMAGIC;
-  if (g_filemanager->write(fd, buf, 1) != 1)
-    return false;
+  serializeMagic(DISKIIMAGIC);
 
   return true;
+ err:
+  return false;
 }
 
 bool DiskII::Deserialize(int8_t fd)
 {
-  uint8_t buf[MAXPATH];
-  if (g_filemanager->read(fd, buf, 7) != 7)
-    return false;
-  if (buf[0] != DISKIIMAGIC)
-    return false;
+  deserializeMagic(DISKIIMAGIC);
 
-  readWriteLatch = buf[1];
-  sequencer = buf[2];
-  dataRegister = buf[3];
-  writeMode = buf[4];
-  writeProt = buf[5];
-  selectedDisk = buf[6];
+  deserialize8(readWriteLatch);
+  deserialize8(sequencer);
+  deserialize8(dataRegister);
+  deserialize8(writeMode);
+  deserialize8(writeProt);
+  deserialize8(selectedDisk);
 
   for (int i=0; i<2; i++) {
-    uint8_t ptr = 0;
-    if (g_filemanager->read(fd, buf, 27) != 27)
-      return false;
+    deserialize8(curHalfTrack[i]);
+    deserialize8(curWozTrack[i]);
+    deserialize8(curPhase[i]);
 
-    curHalfTrack[i] = buf[ptr++];
-    curWozTrack[i] = buf[ptr++];
-    curPhase[i] = buf[ptr++];
+    deserialize64(driveSpinupCycles[i]);
+    deserialize64(deliveredDiskBits[i]);
+    deserialize64(diskIsSpinningUntil[i]);
 
-    driveSpinupCycles[i] = buf[ptr++];
-    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= buf[ptr++];
-    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= buf[ptr++];
-    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= buf[ptr++];
-    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= buf[ptr++];
-    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= buf[ptr++];
-    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= buf[ptr++];
-    driveSpinupCycles[i] <<= 8; driveSpinupCycles[i] |= buf[ptr++];
-
-    deliveredDiskBits[i] = buf[ptr++];
-    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
-    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
-    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
-    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
-    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
-    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
-    deliveredDiskBits[i] <<= 8; deliveredDiskBits[i] |= buf[ptr++];
-
-    diskIsSpinningUntil[i] = buf[ptr++];
-    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
-    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
-    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
-    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
-    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
-    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
-    diskIsSpinningUntil[i] <<= 8; diskIsSpinningUntil[i] |= buf[ptr++];
+    uint8_t hasDisk;
+    deserialize8(hasDisk);
     
-    if (disk[i])
-      delete disk[i];
-    if (g_filemanager->read(fd, buf, 1) != 1)
-      return false;
-    if (buf[0]) {
+    if (disk[i]) delete disk[i];
+    if (hasDisk) {
       disk[i] = new WozSerializer();
 
-      ptr = 0;
       // FIXME: MAXPATH check!
-      while (1) {
-	if (g_filemanager->read(fd, &buf[ptr++], 1) != 1)
-	  return false;
-	if (buf[ptr-1] == 0)
-	  break;
-      }
-      if (buf[0]) {
-	// Important we don't read all the tracks, so we can also flush
-	// writes back to the fd...
-	disk[i]->readFile((char *)buf, false, T_AUTO); // FIXME error checking    
+      char fn[MAXPATH];
+      deserializeString(fn);
+      if (fn[0]) {
+	printf("Restoring disk image named '%s'\n", fn);
+	disk[i]->readFile((char *)fn, false, T_AUTO); // FIXME error checking    
       } else {
 	// ERROR: there's a disk but we don't have the path to its image?
-	return false;
+	printf("Failed to read inserted disk name for disk %d\n", i);
+	goto err;
       }
       
-      if (!disk[i]->Deserialize(fd))
-	return false;
+      if (!disk[i]->Deserialize(fd)) {
+	printf("Failed to deserialize disk %d\n", i);
+	goto err;
+      }
     } else {
       disk[i] = NULL;
     }
   }
 
-  if (g_filemanager->read(fd, buf, 1) != 1)
-    return false;
-  if (buf[0] != DISKIIMAGIC)
-    return false;
+  deserializeMagic(DISKIIMAGIC);
 
   return true;
+  
+ err:
+  return false;
 }
 
 void DiskII::Reset()

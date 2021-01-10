@@ -19,3 +19,7 @@ bool g_invertPaddleX = false;
 bool g_invertPaddleY = false;
 
 char debugBuf[255];
+
+#ifdef TEENSYDUINO
+char fsbuf[200];
+#endif

@@ -12,6 +12,7 @@
 #ifdef TEENSYDUINO
 #include <Arduino.h>
 #include "teensy-println.h"
+#include "iocompat.h"
 #else
 #include <unistd.h>
 #include <fcntl.h>
@@ -22,6 +23,8 @@
 #endif
 
 #include "applemmu.h" // for FLOATING
+
+#include "serialize.h"
 
 #include "globals.h"
 
@@ -66,92 +69,58 @@ HD32::~HD32()
 
 bool HD32::Serialize(int8_t fd)
 {
-  uint8_t buf[19] = { HD32MAGIC,
-		      driveSelected,
-		      unitSelected,
-		      command,
-		      enabled,
-		      errorState[0],
-		      errorState[1],
-		      (uint8_t)((memBlock[0] >> 8) & 0xFF),
-		      (uint8_t)((memBlock[0]     ) & 0xFF),
-		      (uint8_t)((memBlock[1] >> 8) & 0xFF),
-		      (uint8_t)((memBlock[1]     ) & 0xFF),
-		      (uint8_t)((cursor[0] >> 24) & 0xFF),
-		      (uint8_t)((cursor[0] >> 16) & 0xFF),
-		      (uint8_t)((cursor[0] >>  8) & 0xFF),
-		      (uint8_t)((cursor[0]      ) & 0xFF),
-		      (uint8_t)((cursor[1] >> 24) & 0xFF),
-		      (uint8_t)((cursor[1] >> 16) & 0xFF),
-		      (uint8_t)((cursor[1] >>  8) & 0xFF),
-		      (uint8_t)((cursor[1]      ) & 0xFF)
-  };
-  if (g_filemanager->write(fd, buf, 19) != 10)
-    return false;
+  serializeMagic(HD32MAGIC);
+  serialize8(driveSelected);
+  serialize8(unitSelected);
+  serialize8(command);
+  serialize8(enabled);
+  serialize8(errorState[0]);
+  serialize8(errorState[1]);
+  serialize16(memBlock[0]);
+  serialize16(memBlock[1]);
+  serialize32(cursor[0]);
+  serialize32(cursor[1]);
 
   for (int i=0; i<2; i++) {
     const char *fn = diskName(i);
-    if (g_filemanager->write(fd, fn, strlen(fn)+1) != strlen(fn)+1) {
-      return false;
-    }
+    serializeString(fn);
   }
+  serializeMagic(HD32MAGIC);
+  return true;
 
-  buf[0] = HD32MAGIC;
-  return (g_filemanager->write(fd, buf, 1) == 1);
+ err:
+  return false;
 }
 
 bool HD32::Deserialize(int8_t fd)
 {
-  uint8_t buf[255];
-  if (g_filemanager->read(fd, buf, 19) != 19) {
-    return false;
-  }
-  if (buf[0] != HD32MAGIC)
-    return false;
+  deserializeMagic(HD32MAGIC);
 
-  driveSelected = buf[1];
-  unitSelected = buf[2];
-  command = buf[3];
-  enabled = buf[4];
-  errorState[0] = buf[5];
-  errorState[1] = buf[6];
-  memBlock[0] = buf[7];
-  memBlock[0] <<= 8; memBlock[0] |= buf[8];
-  memBlock[1] = buf[9];
-  memBlock[1] <<= 8; memBlock[1] |= buf[10];
-  cursor[0] = buf[11];
-  cursor[0] <<= 8; cursor[0] |= buf[12];
-  cursor[0] <<= 8; cursor[0] |= buf[13];
-  cursor[0] <<= 8; cursor[0] |= buf[14];
-  cursor[1] = buf[15];
-  cursor[1] <<= 8; cursor[1] |= buf[16];
-  cursor[1] <<= 8; cursor[1] |= buf[17];
-  cursor[1] <<= 8; cursor[1] |= buf[18];
-
+  deserialize8(driveSelected);
+  deserialize8(unitSelected);
+  deserialize8(command);
+  deserialize8(enabled);
+  deserialize8(errorState[0]);
+  deserialize8(errorState[1]);
+  deserialize16(memBlock[0]);
+  deserialize16(memBlock[1]);
+  deserialize32(cursor[0]);
+  deserialize32(cursor[1]);
+  
   cachedBlockNum = -1; // just invalidate the cache; it will reload...
 
   for (int i=0; i<2; i++) {
-    uint32_t ptr = 0;
-    // FIXME: MAXPATH check!                                                  
-    while (1) {
-      if (g_filemanager->read(fd, &buf[ptr++], 1) != 1)
-	return false;
-      if (buf[ptr-1] == 0)
-	break;
-    }
-    if (strlen((char *)buf)) {
-      // FIXME: this tromps on error and some other vars ... that we just restored
-      insertDisk(i, (char *)buf);
-    }
+    char buf[MAXPATH];
+    deserializeString(buf);
+    // FIXME: this tromps on error and some other vars ... that we just restored
+    insertDisk(i, (char *)buf);
   }
 
-  if (g_filemanager->read(fd, buf, 1) != 1)
-    return false;
-
-  if (buf[0] != HD32MAGIC)
-    return false;
-
+  deserializeMagic(HD32MAGIC);
+  
   return true;
+ err:
+  return false;
 }
 
 void HD32::Reset()

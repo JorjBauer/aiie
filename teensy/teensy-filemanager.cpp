@@ -9,7 +9,7 @@ static SdFat sd;
 static FsFile cacheFile;
 static FsFile outerDir;
 
-
+#include "iocompat.h"
 
 TeensyFileManager::TeensyFileManager()
 {
@@ -179,14 +179,15 @@ bool TeensyFileManager::_prepCache(int8_t fd)
     }
 
     // Open the new one
-    cacheFile.open(cachedNames[fd], O_RDWR);
+    cacheFile.open(cachedNames[fd], O_CREAT|O_RDWR);
     if (!cacheFile) {
+      printf("failed to open cacheFile\n");
       return false;
     }
     cacheFd = fd; // cache is live
   }
 
-  return true; // FIXME error handling
+  return true;
 }
 
 void TeensyFileManager::getRootPath(char *toWhere, int8_t maxLen)
@@ -225,10 +226,12 @@ int TeensyFileManager::write(int8_t fd, const void *buf, int nbyte)
 {
   // open, seek, write, close.
   if (fd < 0 || fd >= numCached) {
+    printf("no fd\n");
     return -1;
   }
 
   if (cachedNames[fd][0] == 0) {
+    printf("no name\n");
     return -1;
   }
 
@@ -237,15 +240,16 @@ int TeensyFileManager::write(int8_t fd, const void *buf, int nbyte)
   uint32_t pos = fileSeekPositions[fd];
 
   if (!cacheFile.seek(pos)) {
+    printf("can't seek to %d\n", pos);
     return -1;
   }
 
   if (cacheFile.write((const uint8_t *)buf, (size_t)nbyte) != (size_t)nbyte) {
+    printf("can't write\n");
     return -1;
   }
 
   fileSeekPositions[fd] += nbyte;
-  cacheFile.close();
   return nbyte;
 };
 
@@ -266,6 +270,7 @@ int TeensyFileManager::read(int8_t fd, void *buf, int nbyte)
   if (!cacheFile.seek(pos)) {
     return -1;
   }
+
   fileSeekPositions[fd] += nbyte;
 
   if (cacheFile.read(buf, nbyte) != nbyte) {

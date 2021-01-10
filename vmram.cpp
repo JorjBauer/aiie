@@ -5,6 +5,7 @@
 
 #include "vmram.h"
 #include <string.h>
+#include "serialize.h"
 #include "globals.h"
 
 #ifdef TEENSYDUINO
@@ -55,46 +56,35 @@ uint8_t *VMRam::memPtr(uint32_t addr)
 bool VMRam::Serialize(int8_t fd)
 {
   uint32_t size = sizeof(preallocatedRam);
-  uint8_t buf[5] = { RAMMAGIC,
-		     (uint8_t)((size >> 24) & 0xFF),
-		     (uint8_t)((size >> 16) & 0xFF),
-		     (uint8_t)((size >>  8) & 0xFF),
-		     (uint8_t)((size      ) & 0xFF) };
-  if (g_filemanager->write(fd, buf, 5) != 5)
-    return false;
+  serializeMagic(RAMMAGIC);
+  serialize32(size);
 
   if (g_filemanager->write(fd, preallocatedRam, sizeof(preallocatedRam)) != sizeof(preallocatedRam))
-    return false;
-  
-  if (g_filemanager->write(fd, buf, 1) != 1)
-    return false;
+    goto err;
+
+  serializeMagic(RAMMAGIC);
 
   return true;
+
+ err:
+  return false;
 }
 
 bool VMRam::Deserialize(int8_t fd)
 {
-  uint8_t buf[5];
-  if (g_filemanager->read(fd, buf, 5) != 5)
-    return false;
-
-  if (buf[0] != RAMMAGIC)
-    return false;
-  
-  uint32_t size = (buf[1] << 24) | (buf[2] << 16) | (buf[3] << 8) | buf[4];
-
-  if (size != sizeof(preallocatedRam))
-    return false;
+  deserializeMagic(RAMMAGIC);
+  uint32_t size;
+  deserialize32(size);
 
   if (g_filemanager->read(fd, preallocatedRam, size) != size)
-    return false;
+    goto err;
 
-  if (g_filemanager->read(fd, buf, 1) != 1)
-    return false;
-  if (buf[0] != RAMMAGIC)
-    return false;
+  deserializeMagic(RAMMAGIC);
 
   return true;
+
+ err:
+  return false;
 }
 
 bool VMRam::Test()
