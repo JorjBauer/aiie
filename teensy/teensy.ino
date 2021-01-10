@@ -286,7 +286,8 @@ void runMaintenance(uint32_t now)
   static uint32_t nextRuntime = 0;
   
   if (now >= nextRuntime) {
-    nextRuntime = now + 100000; // FIXME: what's a good time here? 1/10 sec?
+    // Run maintenance at 60 Hz because the mouse will need it
+    nextRuntime = now + 16667;
     
     if (!resetButtonDebouncer.read()) {
       // This is the BIOS interrupt. Wait for it to clear and process it.
@@ -297,6 +298,7 @@ void runMaintenance(uint32_t now)
     }
 
     if (!g_biosInterrupt) {
+        g_mouse->maintainMouse();
         g_keyboard->maintainKeyboard();
     	usb.maintain();
     }	

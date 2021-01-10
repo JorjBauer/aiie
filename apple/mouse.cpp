@@ -1,9 +1,31 @@
 #include "mouse.h"
 #include <string.h>
+#include "globals.h"
+
 #include "mouse-rom.h"
+
+enum {
+  SW_R_HOMEMOUSE  = 0x08,
+  SW_R_POSMOUSE   = 0x09,
+  SW_R_CLEARMOUSE = 0x0A,
+  SW_R_READMOUSE  = 0x0B,
+  SW_R_INITMOUSE  = 0x0C,
+  SW_W_CLAMPMOUSE = 0x0D,
+  SW_R_SERVEMOUSE = 0x0E,
+  SW_W_SETMOUSE   = 0x0F
+};
+
+enum {
+  ST_MOUSEENABLE = 1,
+  ST_INTMOUSE    = 2,
+  ST_INTBUTTON   = 4,
+  ST_INTVBL      = 8
+};
 
 Mouse::Mouse()
 {
+  status = 0;
+  interruptsTriggered = 0;
 }
 
 Mouse::~Mouse()
@@ -26,17 +48,82 @@ void Mouse::Reset()
 
 uint8_t Mouse::readSwitches(uint8_t s)
 {
+  switch (s) {
+  case SW_R_HOMEMOUSE:
+    printf("unimplemented SW_R_HOMEMOUSE\n");
+    /* physical mouse X = $578/$478; 
+     * physical mouse Y = $5f8/$4f8 */
+    break;
+  case SW_R_POSMOUSE:
+    printf("unimplemented SW_R_POSMOUSE\n");
+    /* physical mouse X = $578+4/$478+4;
+     * physical mouse Y + $5F8+4/$4f8+4 */
+    break;
+  case SW_R_CLEARMOUSE:
+    g_ram.writeByte(0x578+4, 0);
+    g_ram.writeByte(0x478+4, 0);
+    g_ram.writeByte(0x5F8+4, 0);
+    g_ram.writeByte(0x4F8+4, 0);
+    /* physical mouse X = Y = 0 */
+    break;
+  case SW_R_READMOUSE:
+    printf("unimplemented SW_R_READMOUSE\n");
+    // FIXME: read from physical mouse and write to:
+    g_ram.writeByte(0x578+4, 0); // high X
+    g_ram.writeByte(0x478+4, 0); // low X
+    g_ram.writeByte(0x5F8+4, 0); // high Y
+    g_ram.writeByte(0x4F8+4, 0); // low Y
+    break;
+  case SW_R_INITMOUSE:
+    // Set clamp to (0,0) - (1023,1023)
+    g_ram.writeByte(0x578, 0); // high of lowclamp
+    g_ram.writeByte(0x478, 0); // low of lowclamp
+    g_ram.writeByte(0x5F8, 0x03); // high of highclamp
+    g_ram.writeByte(0x4F8, 0xFF); // low of highclamp
+    printf("unimplemented SW_R_INITMOUSE\n");
+    /* physicalMouse->setClamp(XCLAMP, 0, 1023);
+     * physicalMouse->setClamp(YCLAMP, 0, 1023); */
+    break;
+  case SW_R_SERVEMOUSE:
+    g_ram.writeByte(0x778+4, interruptsTriggered);
+    g_ram.writeByte(0x6B8+4, interruptsTriggered); // hack to appease ROM
+    interruptsTriggered = 0;
+    break;
+  default:
+    printf("mouse: unknown switch read 0x%X\n", s);
+  };
   return 0xFF;
 }
 
 void Mouse::writeSwitches(uint8_t s, uint8_t v)
 {
-  printf("unknown switch 0x%X\n", s);
+  switch (s) {
+  case SW_W_CLAMPMOUSE:
+    {
+      uint16_t lowval = (g_ram.readByte(0x578) << 8) | (g_ram.readByte(0x478));
+      uint16_t highval = (g_ram.readByte(0x5F8) << 8) | (g_ram.readByte(0x4F8));
+      if (v) {
+	// Y is clamping
+	/* physicalMouse->setClamp(YCLAMP, lowval, highval); */
+      } else {
+	// X is clamping
+	/* physicalMouse->setClamp(XCLAMP, lowval, highval); */
+      }
+      printf("unimplemented SW_W_CLAMPMOUSE [0x%X]\n", v);
+    }
+    break;
+  case SW_W_SETMOUSE:
+    status = v;
+    break;
+  default:
+    printf("mouse: unknown switch write 0x%X\n", s);
+    break;
+  }
 }
 
 void Mouse::loadROM(uint8_t *toWhere)
 {
-  /* ROM Disassembly:
+  /* Actual mouse ROM Disassembly:
 C400-   2C 58 FF    BIT   $FF58   ; test bits in FF58 w/ A
 C403-   70 1B       BVS   $C420   ; V will contain bit 6 from $FF58, which should be $20 on boot-up
 C405-   38          SEC
@@ -149,16 +236,16 @@ C46F-   B0 3F       BCS   $C4B0   ; RTS if A >= 0x10
 C471-   99 82 C0    STA   $C082,Y ; LC RAM bank 2, read ROM, wr-protect RAM
 C474-   60          RTS
 ; ServeMouse
-C475-   48          PHA
+C475-   48          PHA           ; save A
 C476-   18          CLC
-C477-   90 39       BCC   $C4B2 ; always branches
+C477-   90 39       BCC   $C4B2   ; always branches
 ; ServeMouse cleanup and exit
 C479-   99 83 C0    STA   $C083,Y ; LC RAM bank 2, read RAM
-C47C-   BD B8 06    LDA   $06B8,X
+C47C-   BD B8 06    LDA   $06B8,X ; apparently this is where the new status wound up, also $7f8 + <slot#>
 C47F-   29 0E       AND   #$0E
-C481-   D0 01       BNE   $C484
+C481-   D0 01       BNE   $C484   ; if the interrupt bits don't show it was a mouse interrupt, set error (C) before returning
 C483-   38          SEC
-C484-   68          PLA
+C484-   68          PLA           ; restore A
 C485-   60          RTS
 ; ClampMouse
 C486-   C9 02       CMP   #$02
@@ -216,39 +303,102 @@ C4CC-   A9 03       LDA   #$03
 C4CE-   18          CLC
 C4CF-   90 A8       BCC   $C479 ; always branches
 
+... but the version below is patched so it uses soft switches to call
+back here.
+
+SETMOUSE:
+C471- 8D CF C0  STA $C0CF    ; use soft switch 0xF to handle it
+            60  RTS
+
+Patch: C471 from 99 82 C0 60 => 8D CF C0 60
+
+SERVEMOUSE @ $C4B2:
+        78 SEI
+  AD CE C0 LDA $C0CE   ; use soft switch 0xE (read) to trigger this - expect ne\
+w value to be placed in $7f8+4 and $6b8+4
+     A2 04 LDX #$04    ; our slot number, for cleanup code
+        18 CLC
+     90 C1 BCC $C47C
+
+Patch: C4B2 from 08 A5 00 48 A9 60 85 00 78 =>
+                 78 AD CE C0 A2 04 18 90 C1
+
+READMOUSE
+C48E-  AD CB C0 LDA $C04B  ; soft switch 0x0B for readmouse
+             18 CLC
+             60 RTS
+
+Patch: from A9 04 99 83 C0 =>
+            AD CB C0 18 60
+
+CLEARMOUSE
+C49F-  AD CA C0 LDA $C04A  ; soft switch 0x0A for clearmouse
+             18 CLC
+             60 RTS
+
+Patch: from EA A9 05 D0 F6 =>
+            AD CA C0 18 60
+POSMOUSE
+C4a4-  AD C9 C0 LDA $C049  ; soft switch 0x09 for posmouse
+             18 CLC
+             60 RTS
+
+Patch: from EA A9 06 D0 F1 =>
+            AD C9 C0 18 60
+
+CLAMPMOUSE
+C48A- 8D CD C0  STA $C04D ; use write to soft switch 0x0D to trigger clamp
+            60  RTS
+
+Patch: from 99 83 C0 60 => 8D CD C0 60
+
+HOMEMOUSE
+C4A9- AD C8 C0 LDA $c048  ; soft switch 0x08 for homemouse (read)
+            18      CLC
+            60       RTS
+
+Patch: from EA A9 07 D0 EC => AD C8 C0 18 60
+
+INITMOUSE
+C498- AD CC C0 LDA $C04C ; soft switch 0x0C read for initmouse
+            18 CLC
+            60 RTS
+
+Patch: from A9 02 99 83 C0 => AD CC C0 18 60
   */
-  uint8_t rom[256] = { 0x2c, 0x58, 0xff, 0x70, 0x1B, 0x38, 0x90, 0x18,
+  
+  uint8_t rom[256] = { 0x2c, 0x58, 0xff, 0x70, 0x1B, 0x38, 0x90, 0x18,  // C400
 		       0xb8, 0x50, 0x15, 0x01, 0x20, 0xae, 0xae, 0xae,
-		       0xae, 0x00, 0x6d, 0x75, 0x8e, 0x9f, 0xa4, 0x86,
+		       0xae, 0x00, 0x6d, 0x75, 0x8e, 0x9f, 0xa4, 0x86,  // C410
 		       0xa9, 0x97, 0xae, 0xae, 0xae, 0xae, 0xae, 0xae,
-		       0x48, 0x98, 0x48, 0x8a, 0x48, 0x08, 0x78, 0x20,
+		       0x48, 0x98, 0x48, 0x8a, 0x48, 0x08, 0x78, 0x20,  // C420
 		       0x58, 0xFF, 0xBA, 0xBD, 0x00, 0x01, 0xAA, 0x0A,
-		       0x0A, 0x0A, 0x0A, 0xA8, 0x28, 0x50, 0x0F, 0xA5,
+		       0x0A, 0x0A, 0x0A, 0xA8, 0x28, 0x50, 0x0F, 0xA5,  // C430
 		       0x38, 0xd0, 0x0d, 0x8a, 0x45, 0x39, 0xd0, 0x08,
-		       0xa9, 0x05, 0x85, 0x38, 0xd0, 0x0b, 0xb0, 0x09,
+		       0xa9, 0x05, 0x85, 0x38, 0xd0, 0x0b, 0xb0, 0x09,  // C440
 		       0x68, 0xaa, 0x68, 0xea, 0x68, 0x99, 0x80, 0xc0,
-		       0x60, 0x99, 0x81, 0xc0, 0x68, 0xbd, 0x38, 0x06,
+		       0x60, 0x99, 0x81, 0xc0, 0x68, 0xbd, 0x38, 0x06,  // C450
 		       0xaa, 0x68, 0xa8, 0x68, 0xbd, 0x00, 0x02, 0x60,
-		       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // C460
 		       0x00, 0x00, 0x00, 0x00, 0x00, 0xc9, 0x10, 0xb0,
-		       0x3f, 0x99, 0x82, 0xc0, 0x60, 0x48, 0x18, 0x90,
+		       0x3f, 0x8D, 0xCF, 0xc0, 0x60, 0x48, 0x18, 0x90,  // C470
 		       0x39, 0x99, 0x83, 0xc0, 0xbd, 0xb8, 0x06, 0x29,
 		       
-		       0x0E, 0xD0, 0x01, 0x38, 0x68, 0x60, 0xc9, 0x02,
-		       0xb0, 0x26, 0x99, 0x83, 0xc0, 0x60, 0xa9, 0x04,
-		       0x99, 0x83, 0xc0, 0x18, 0xea, 0xea, 0x60, 0xea,
-		       0xa9, 0x02, 0x99, 0x83, 0xc0, 0x18, 0x60, 0xea,
-		       0xa9, 0x05, 0xd0, 0xf6, 0xea, 0xa9, 0x06, 0xd0,
-		       0xf1, 0xea, 0xa9, 0x07, 0xd0, 0xec, 0xa2, 0x03,
-		       0x38, 0x60, 0x08, 0xa5, 0x00, 0x48, 0xa9, 0x60,
-		       0x85, 0x00, 0x78, 0x20, 0x00, 0x00, 0xba, 0x68,
-		       0x85, 0x00, 0xbd, 0x00, 0x01, 0x28, 0xaa, 0x0a,
+		       0x0E, 0xD0, 0x01, 0x38, 0x68, 0x60, 0xc9, 0x02,  // C480
+		       0xb0, 0x26, 0x8D, 0xCD, 0xc0, 0x60, 0xAD, 0xCB,
+		       0xC0, 0x18, 0x60, 0x18, 0xea, 0xea, 0x60, 0xea,  // C490
+		       0xAD, 0xCC, 0xC0, 0x18, 0x60, 0x18, 0x60, 0xAD,
+		       0xCA, 0xC0, 0x18, 0x60, 0xAD, 0xC9, 0xc0, 0x18,  // C4A0
+		       0x60, 0xAD, 0xC8, 0xC0, 0x18, 0x60, 0xa2, 0x03,
+		       0x38, 0x60, 0x78, 0xad, 0xce, 0xc0, 0xa2, 0x04,  // C4B0
+		       0x18, 0x90, 0xc1, 0x20, 0x00, 0x00, 0xba, 0x68,
+		       0x85, 0x00, 0xbd, 0x00, 0x01, 0x28, 0xaa, 0x0a,  // C4C0
 		       0x0a, 0x0a, 0x0a, 0xa8, 0xa9, 0x03, 0x18, 0x90,
-		       0xa8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+		       0xa8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,  // C4D0
 		       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 
+		       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,  // C4E0
 		       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 
-		       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 
-		       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 
+		       0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,  // C4F0
 		       0xff, 0xff, 0xff, 0xd6, 0xff, 0xff, 0xff, 0x01 };
   memcpy(toWhere, rom, 256);
 }
@@ -260,8 +410,29 @@ bool Mouse::hasExtendedRom()
 
 void Mouse::loadExtendedRom(uint8_t *toWhere, uint16_t byteOffset)
 {
+#if 0
   printf("loading extended rom for the mouse\n");
   for (int i=0; i<256; i++) {
     toWhere[i] = romData[i + byteOffset];
+  }
+#endif
+}
+
+void Mouse::maintainMouse(int64_t cycleCount)
+{
+  //  static int64_t startTime = cycleCount;
+
+  // Fake a 60Hz VBL in case we need it for our interrupts
+  static int64_t nextInterruptTime = cycleCount + 17050;
+
+  if ( (status & ST_MOUSEENABLE) &&
+       (status & ST_INTVBL) ) {
+    if (cycleCount >= nextInterruptTime) {
+      g_cpu->irq();
+
+      interruptsTriggered |= ST_INTVBL;
+      
+      nextInterruptTime += 17050;
+    }
   }
 }

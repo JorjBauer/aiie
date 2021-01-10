@@ -48,8 +48,8 @@ void VMRam::writeByte(uint32_t addr, uint8_t value)
 
 uint8_t *VMRam::memPtr(uint32_t addr)
 {
-  printf("Asked for preallocated RAM pointer at 0x%X\n", addr);
-  printf("Base is 0x%llX\n", (unsigned long long) preallocatedRam);
+  //  printf("Asked for preallocated RAM pointer at 0x%X\n", addr);
+  //  printf("Base is 0x%llX\n", (unsigned long long) preallocatedRam);
   return &preallocatedRam[addr];
 }
 

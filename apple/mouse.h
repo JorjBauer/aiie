@@ -26,6 +26,12 @@ class Mouse : public Slot {
 
   virtual bool hasExtendedRom();
   virtual void loadExtendedRom(uint8_t *toWhere, uint16_t byteOffset);
+
+  void maintainMouse(int64_t cycleCount);
+
+private:
+  uint8_t status;
+  uint8_t interruptsTriggered;
 };
 
 #endif
