@@ -13,6 +13,7 @@
 #include "appleui.h"
 #include "teensy-prefs.h"
 #include "teensy-println.h"
+#include "smalloc.h"
 
 //#define DEBUG_TIMING
 
@@ -240,21 +241,38 @@ void setup()
 // FIXME: move these memory-related functions elsewhere...
 
 // This only gives you an estimated free mem size. It's not perfect.
-uint32_t FreeRamEstimate()
+uint32_t FreeIntRamEstimate()
 {
-  uint32_t stackTop;
   uint32_t heapTop;
 
-  // current position of the stack.
-  stackTop = (uint32_t) &stackTop;
+  // The Teensy 4.1 has different memory regions; the stack grows down
+  // from the top of RAM1, and the heap gros up from the start of
+  // RAM2. The end of RAM2 is 0x20280000, so if we malloc a byte we
+  // should be able to calculate a gross estimate (ignoring memory
+  // holes created by fragmentation of course).
 
-  // current position of heap.
   void* hTop = malloc(1);
   heapTop = (uint32_t) hTop;
   free(hTop);
 
-  // The difference is the free, available ram.
-  return stackTop - heapTop;
+  return 0x20280000 - heapTop;
+}
+
+uint32_t FreeExtRamEstimate()
+{
+  // EXTMEM uses a different thing entirely - the smalloc library is
+  // embedded in TeensyDuino (as of this writing) and we should be
+  // able to query it to see how much ram exists, is in use, and is
+  // free. However, at some point this will break, and we'll have to
+  // figure out what new library Teensyduino moved to...
+  
+  size_t total = 0, totalUser = 0, freespace = 0;
+  int blocks; // number of blocks allocated
+  sm_malloc_stats_pool(&extmem_smalloc_pool, &total, &totalUser, &freespace, &blocks);
+
+  // total and totalUser always seem to be 0. So is blocks. But freespace might be real?
+
+  return freespace;
 }
 
 #include "malloc.h"
@@ -302,8 +320,13 @@ void runDisplay(uint32_t now)
   if (now >= microsForNext) {
     refreshCount++;
     microsForNext = microsAtStart + (1000000.0*((float)refreshCount/(float)TARGET_FPS));
-    
-    doDebugging(lastFps);
+
+    { static uint32_t nextDebugTime = 0;
+      if (millis() > nextDebugTime) {
+	doDebugging(lastFps);
+	nextDebugTime = millis() + 1000;
+      }
+    }
 
     if (!g_biosInterrupt) {
       g_ui->blit();
@@ -500,7 +523,7 @@ void doDebugging(uint32_t lastFps)
     g_display->debugMsg(debugBuf);
     break;
   case D_SHOWMEMFREE:
-    sprintf(debugBuf, "%lu %u", FreeRamEstimate(), heapSize());
+    sprintf(debugBuf, "%lu %lu", FreeIntRamEstimate(), FreeExtRamEstimate());
     g_display->debugMsg(debugBuf);
     break;
   case D_SHOWPADDLES:
