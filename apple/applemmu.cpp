@@ -12,10 +12,13 @@
 #include "physicalspeaker.h"
 #include "cpu.h"
 
+#include "serialize.h"
+
 #include "globals.h"
 
 #ifdef TEENSYDUINO
 #include "teensy-clock.h"
+#include "iocompat.h"
 #else
 #include "nix-clock.h"
 #endif
@@ -155,24 +158,23 @@ AppleMMU::~AppleMMU()
 
 bool AppleMMU::Serialize(int8_t fd)
 {
-  uint8_t buf[13] = { MMUMAGIC,
-		      (uint8_t)((switches >> 8) & 0xFF),
-		      (uint8_t)((switches     ) & 0xFF),
-		      auxRamRead ? 1 : 0,
-		      auxRamWrite ? 1 : 0,
-		      bank2 ? 1 : 0,
-		      readbsr ? 1 : 0,
-		      writebsr ? 1 : 0,
-		      altzp ? 1 : 0,
-		      intcxrom ? 1 : 0,
-		      slot3rom ? 1 : 0,
-		      slotLatch,
-		      preWriteFlag ? 1 : 0 };
-  if (g_filemanager->write(fd, buf, 13) != 13)
-    return false;
+  serializeMagic(MMUMAGIC);
+  serialize16(switches);
+  serialize8(auxRamRead ? 1 : 0);
+  serialize8(auxRamWrite ? 1 : 0);
+  serialize8(bank2 ? 1 : 0);
+  serialize8(readbsr ? 1 : 0);
+  serialize8(writebsr ? 1 : 0);
+  serialize8(altzp ? 1 : 0);
+  serialize8(intcxrom ? 1 : 0);
+  serialize8(slot3rom ? 1 : 0);
+  serialize8(slotLatch);
+  serialize8(preWriteFlag ? 1 : 0);
   
-  if (!g_ram.Serialize(fd))
-    return false;
+  if (!g_ram.Serialize(fd)) {
+    printf("Failed to serialize RAM\n");
+    goto err;
+  }
 
   // readPages & writePages don't need suspending, but we will need to
   // recalculate after resume
@@ -180,47 +182,42 @@ bool AppleMMU::Serialize(int8_t fd)
   // Not suspending/resuming slots b/c they're a fixed configuration
   // in this project. Should probably checksum them though. FIXME.
 
-  if (g_filemanager->write(fd, buf, 1) != 1)
-    return false;
-  
+  serializeMagic(MMUMAGIC);
   return true;
+
+ err:
+  return false;
 }
 
 bool AppleMMU::Deserialize(int8_t fd)
 {
-  uint8_t buf[13];
+  deserializeMagic(MMUMAGIC);
 
-  if (g_filemanager->read(fd, buf, 13) != 13)
-    return false;
+  deserialize16(switches);
+  serialize8(auxRamRead);
+  serialize8(auxRamWrite);
+  serialize8(bank2);
+  serialize8(readbsr);
+  serialize8(writebsr);
+  serialize8(altzp);
+  serialize8(intcxrom);
+  serialize8(slot3rom);
+  serialize8(slotLatch);
+  serialize8(preWriteFlag);
 
-  if (buf[0] != MMUMAGIC)
-    return false;
-
-  switches = (buf[1] << 8) | buf[2];
-  auxRamRead = buf[3];
-  auxRamWrite = buf[4];
-  bank2 = buf[5];
-  readbsr = buf[6];
-  writebsr = buf[7];
-  altzp = buf[8];
-  intcxrom = buf[9];
-  slot3rom = buf[10];
-  slotLatch = buf[11];
-  preWriteFlag = buf[12];
-  
   if (!g_ram.Deserialize(fd)) {
-    return false;
+    goto err;
   }
 
-  if (g_filemanager->read(fd, buf, 1) != 1)
-    return false;
-  if (buf[0] != MMUMAGIC)
-    return false;
+  deserializeMagic(MMUMAGIC);
 
   // Reset readPages[] and writePages[] and the display
   resetDisplay();
 
   return true;
+
+ err:
+  return false;
 }
 
 void AppleMMU::Reset()

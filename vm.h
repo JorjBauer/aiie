@@ -16,8 +16,8 @@ class VM {
   VM() { mmu=NULL; vmdisplay = NULL; hasIRQ = false;}
   virtual ~VM() { if (mmu) delete mmu; if (vmdisplay) delete vmdisplay; }
 
-  virtual void Suspend(const char *fn) = 0;
-  virtual void Resume(const char *fn) = 0;
+  virtual bool Suspend(const char *fn) = 0;
+  virtual bool Resume(const char *fn) = 0;
 
   virtual void SetMMU(MMU *mmu) { this->mmu = mmu; }
   virtual MMU *getMMU() { return mmu; }

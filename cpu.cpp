@@ -7,10 +7,13 @@
 #include <unistd.h>
 #include "mmu.h"
 
+#include "serialize.h"
+
 #include "globals.h"
 
 #ifdef TEENSYDUINO
 #include "teensy-println.h"
+#include "iocompat.h"
 #endif
 
 // define DEBUGSTEPS to show disassembly of each instruction as it's processed
@@ -320,74 +323,54 @@ Cpu::~Cpu()
   mmu = NULL;
 }
 
-bool Cpu::Serialize(int8_t fh)
+bool Cpu::Serialize(int8_t fd)
 {
-  uint8_t buf[13] = { CPUMAGIC,
-		      (uint8_t)((pc >> 8) & 0xFF),
-		      (uint8_t)((pc     ) & 0xFF),
-		      sp,
-		      a,
-		      x,
-		      y,
-		      flags,
-		      (uint8_t)((cycles >> 24) & 0xFF),
-		      (uint8_t)((cycles >> 16) & 0xFF),
-		      (uint8_t)((cycles >>  8) & 0xFF),
-		      (uint8_t)((cycles      ) & 0xFF),
-		      irqPending ? (uint8_t)1 : (uint8_t)0 };
+  serializeMagic(CPUMAGIC);
+  serialize16(pc);
+  serialize8(sp);
+  serialize8(a);
+  serialize8(x);
+  serialize8(y);
+  serialize8(flags);
+  serialize32(cycles);
+  serialize8(irqPending ? 1 : 0);
 
-  if (g_filemanager->write(fh, buf, 13) != 13)
-    return false;
-
-  if (!mmu->Serialize(fh)) {
-#ifndef TEENSYDUINO
+  if (!mmu->Serialize(fd)) {
     printf("MMU serialization failed\n");
-#else
-    println("MMU serialization failed");
-#endif
-    return false;
+    goto err;
   }
-
-  if (g_filemanager->write(fh, buf, 1) != 1) 
-    return false;
+  serializeMagic(CPUMAGIC);
 
   return true;
+  
+ err:
+  return false;
 }
 
-bool Cpu::Deserialize(int8_t fh)
+bool Cpu::Deserialize(int8_t fd)
 {
-  uint8_t buf[13];
-  if (g_filemanager->read(fh, buf, 13) != 13)
-    return false;
-  if (buf[0] != CPUMAGIC)
-    return false;
-  pc = (buf[1] << 8) | buf[2];
-  sp = buf[3];
-  a = buf[4];
-  x = buf[5];
-  y = buf[6];
-  flags = buf[7];
-
-  cycles = (buf[8] << 24) | (buf[9] << 16) | (buf[10] << 8) | buf[11];
-
-  irqPending = buf[12];
-
-  if (!mmu->Deserialize(fh)) {
-#ifndef TEENSYDUINO
+  deserializeMagic(CPUMAGIC);
+  deserialize16(pc);
+  deserialize8(sp);
+  deserialize8(a);
+  deserialize8(x);
+  deserialize8(y);
+  deserialize8(flags);
+  deserialize32(cycles);
+  deserialize8(irqPending);
+  
+  if (!mmu->Deserialize(fd)) {
     printf("MMU deserialization failed\n");
-#endif
     return false;
   }
 
-  if (g_filemanager->read(fh, buf, 1) != 1)
-    return false;
-  if (buf[0] != CPUMAGIC)
-    return false;
+  deserializeMagic(CPUMAGIC);
 
-#ifndef TEENSYDUINO
   printf("CPU deserialization complete\n");
-#endif
   return true;
+
+ err:
+  return false;
 }
 
 void Cpu::Reset()

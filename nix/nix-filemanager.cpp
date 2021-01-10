@@ -194,33 +194,43 @@ void NixFileManager::seekToEnd(int8_t fd)
 
 int NixFileManager::write(int8_t fd, const void *buf, int nbyte)
 {
-  if (fd < 0 || fd >= numCached)
+  if (fd < 0 || fd >= numCached) {
+    printf("invalid fd (out of range)\n");
     return -1;
+  }
 
-  if (cachedNames[fd][0] == 0)
+  if (cachedNames[fd][0] == 0) {
+    printf("invalid fd (not opened)\n");
     return -1;
+  }
 
   uint32_t pos = fileSeekPositions[fd];
 
   // open, seek, write, close.
-  bool ret = false;
+  ssize_t rv = 0;
   int ffd = ::open(cachedNames[fd], O_WRONLY|O_CREAT, 0644);
-  if (ffd != -1) {
-    if (::lseek(ffd, pos, SEEK_SET) == -1) {
-      close(ffd);
-      return -1;
-    }
-    ssize_t rv = ::write(ffd, buf, nbyte);
-    if (rv != nbyte) {
-      printf("error writing: %d; wanted to write %d got %d\n", errno, nbyte, ret);
-    }
-    close(ffd);
-  } else {
+  if (ffd == -1) {
     printf("Failed to open '%s' for writing: %d\n", 
 	   cachedNames[fd], errno);
+    close(ffd);
+    return -1;
   }
+  
+  if (::lseek(ffd, pos, SEEK_SET) == -1) {
+    printf("failed to open and seek\n");
+    close(ffd);
+    return -1;
+  }
+  
+  rv = ::write(ffd, buf, nbyte);
+  if (rv != nbyte) {
+    printf("error writing: %d; wanted to write %d got %ld\n", errno, nbyte, rv);
+  }
+  
+  close(ffd);
+
   fileSeekPositions[fd]+=nbyte;
-  return ret;
+  return (int)rv;
 };
 
 int NixFileManager::read(int8_t fd, void *buf, int nbyte)

@@ -56,4 +56,8 @@ extern bool g_invertPaddleY;
 
 extern char debugBuf[255];
 
+#ifdef TEENSYDUINO
+extern char fsbuf[200];
+#endif
+
 #endif
