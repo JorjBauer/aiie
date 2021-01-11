@@ -139,11 +139,6 @@ void Debugger::step()
     uint8_t b; // byte value used in parsing
     unsigned int val; // common value buffer used in parsing
     
-    // debugging what's at FF58 right now
-    uint8_t tmp = g_vm->getMMU()->read(0xff58);
-    sprintf(buf, " 0xFF58: 0x%.2X\r\n", tmp);
-    write(cd, buf, strlen(buf));
-
   doover:
     do {
       GETCH;
