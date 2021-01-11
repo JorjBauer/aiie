@@ -99,6 +99,8 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
       uint8_t newStatus = g_vm->getMMU()->read(0x778+4) & ~0xC0;
       if (curButton) { newStatus |= 0x80; };
       if (lastButton) { newStatus |= 0x40; };
+      //      lastButton = curButton; // FIXME untangle last handling here & in SERVEMOUSE
+      // if we add this here, it breaks GEOS.
 
       g_vm->getMMU()->write(0x578+4, (xpos >> 8) & 0xFF); // high X
       g_vm->getMMU()->write(0x478+4, xpos & 0xFF); // low X
@@ -135,6 +137,14 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
     {
       uint16_t lowval = (g_vm->getMMU()->read(0x578) << 8) | (g_vm->getMMU()->read(0x478));
       uint16_t highval = (g_vm->getMMU()->read(0x5F8) << 8) | (g_vm->getMMU()->read(0x4F8));
+
+      // Fix for Blazing Paddles, which requests a negative lowval,
+      // but we're casting them as unsigned
+      if (lowval > highval) {
+        highval = (lowval + highval) & 0xFFFF;
+        lowval = 0;
+      }
+      
       if (v) {
 	g_mouse->setClamp(YCLAMP, lowval, highval);
       } else {
