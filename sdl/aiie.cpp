@@ -115,6 +115,10 @@ static struct timespec runBIOS(struct timespec now)
     printf("BIOS loop has exited\n");
     g_biosInterrupt = false; // that's all she wrote!
   }
+
+  // Reset timers!
+  cpuClockInitialized = false;
+  g_cpu->cycles = 0;
   
   return diff;
 }
