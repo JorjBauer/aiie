@@ -28,14 +28,23 @@ class Mouse : public Slot {
   virtual void loadExtendedRom(uint8_t *toWhere, uint16_t byteOffset);
 
   void maintainMouse(int64_t cycleCount);
+  
+  bool isEnabled();
 
 private:
   uint8_t status;
   uint8_t interruptsTriggered;
 
+  // Previous state vars used when we're asked "did this change since last time"
   uint16_t lastX, lastY;
   bool lastButton;
+  
   bool curButton;
+
+  // second set of previous state vars for use when checking if an interrupt
+  // needs to fire based on a change
+  uint16_t lastXForInt, lastYForInt;
+  bool lastButtonForInt;
 };
 
 #endif

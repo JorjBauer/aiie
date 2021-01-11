@@ -3,6 +3,8 @@
 
 #include "globals.h"
 
+#include "applevm.h"
+
 TeensyMouse::TeensyMouse() : PhysicalMouse()
 {
   xpos = ypos = 0;
@@ -30,23 +32,25 @@ void TeensyMouse::mouseButtonEvent(bool state)
 
 void TeensyMouse::maintainMouse()
 {
-  // FIXME: only do this if the mouse card is enabled, so we're not incurring
-  // analogRead delays constantly
-  uint8_t paddle0 = g_paddles->paddle0();
-  uint8_t paddle1 = g_paddles->paddle1();
-  int16_t dx=0, dy=0;
-  if (paddle0 <= 25) {
-    dx = -1;
-  } else if (paddle0 >= 245) {
-    dx = 1;
-  }
-  if (paddle1 <= 25) {
-    dy = -1;
-  } else if (paddle1 >= 245) {
-    dy = 1;
-  }
-  if (dx || dy) {
-    gotMouseEvent(button, dx, dy);
+  if (((AppleVM *)g_vm)->isMouseEnabled()) {
+    // only do this if the mouse card is enabled, so we're not incurring
+    // analogRead delays constantly
+    uint8_t paddle0 = g_paddles->paddle0();
+    uint8_t paddle1 = g_paddles->paddle1();
+    int16_t dx=0, dy=0;
+    if (paddle0 <= 25) {
+      dx = -1;
+    } else if (paddle0 >= 245) {
+      dx = 1;
+    }
+    if (paddle1 <= 25) {
+      dy = -1;
+    } else if (paddle1 >= 245) {
+      dy = 1;
+    }
+    if (dx || dy) {
+      gotMouseEvent(button, dx, dy);
+    }
   }
 }
 

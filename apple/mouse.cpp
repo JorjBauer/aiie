@@ -31,7 +31,9 @@ Mouse::Mouse()
   status = 0;
   interruptsTriggered = 0;
   lastX = lastY = 0;
+  lastXForInt = lastYForInt = 0;
   lastButton = false;
+  lastButtonForInt = false;
 }
 
 Mouse::~Mouse()
@@ -125,7 +127,7 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
     break;
   case SW_W_INIT:
     v &= 0x03; // just the low 3 bits apparently?
-    printf("Simple init: value is 0x%X\n", v);
+    //    printf("Simple init: value is 0x%X\n", v);
     status = v;
     g_vm->getMMU()->write(0x7f8 + 4, v);
     break;
@@ -158,33 +160,33 @@ void Mouse::loadROM(uint8_t *toWhere)
    *
    *    ; $c400 is the entry point for PR#4
    * $C400 2C 58 FF   BIT    $FF58
-   * $C403    70 1B   BVS    $C420
+   * $C403    70 1B   BVS    IOHandler
    *    ; $c405 is the entry point for IN#4 when we set KSW
    * $C405       38   SEC    
-   * $C406    90 18   BCC    $C420
+   * $C406    90 18   BCC    IOHandler
    * $C408       B8   CLV    
-   * $C409    50 15   BVC    $C420 ; always branch
+   * $C409    50 15   BVC    IOHandler ; always branch
    * $C40B    01 20 8D 8D 8D       ; data (ID bytes & such)
    * $C410 8D 00 60 68 76 7B 80 85 ; data (lookup table of entrypoints)
    * $C418 8F 94 8D 8D 8D 8D 8D 8D ; data (lookup table of entrypoints)
-   *   ; $c420 is the I/O handler
-   * $C420       48   PHA
+   *   ; IOHandler ORG $c420
+   * $C420       48   PHA           ; save registers on stack
    * $C421       98   TYA    
    * $C422       48   PHA    
    * $C423       8A   TXA    
    * $C424       48   PHA    
    * $C425       08   PHP    
-   * $C426       78   SEI    
-   * $C427 20 58 FF   JSR    $FF58
-   * $C42A       BA   TSX    
-   * $C42B BD 00 01   LDA    $100,X
-   * $C42E       AA   TAX    
-   * $C42F       0A   ASL    
+   * $C426       78   SEI           ; disable interrupts
+   * $C427 20 58 FF   JSR    $FF58  ; JSR to this well-known location that has
+   * $C42A       BA   TSX           ;   an RTS (normally). Then when we get 
+   * $C42B BD 00 01   LDA    $100,X ;   back, pull our address off the stack
+   * $C42E       AA   TAX           ;   and save the high byte in X
+   * $C42F       0A   ASL
    * $C430       0A   ASL    
    * $C431       0A   ASL    
    * $C432       0A   ASL    
-   * $C433       A8   TAY    
-   * $C434       28   PLP    
+   * $C433       A8   TAY           ;   and (high byte << 4) in Y
+   * $C434       28   PLP           ; restore interrupt state
    * $C435    50 0F   BVC    $C446
    * $C437    A5 38   LDA    $0
    * $C439    D0 0D   BNE    $C448
@@ -193,9 +195,9 @@ void Mouse::loadROM(uint8_t *toWhere)
    * $C43E    D0 08   BNE    $C448
    * $C440    A9 05   LDA    #$0
    * $C442    85 38   STA    $0
-   * $C444    D0 0B   BNE    $C451
-   * $C446    B0 09   BCS    $C451
-   * $C448       68   PLA    
+   * $C444    D0 0B   BNE    SendInputToDOS
+   * $C446    B0 09   BCS    SendInputToDOS
+   * $C448       68   PLA           ; restore registers
    * $C449       AA   TAX    
    * $C44A       68   PLA    
    * $C44B       EA   NOP    
@@ -204,67 +206,68 @@ void Mouse::loadROM(uint8_t *toWhere)
    * $C44E       EA   NOP    
    * $C44F       EA   NOP    
    * $C450       60   RTS    
+   *   ; SendInputToDOS ORG $c451
    * $C451       EA   NOP    
    * $C452       EA   NOP    
    * $C453       EA   NOP    
    * $C454       68   PLA    
-   * $C455 BD 38 06   LDA    $638,X
-   * $C458       AA   TAX    
+   * $C455 BD 38 06   LDA    $638,X ; X is $C4, so this is $6F8+n - which is
+   * $C458       AA   TAX           ;  a reserved hole
    * $C459       68   PLA    
    * $C45A       A8   TAY    
    * $C45B       68   PLA    
-   * $C45C BD 00 02   LDA    $200,X
+   * $C45C BD 00 02   LDA    $200,X  ; keyboard buffer output
    * $C45F       60   RTS    
-   *   ; $c460 is SetMouse
+   *   ; SetMouse ORG $c460
    * $C460    C9 10   CMP    #$0
-   * $C462    B0 29   BCS    $C48D
-   * $C464 8D CF C0   STA    $C0CF
+   * $C462    B0 29   BCS    ExitWithError
+   * $C464 8D CF C0   STA    $C0CF   ; soft switch 0x0F invokes SetMouse
    * $C467       60   RTS    
-   *   ; $c468 is ServeMouse
+   *   ; ServeMouse ORG $c468
    * $C468       48   PHA    
-   * $C469       18   CLC    
-   * $C46A    90 2D   BCC    $C499   ; jump to ServeMouseWorker
-   *   ; $c46c is ServeMouseExit
-   * $C46C BD B8 06   LDA    $6B8,X
+   * $C469       18   CLC            ; use CLC/BCC to force relative jump
+   * $C46A    90 2D   BCC    ServeMouseWorker
+   *   ; ServeMouseExit ORG $c46c
+   * $C46C BD B8 06   LDA    $6B8,X  ; check what interrupts we say we serviced
    * $C46F    29 0E   AND    #$0
-   * $C471    D0 01   BNE    $C474
-   * $C473       38   SEC    
+   * $C471    D0 01   BNE    $C474   ; if we serviced any, leave carry clear
+   * $C473       38   SEC            ;   but set carry if we serviced none
    * $C474       68   PLA    
    * $C475       60   RTS    
-   *   ; $c476 is ReadMouse
-   * $C476 8D CB C0   STA    $C0CB
+   *   ; ReadMouse ORG $c476
+   * $C476 8D CB C0   STA    $C0CB   ; soft switch 0x0B
    * $C479       18   CLC    
    * $C47A       60   RTS    
-   *   ; $c47b is ClearMouse
-   * $C47B 8D CA C0   STA    $C0CA
+   *   ; ClearMouse ORG $c47b 
+   * $C47B 8D CA C0   STA    $C0CA   ; soft switch 0x0A
    * $C47E       18   CLC    
    * $C47F       60   RTS   
-   *   ; $c480 is PosMouse 
-   * $C480 8D C9 C0   STA    $C0C9
+   *   ; PosMouse ORG $c480
+   * $C480 8D C9 C0   STA    $C0C9   ; soft switch 0x09
    * $C483       18   CLC    
    * $C484       60   RTS    
-   *   ; $c485 is ClampMouse
+   *   ; ClampMouse ORG $c485
    * $C485    C9 02   CMP    #$0
    * $C487    B0 04   BCS    $C48D
-   * $C489 8D CD C0   STA    $C0CD
+   * $C489 8D CD C0   STA    $C0CD   ; soft switch 0x0D
    * $C48C       60   RTS    
-   *   ; $c48d is an error exit point
-   * $C48D       38   SEC    
+   *   ; ExitWithError ORG $c48d
+   * $C48D       38   SEC            ; the spec says carry is set on errors
    * $C48E       60   RTS    
-   *   ; $c48f is HomeMouse
-   * $C48F 8D C8 C0   STA    $C0C8
+   *   ; HomeMouse ORG $c48f
+   * $C48F 8D C8 C0   STA    $C0C8   ; soft switch 0x08
    * $C492       18   CLC    
    * $C493       60   RTS    
-   *   ; $c494 is InitMouse
-   * $C494 8D CC C0   STA    $C0CC
+   *   ; InitMouse ORG $c494
+   * $C494 8D CC C0   STA    $C0CC   ; soft switch 0x0C
    * $C497       18   CLC    
    * $C498       60   RTS    
-   *   ; $c499 is ServeMouse
-   * $C499       78   SEI    
-   * $C49A 8D CE C0   STA    $C0CE
+   *   ; ServeMouseWorker ORG $c499
+   * $C499       78   SEI            ; disable interrupts
+   * $C49A 8D CE C0   STA    $C0CE   ; soft switch 0x0E
    * $C49D    A2 04   LDX    #$0
    * $C49F       18   CLC    
-   * $C4A0    90 CA   BCC    $C46C
+   * $C4A0    90 CA   BCC    ServeMouseExit  ; force relative jump
    *   ; $C4A2..C4FA is dead space (all $FF)
    * $C4FB D6 FF FF FF 01   ; data (ID bytes)
    */
@@ -318,11 +321,9 @@ void Mouse::loadExtendedRom(uint8_t *toWhere, uint16_t byteOffset)
 
 void Mouse::maintainMouse(int64_t cycleCount)
 {
-  //  static int64_t startTime = cycleCount;
-
   // Fake a 60Hz VBL in case we need it for our interrupts
   static int64_t nextInterruptTime = cycleCount + 17050;
-
+  
   if ( (status & ST_MOUSEENABLE) &&
        (status & ST_INTVBL)  &&
        (cycleCount >= nextInterruptTime) ) {
@@ -337,12 +338,24 @@ void Mouse::maintainMouse(int64_t cycleCount)
 
     if ( (status & ST_MOUSEENABLE) &&
 	 (status & ST_INTMOUSE) &&
-	 (xpos != lastX || ypos != lastY) ) {
+	 (xpos != lastXForInt || ypos != lastYForInt) ) {
       g_cpu->irq();
       
       interruptsTriggered |= ST_INTMOUSE;
-      lastX = xpos; lastY = ypos;
+      lastXForInt = xpos; lastYForInt = ypos;
+    } else if ( (status & ST_MOUSEENABLE) &&
+		(status & ST_INTBUTTON) &&
+		lastButtonForInt != g_mouse->getButton()) {
+      g_cpu->irq();
+
+      interruptsTriggered |= ST_INTBUTTON;
+      lastButtonForInt = g_mouse->getButton();
     }
   }
   /* FIXME: still need button */
+}
+
+bool Mouse::isEnabled()
+{
+  return status & ST_MOUSEENABLE;
 }

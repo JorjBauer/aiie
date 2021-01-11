@@ -35,6 +35,8 @@ class AppleVM : public VM {
 
   virtual VMKeyboard *getKeyboard();
 
+  bool isMouseEnabled();
+
   DiskII *disk6;
   HD32 *hd32;
  protected:

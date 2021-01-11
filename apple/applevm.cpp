@@ -193,3 +193,8 @@ VMKeyboard * AppleVM::getKeyboard()
 {
   return keyboard;
 }
+
+bool AppleVM::isMouseEnabled()
+{
+  return mouse->isEnabled();
+}
