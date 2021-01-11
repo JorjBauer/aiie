@@ -4,6 +4,9 @@
 #include "LRingBuffer.h"
 #include "teensy-println.h"
 
+#include "globals.h"
+#include "teensy-mouse.h"
+
 const byte ROWS = 5;
 const byte COLS = 13;
 
@@ -71,12 +74,13 @@ void TeensyKeyboard::pressedKey(uint8_t key)
       break;
     case PK_RSHFT:
       rightShiftPressed = 1;
-      break;
+       break;
     case PK_LOCK:
       capsLock = !capsLock;
       break;
     case PK_LA:
-      leftApplePressed = 1;
+      ((TeensyMouse *)g_mouse)->mouseButtonEvent(true);
+     leftApplePressed = 1;
       break;
     case PK_RA:
       rightApplePressed = 1;
@@ -162,6 +166,7 @@ void TeensyKeyboard::releasedKey(uint8_t key)
       rightShiftPressed = 0;
       break;
     case PK_LA:
+      ((TeensyMouse *)g_mouse)->mouseButtonEvent(false);
       leftApplePressed = 0;
       break;
     case PK_RA:
@@ -218,9 +223,15 @@ void TeensyKeyboard::maintainKeyboard()
         switch (keypad.key[i].kstate) {
 	case PRESSED:
 	  vmkeyboard->keyDepressed(keypad.key[i].kchar);
+	  if (keypad.key[i].kchar == PK_LSHFT) {
+	    ((TeensyMouse *)g_mouse)->mouseButtonEvent(true);
+	  }
 	  break;
 	case RELEASED:
 	  vmkeyboard->keyReleased(keypad.key[i].kchar);
+	  if (keypad.key[i].kchar == PK_LSHFT) {
+	    ((TeensyMouse *)g_mouse)->mouseButtonEvent(false);
+	  }
 	  break;
 	case HOLD:
 	case IDLE:

@@ -2,8 +2,6 @@
 #include <string.h>
 #include "globals.h"
 
-#include "mouse-rom.h"
-
 enum {
   SW_W_INIT       = 0x00,
   SW_R_HOMEMOUSE  = 0x08,

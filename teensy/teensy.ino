@@ -6,6 +6,7 @@
 #include "applevm.h"
 #include "teensy-display.h"
 #include "teensy-keyboard.h"
+#include "teensy-mouse.h"
 #include "teensy-speaker.h"
 #include "teensy-paddles.h"
 #include "teensy-filemanager.h"
@@ -211,6 +212,7 @@ void setup()
   // And the physical keyboard needs hooks in to the virtual keyboard...
   println(" keyboard");
   g_keyboard = new TeensyKeyboard(g_vm->getKeyboard());
+  g_mouse = new TeensyMouse();
 
   println(" paddles");
   g_paddles = new TeensyPaddles(A3, A2, g_invertPaddleX, g_invertPaddleY);
