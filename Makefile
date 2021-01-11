@@ -8,17 +8,17 @@ CXXFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/loca
 
 TSRC=cpu.cpp util/testharness.cpp
 
-COMMONSRCS=cpu.cpp apple/appledisplay.cpp apple/applekeyboard.cpp apple/applemmu.cpp apple/applevm.cpp apple/diskii.cpp apple/nibutil.cpp LRingBuffer.cpp globals.cpp apple/parallelcard.cpp apple/fx80.cpp lcg.cpp apple/hd32.cpp images.cpp apple/appleui.cpp vmram.cpp bios.cpp apple/noslotclock.cpp apple/woz.cpp apple/crc32.c apple/woz-serializer.cpp
+COMMONSRCS=cpu.cpp apple/appledisplay.cpp apple/applekeyboard.cpp apple/applemmu.cpp apple/applevm.cpp apple/diskii.cpp apple/nibutil.cpp LRingBuffer.cpp globals.cpp apple/parallelcard.cpp apple/fx80.cpp lcg.cpp apple/hd32.cpp images.cpp apple/appleui.cpp vmram.cpp bios.cpp apple/noslotclock.cpp apple/woz.cpp apple/crc32.c apple/woz-serializer.cpp apple/mouse.c
 
-COMMONOBJS=cpu.o apple/appledisplay.o apple/applekeyboard.o apple/applemmu.o apple/applevm.o apple/diskii.o apple/nibutil.o LRingBuffer.o globals.o apple/parallelcard.o apple/fx80.o lcg.o apple/hd32.o images.o apple/appleui.o vmram.o bios.o apple/noslotclock.o apple/woz.o apple/crc32.o apple/woz-serializer.o apple/mouse.o apple/pia6821.o
+COMMONOBJS=cpu.o apple/appledisplay.o apple/applekeyboard.o apple/applemmu.o apple/applevm.o apple/diskii.o apple/nibutil.o LRingBuffer.o globals.o apple/parallelcard.o apple/fx80.o lcg.o apple/hd32.o images.o apple/appleui.o vmram.o bios.o apple/noslotclock.o apple/woz.o apple/crc32.o apple/woz-serializer.o apple/mouse.o
 
 FBSRCS=linuxfb/linux-speaker.cpp linuxfb/fb-display.cpp linuxfb/linux-keyboard.cpp linuxfb/fb-paddles.cpp nix/nix-filemanager.cpp linuxfb/aiie.cpp linuxfb/linux-printer.cpp nix/nix-clock.cpp nix/nix-prefs.cpp
 
 FBOBJS=linuxfb/linux-speaker.o linuxfb/fb-display.o linuxfb/linux-keyboard.o linuxfb/fb-paddles.o nix/nix-filemanager.o linuxfb/aiie.o linuxfb/linux-printer.o nix/nix-clock.o nix/nix-prefs.o
 
-SDLSRCS=sdl/sdl-speaker.cpp sdl/sdl-display.cpp sdl/sdl-keyboard.cpp sdl/sdl-paddles.cpp nix/nix-filemanager.cpp sdl/aiie.cpp sdl/sdl-printer.cpp nix/nix-clock.cpp nix/nix-prefs.cpp nix/debugger.cpp nix/disassembler.cpp
+SDLSRCS=sdl/sdl-speaker.cpp sdl/sdl-display.cpp sdl/sdl-keyboard.cpp sdl/sdl-paddles.cpp nix/nix-filemanager.cpp sdl/aiie.cpp sdl/sdl-printer.cpp nix/nix-clock.cpp nix/nix-prefs.cpp nix/debugger.cpp nix/disassembler.cpp sdl/sdl-mouse.cpp
 
-SDLOBJS=sdl/sdl-speaker.o sdl/sdl-display.o sdl/sdl-keyboard.o sdl/sdl-paddles.o nix/nix-filemanager.o sdl/aiie.o sdl/sdl-printer.o nix/nix-clock.o nix/nix-prefs.o nix/debugger.o nix/disassembler.o
+SDLOBJS=sdl/sdl-speaker.o sdl/sdl-display.o sdl/sdl-keyboard.o sdl/sdl-paddles.o nix/nix-filemanager.o sdl/aiie.o sdl/sdl-printer.o nix/nix-clock.o nix/nix-prefs.o nix/debugger.o nix/disassembler.o sdl/sdl-mouse.o
 
 ROMS=apple/applemmu-rom.h apple/diskii-rom.h apple/parallel-rom.h apple/hd32-rom.h MouseInterface.rom
 

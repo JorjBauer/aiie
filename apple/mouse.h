@@ -32,6 +32,10 @@ class Mouse : public Slot {
 private:
   uint8_t status;
   uint8_t interruptsTriggered;
+
+  uint16_t lastX, lastY;
+  bool lastButton;
+  bool curButton;
 };
 
 #endif

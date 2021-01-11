@@ -5,6 +5,7 @@
 #include "mouse-rom.h"
 
 enum {
+  SW_W_INIT       = 0x00,
   SW_R_HOMEMOUSE  = 0x08,
   SW_R_POSMOUSE   = 0x09,
   SW_R_CLEARMOUSE = 0x0A,
@@ -14,6 +15,11 @@ enum {
   SW_R_SERVEMOUSE = 0x0E,
   SW_W_SETMOUSE   = 0x0F
 };
+
+// The first 3 soft switch bits technically should pass directly to
+// the PIA6821.  In practice, so far, I've only seen the first (SW_W_INIT)
+// used when PR#4 is invoked to initialize the mouse interface from DOS,
+// so for the moment I'll just catch that specifically.
 
 enum {
   ST_MOUSEENABLE = 1,
@@ -26,6 +32,8 @@ Mouse::Mouse()
 {
   status = 0;
   interruptsTriggered = 0;
+  lastX = lastY = 0;
+  lastButton = false;
 }
 
 Mouse::~Mouse()
@@ -50,29 +58,43 @@ uint8_t Mouse::readSwitches(uint8_t s)
 {
   switch (s) {
   case SW_R_HOMEMOUSE:
-    printf("unimplemented SW_R_HOMEMOUSE\n");
-    /* physical mouse X = $578/$478; 
-     * physical mouse Y = $5f8/$4f8 */
+    g_mouse->setPosition( (g_ram.readByte(0x578) << 8) | g_ram.readByte(0x478),
+			  (g_ram.readByte(0x5F8) << 8) | g_ram.readByte(0x4F8)
+			  );
     break;
   case SW_R_POSMOUSE:
-    printf("unimplemented SW_R_POSMOUSE\n");
-    /* physical mouse X = $578+4/$478+4;
-     * physical mouse Y + $5F8+4/$4f8+4 */
+    g_mouse->setPosition( (g_ram.readByte(0x578+4) << 8) | g_ram.readByte(0x478+4),
+			  (g_ram.readByte(0x5F8+4) << 8) | g_ram.readByte(0x4F8+4)
+			  );
     break;
   case SW_R_CLEARMOUSE:
     g_ram.writeByte(0x578+4, 0);
     g_ram.writeByte(0x478+4, 0);
     g_ram.writeByte(0x5F8+4, 0);
     g_ram.writeByte(0x4F8+4, 0);
-    /* physical mouse X = Y = 0 */
+    g_mouse->setPosition(0,0);
     break;
   case SW_R_READMOUSE:
-    printf("unimplemented SW_R_READMOUSE\n");
-    // FIXME: read from physical mouse and write to:
-    g_ram.writeByte(0x578+4, 0); // high X
-    g_ram.writeByte(0x478+4, 0); // low X
-    g_ram.writeByte(0x5F8+4, 0); // high Y
-    g_ram.writeByte(0x4F8+4, 0); // low Y
+    {
+      uint16_t xpos, ypos;
+      g_mouse->getPosition(&xpos, &ypos);
+      if (lastX != xpos || lastY != ypos) {
+	interruptsTriggered |= 0x20; // "x or y changed since last reading"
+	lastX = xpos; lastY = ypos;
+      }
+      curButton = g_mouse->getButton();
+      uint8_t newStatus = g_ram.readByte(0x778+4) & ~0xC0;
+      if (curButton) { newStatus |= 0x80; };
+      if (lastButton) { newStatus |= 0x40; };
+
+      uint16_t xv = xpos >> 8; xv &= 0xFF;
+      printf("XPOS: %d => 0x%X 0x%X\n", xpos, xv, xpos & 0xFF);
+      
+      g_ram.writeByte(0x578+4, xv); // high X
+      g_ram.writeByte(0x478+4, xpos & 0xFF); // low X
+      g_ram.writeByte(0x5F8+4, (ypos >> 8) & 0xFF); // high Y
+      g_ram.writeByte(0x4F8+4, ypos); // low Y
+    }
     break;
   case SW_R_INITMOUSE:
     // Set clamp to (0,0) - (1023,1023)
@@ -80,11 +102,15 @@ uint8_t Mouse::readSwitches(uint8_t s)
     g_ram.writeByte(0x478, 0); // low of lowclamp
     g_ram.writeByte(0x5F8, 0x03); // high of highclamp
     g_ram.writeByte(0x4F8, 0xFF); // low of highclamp
-    printf("unimplemented SW_R_INITMOUSE\n");
-    /* physicalMouse->setClamp(XCLAMP, 0, 1023);
-     * physicalMouse->setClamp(YCLAMP, 0, 1023); */
+    g_mouse->setClamp(XCLAMP, 0, 1023);
+    g_mouse->setClamp(YCLAMP, 0, 1023);
     break;
   case SW_R_SERVEMOUSE:
+    if (lastButton) interruptsTriggered |= 0x40;
+    if (curButton != lastButton) {
+      interruptsTriggered |= 0x80;
+      lastButton = curButton;
+    }
     g_ram.writeByte(0x778+4, interruptsTriggered);
     g_ram.writeByte(0x6B8+4, interruptsTriggered); // hack to appease ROM
     interruptsTriggered = 0;
@@ -98,25 +124,30 @@ uint8_t Mouse::readSwitches(uint8_t s)
 void Mouse::writeSwitches(uint8_t s, uint8_t v)
 {
   switch (s) {
+  case SW_W_INIT:
+    v &= 0x03; // just the low 3 bits apparently?
+    printf("Simple init: value is 0x%X\n", v);
+    status = v;
+    g_ram.writeByte(0x7f8 + 4, v);
+    break;
   case SW_W_CLAMPMOUSE:
     {
       uint16_t lowval = (g_ram.readByte(0x578) << 8) | (g_ram.readByte(0x478));
       uint16_t highval = (g_ram.readByte(0x5F8) << 8) | (g_ram.readByte(0x4F8));
       if (v) {
-	// Y is clamping
-	/* physicalMouse->setClamp(YCLAMP, lowval, highval); */
+	g_mouse->setClamp(YCLAMP, lowval, highval);
       } else {
 	// X is clamping
-	/* physicalMouse->setClamp(XCLAMP, lowval, highval); */
+	g_mouse->setClamp(XCLAMP, lowval, highval);
       }
-      printf("unimplemented SW_W_CLAMPMOUSE [0x%X]\n", v);
     }
     break;
   case SW_W_SETMOUSE:
     status = v;
+    g_ram.writeByte(0x7f8 + 4, v);
     break;
   default:
-    printf("mouse: unknown switch write 0x%X\n", s);
+    printf("mouse: unknown switch write 0x%X = 0x%2X\n", s, v);
     break;
   }
 }
@@ -125,7 +156,7 @@ void Mouse::loadROM(uint8_t *toWhere)
 {
   /* Actual mouse ROM Disassembly:
 C400-   2C 58 FF    BIT   $FF58   ; test bits in FF58 w/ A
-C403-   70 1B       BVS   $C420   ; V will contain bit 6 from $FF58, which should be $20 on boot-up
+C403-   70 1B       BVS   $C420   ; V will contain bit 6 from $FF58, which should be $60 on boot-up (RTS), which has $40 set, so should branch here
 C405-   38          SEC
 C406-   90 18       BCC   $C420   ; no-op; unless called @ $C406 directly?
 
@@ -154,13 +185,12 @@ C41D-   AE
 C41E-   AE
 C41F-   AE
 
-; Main
+; Main (installs KSW for IN# handling)
 C420-   48          PHA  ; push accumulator to stack
 C421-   98          TYA
 C422-   48          PHA  ; push Y to stack
 C423-   8A          TXA  
 C424-   48          PHA  ; push X to stack
-C424-   48          PHA
 C425-   08          PHP  ; push status to stack
 C426-   78          SEI  ; disable interrupts
 
@@ -176,28 +206,30 @@ C426-   78          SEI  ; disable interrupts
 ;   TSX
 ;   LDA $100, X  ; grab the return address off the stack
 
-C427-   20 58 FF    JSR   $FF58
-C42A-   BA          TSX
-C42B-   BD 00 01    LDA   $0100,X
-C42E-   AA          TAX
+C427-   20 58 FF    JSR   $FF58  ; call something that will RTS
+C42A-   BA          TSX          ; pull stack pointer to X
+C42B-   BD 00 01    LDA   $0100,X ; grab A from the current stack pointer, which has our return addr
+C42E-   AA          TAX          ; X = return addr
 C42F-   0A          ASL
 C430-   0A          ASL
 C431-   0A          ASL
 C432-   0A          ASL
-C433-   A8          TAY
-C434-   28          PLP          ; restore status from stack
-C435-   50 0F       BVC   $C446  ; overflow is clear if ... ?
-C437-   A5 38       LDA   $38    ; >> what's in $38?
+C433-   A8          TAY          ; Y = (return addr) << 4
+C434-   28          PLP          ; restore status from stack (includes V,C)
+C435-   50 0F       BVC   $C446  ; overflow is clear from when we were called?
+C437-   A5 38       LDA   $38    ; >> $38 is the IN# vector ("KSW") low byte
 C439-   D0 0D       BNE   $C448  ; restore stack & return
 C43B-   8A          TXA
-C43C-   45 39       EOR   $39    ; >> what's in $39?
+C43C-   45 39       EOR   $39    ; >> KSW high byte
 C43E-   D0 08       BNE   $C448  ; restore stack & return
 C440-   A9 05       LDA   #$05
 C442-   85 38       STA   $38    ; ($38) = $05
-C442-   85 38       STA   $38
 C444-   D0 0B       BNE   $C451
 
+;; we wind up here when the entry vector $c405 is called directly (from $9eba)
 C446-   B0 09       BCS   $C451 ; carry set if ... ?
+
+;; entry point when called as PR# so BASIC/DOS can init the mouse
 C448-   68          PLA         ; pull X from stack
 C449-   AA          TAX
 C44A-   68          PLA         ; pull Y from stack, but
@@ -277,6 +309,7 @@ C4A7-   D0 F1       BNE   $C49A
 C4A9-   EA          NOP
 C4AA-   A9 07       LDA   #$07
 C4AC-   D0 EC       BNE   $C49A
+; "TimeData" to set freq before init to 50/60 Hz? Doesn't look like it...
 C4AE-   A2 03       LDX   #$03
 C4B0-   38          SEC
 C4B1-   60          RTS
@@ -314,8 +347,7 @@ Patch: C471 from 99 82 C0 60 => 8D CF C0 60
 
 SERVEMOUSE @ $C4B2:
         78 SEI
-  AD CE C0 LDA $C0CE   ; use soft switch 0xE (read) to trigger this - expect ne\
-w value to be placed in $7f8+4 and $6b8+4
+  AD CE C0 LDA $C0CE   ; use soft switch 0xE (read) to trigger this - expect new value to be placed in $7f8+4 and $6b8+4
      A2 04 LDX #$04    ; our slot number, for cleanup code
         18 CLC
      90 C1 BCC $C47C
@@ -324,7 +356,7 @@ Patch: C4B2 from 08 A5 00 48 A9 60 85 00 78 =>
                  78 AD CE C0 A2 04 18 90 C1
 
 READMOUSE
-C48E-  AD CB C0 LDA $C04B  ; soft switch 0x0B for readmouse
+C48E-  AD CB C0 LDA $C0CB  ; soft switch 0x0B for readmouse
              18 CLC
              60 RTS
 
@@ -332,14 +364,14 @@ Patch: from A9 04 99 83 C0 =>
             AD CB C0 18 60
 
 CLEARMOUSE
-C49F-  AD CA C0 LDA $C04A  ; soft switch 0x0A for clearmouse
+C49F-  AD CA C0 LDA $C0CA  ; soft switch 0x0A for clearmouse
              18 CLC
              60 RTS
 
 Patch: from EA A9 05 D0 F6 =>
             AD CA C0 18 60
 POSMOUSE
-C4a4-  AD C9 C0 LDA $C049  ; soft switch 0x09 for posmouse
+C4a4-  AD C9 C0 LDA $C0C9  ; soft switch 0x09 for posmouse
              18 CLC
              60 RTS
 
@@ -347,20 +379,20 @@ Patch: from EA A9 06 D0 F1 =>
             AD C9 C0 18 60
 
 CLAMPMOUSE
-C48A- 8D CD C0  STA $C04D ; use write to soft switch 0x0D to trigger clamp
+C48A- 8D CD C0  STA $C0CD ; use write to soft switch 0x0D to trigger clamp
             60  RTS
 
 Patch: from 99 83 C0 60 => 8D CD C0 60
 
 HOMEMOUSE
-C4A9- AD C8 C0 LDA $c048  ; soft switch 0x08 for homemouse (read)
+C4A9- AD C8 C0 LDA $c0C8  ; soft switch 0x08 for homemouse (read)
             18      CLC
             60       RTS
 
 Patch: from EA A9 07 D0 EC => AD C8 C0 18 60
 
 INITMOUSE
-C498- AD CC C0 LDA $C04C ; soft switch 0x0C read for initmouse
+C498- AD CC C0 LDA $C0CC ; soft switch 0x0C read for initmouse
             18 CLC
             60 RTS
 
@@ -376,8 +408,8 @@ Patch: from A9 02 99 83 C0 => AD CC C0 18 60
 		       0x0A, 0x0A, 0x0A, 0xA8, 0x28, 0x50, 0x0F, 0xA5,  // C430
 		       0x38, 0xd0, 0x0d, 0x8a, 0x45, 0x39, 0xd0, 0x08,
 		       0xa9, 0x05, 0x85, 0x38, 0xd0, 0x0b, 0xb0, 0x09,  // C440
-		       0x68, 0xaa, 0x68, 0xea, 0x68, 0x99, 0x80, 0xc0,
-		       0x60, 0x99, 0x81, 0xc0, 0x68, 0xbd, 0x38, 0x06,  // C450
+		       0x68, 0xaa, 0x68, 0xea, 0x68, 0xea, 0xea, 0xea,
+                       0x60, 0x99, 0x81, 0xc0, 0x68, 0xbd, 0x38, 0x06,  // C450
 		       0xaa, 0x68, 0xa8, 0x68, 0xbd, 0x00, 0x02, 0x60,
 		       0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,  // C460
 		       0x00, 0x00, 0x00, 0x00, 0x00, 0xc9, 0x10, 0xb0,
@@ -426,13 +458,25 @@ void Mouse::maintainMouse(int64_t cycleCount)
   static int64_t nextInterruptTime = cycleCount + 17050;
 
   if ( (status & ST_MOUSEENABLE) &&
-       (status & ST_INTVBL) ) {
-    if (cycleCount >= nextInterruptTime) {
-      g_cpu->irq();
+       (status & ST_INTVBL)  &&
+       (cycleCount >= nextInterruptTime) ) {
+    g_cpu->irq();
+    
+    interruptsTriggered |= ST_INTVBL;
+    
+    nextInterruptTime += 17050;
+  } else {
+    uint16_t xpos, ypos;
+    g_mouse->getPosition(&xpos, &ypos);
 
-      interruptsTriggered |= ST_INTVBL;
+    if ( (status & ST_MOUSEENABLE) &&
+	 (status & ST_INTMOUSE) &&
+	 (xpos != lastX || ypos != lastY) ) {
+      g_cpu->irq();
       
-      nextInterruptTime += 17050;
+      interruptsTriggered |= ST_INTMOUSE;
+      lastX = xpos; lastY = ypos;
     }
   }
+  /* FIXME: still need button */
 }

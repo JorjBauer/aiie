@@ -8,6 +8,7 @@
 #include "vm.h"
 #include "physicaldisplay.h"
 #include "physicalkeyboard.h"
+#include "physicalmouse.h"
 #include "physicalspeaker.h"
 #include "physicalpaddles.h"
 #include "physicalprinter.h"
@@ -41,6 +42,7 @@ extern Cpu *g_cpu;
 extern VM *g_vm;
 extern PhysicalDisplay *g_display;
 extern PhysicalKeyboard *g_keyboard;
+extern PhysicalMouse *g_mouse;
 extern PhysicalSpeaker *g_speaker;
 extern PhysicalPaddles *g_paddles;
 extern PhysicalPrinter *g_printer;

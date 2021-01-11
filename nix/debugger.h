@@ -19,6 +19,8 @@ class Debugger {
   pthread_t listenThreadID;
 
   uint32_t breakpoint;
+  bool steppingOut;
+  bool singleStep;
 };
 
 

@@ -1,6 +1,7 @@
 #include "sdl-keyboard.h"
 
 #include "sdl-paddles.h"
+#include "sdl-mouse.h"
 #include "globals.h"
 
 SDLKeyboard::SDLKeyboard(VMKeyboard *k) : PhysicalKeyboard(k)
@@ -149,12 +150,18 @@ void SDLKeyboard::maintainKeyboard()
       if (event.key.repeat == 0)
 	handleKeypress(&event.key);
       break;
+    case SDL_MOUSEBUTTONDOWN:
+    case SDL_MOUSEBUTTONUP:
+      ((SDLMouse *)g_mouse)->mouseButtonEvent(event.type == SDL_MOUSEBUTTONDOWN);
+      break;
     case SDL_MOUSEMOTION:
       // We are handling the SDL input loop, so need to pass this off to the paddles. :/
       // FIXME: nasty rooting around in other objects and typecasting.
       // FIXME: event.motion.state & SDL_BUTTON_LMASK, et al?
 
       ((SDLPaddles *)g_paddles)->gotMouseMovement(event.motion.x, event.motion.y);
+      ((SDLMouse *)g_mouse)->gotMouseEvent(event.motion.state, // button
+					   event.motion.xrel, event.motion.yrel);
       break;
 
     case SDL_QUIT:
