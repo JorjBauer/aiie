@@ -51,6 +51,9 @@ Debugger::Debugger()
   server.sin_addr.s_addr = INADDR_ANY;
   server.sin_port = htons(12345);
 
+  steppingOut = false;
+  singleStep = false;
+
   if (bind(sd, (struct sockaddr *) &server, sizeof(server)) < 0) {
     perror("error binding to debug socket");
     exit(1);
@@ -71,10 +74,14 @@ Debugger::~Debugger()
 bool getAddress(const char *buf, unsigned int *addrOut)
 {
   unsigned int val;
-  if (sscanf(buf, " 0x%X", &val) == 1) {
+  if (sscanf(buf, " 0x%X", &val) == 1 ||
+      sscanf(buf, " 0x%x", &val) == 1
+      ) {
     *addrOut = val;
     return true;
-  } else if (sscanf(buf, " $%X", &val) == 1) {
+  } else if (sscanf(buf, " $%X", &val) == 1 ||
+	     sscanf(buf, " $%x", &val) == 1
+	     ) {
     *addrOut = val;
     return true;
   } else if (sscanf(buf, " %d", &val) == 1) {
@@ -91,11 +98,10 @@ bool getAddress(const char *buf, unsigned int *addrOut)
 #define HEXCHAR(x) ((x>='0'&&x<='9')?x-'0':(x>='a'&&x<='f')?x-'a'+10:(x>='A'&&x<='F')?x-'A'+10:(x=='i' || x=='I')?1:(x=='o' || x=='O')?0:0)
 #define FROMHEXP(p) ((HEXCHAR(*p) << 4) | HEXCHAR(*(p+1)))
 
-bool steppingOut = false;
-
 void Debugger::step()
 {
   static char buf[256];
+  uint8_t cmdbuf[50];
 
   // FIXME: add more than just RTS(0x60) here
   if (steppingOut &&
@@ -124,37 +130,48 @@ void Debugger::step()
       return;
     }
 
-    uint8_t cmdbuf[50];
-
-    uint16_t loc=g_cpu->pc;
-    for (int i=0; i<50/3; i++) {
-      for (int idx=0; idx<sizeof(cmdbuf); idx++) {
-	cmdbuf[idx] = g_vm->getMMU()->read(loc+idx);
-      }
-      loc += dis.instructionToMnemonic(loc, cmdbuf, buf, sizeof(buf));
-      write(cd, buf, strlen(buf));
-      buf[0] = 13;
-      buf[1] = 10;
-      write(cd, buf, 2);
-    }
-
-
-    if (breakpoint && g_cpu->pc != breakpoint) {
+    if (!singleStep && breakpoint && g_cpu->pc != breakpoint) {
       // Running until we reach the breakpoint
       return;
     }
+    singleStep = false; // we have taken a single step, so reset flag
 
     uint8_t b; // byte value used in parsing
     unsigned int val; // common value buffer used in parsing
     
-    GETCH;
-    snprintf(buf, sizeof(buf), "Got char %d\012\015", b);
-    write(cd, buf, strlen(buf));
+  doover:
+    do {
+      GETCH;
+    } while (b != 'c' && // continue (with breakpoint set)
+	     b != 'q' && // quit
+	     b != 's' && // single step
+	     b != 'S' && // step out
+	     b != 'b' && // set breakpoint
+	     b != 'd' && // show disassembly
+	     b != 'L' && // load memory (lines)
+	     b != '*'    // show memory (byte)
+	     );
 
     switch (b) {
-    case 'c': // Continue - close connection and let execution flow
+    case 'c': // continue (if there is a breakpoint set)
+      if (breakpoint) {
+	snprintf(buf, sizeof(buf), "Continuing until breakpoint 0x%X\012\015", breakpoint);
+	write(cd, buf, strlen(buf));
+      } else {
+	snprintf(buf, sizeof(buf), "No breakpoint to continue until\012\015");
+	write(cd, buf, strlen(buf));
+	goto doover;
+      }
+      break;
+      
+    case 'q': // Close debugging socket and quit
       printf("Closing debugging socket\n");
+      breakpoint = 0;
       close(cd); cd=-1;
+      break;
+
+    case 's':
+      singleStep = true; // for when breakpoint is set: just step once
       break;
       
     case 'S':
@@ -176,6 +193,23 @@ void Debugger::step()
       write(cd, buf, strlen(buf));
       break;
 
+    case 'd': // show disassembly @ PC
+      { 
+	uint16_t loc=g_cpu->pc;
+	for (int i=0; i<50/3; i++) {
+	  for (int idx=0; idx<sizeof(cmdbuf); idx++) {
+	    cmdbuf[idx] = g_vm->getMMU()->read(loc+idx);
+	  }
+	  loc += dis.instructionToMnemonic(loc, cmdbuf, buf, sizeof(buf));
+	  write(cd, buf, strlen(buf));
+	  buf[0] = 13;
+	  buf[1] = 10;
+	  write(cd, buf, 2);
+	}
+      }
+      goto doover;
+      break;
+      
     case 'L': // Load data to memory. Use: "L 0x<address>\n" followed by lines of packed hex; ends with a blank line
       {
 	printf("Loading data\n");
@@ -198,6 +232,7 @@ void Debugger::step()
 	  }
 	}
       }
+      goto doover;
       break;
 
     case '*': // read 1 byte of memory. Use '* 0x<address>'
@@ -214,6 +249,7 @@ void Debugger::step()
 	  write(cd, buf, strlen(buf));
 	}
       }
+      goto doover;
       break;
 
     case 'G': // Goto (set PC)

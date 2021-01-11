@@ -7,6 +7,7 @@
 #include "applevm.h"
 #include "sdl-display.h"
 #include "sdl-keyboard.h"
+#include "sdl-mouse.h"
 #include "sdl-speaker.h"
 #include "sdl-paddles.h"
 #include "nix-filemanager.h"
@@ -291,7 +292,7 @@ struct timespec runMaintenance(struct timespec now)
     initialized = true;
   }
 
-  timespec_add_us(&startTime, 100000*cycleCount, &nextRuntime); // FIXME: what's a good time here? 1/10 sec?
+  timespec_add_us(&startTime, 16667*cycleCount, &nextRuntime); // FIXME: what's a good time here? 60 Hz?
 
   // Check if it's time to run - and if not, return how long it will
   // be until we need to run
@@ -305,6 +306,7 @@ struct timespec runMaintenance(struct timespec now)
   if (!g_biosInterrupt) {
     // If the BIOS is running, then let it handle the keyboard directly
     g_keyboard->maintainKeyboard();
+    g_mouse->maintainMouse();
   }
 
   doDebugging();
@@ -389,6 +391,7 @@ int main(int argc, char *argv[])
   g_vm = new AppleVM();
 
   g_keyboard = new SDLKeyboard(g_vm->getKeyboard());
+  g_mouse = new SDLMouse();
 
   // Now that the VM exists and it has created an MMU, we tell the CPU how to access memory through the MMU.
   g_cpu->SetMMU(g_vm->getMMU());

@@ -6,6 +6,7 @@
 #include "applevm.h"
 #include "teensy-display.h"
 #include "teensy-keyboard.h"
+#include "teensy-mouse.h"
 #include "teensy-speaker.h"
 #include "teensy-paddles.h"
 #include "teensy-filemanager.h"
@@ -211,6 +212,7 @@ void setup()
   // And the physical keyboard needs hooks in to the virtual keyboard...
   println(" keyboard");
   g_keyboard = new TeensyKeyboard(g_vm->getKeyboard());
+  g_mouse = new TeensyMouse();
 
   println(" paddles");
   g_paddles = new TeensyPaddles(A3, A2, g_invertPaddleX, g_invertPaddleY);
@@ -286,7 +288,8 @@ void runMaintenance(uint32_t now)
   static uint32_t nextRuntime = 0;
   
   if (now >= nextRuntime) {
-    nextRuntime = now + 100000; // FIXME: what's a good time here? 1/10 sec?
+    // Run maintenance at 60 Hz because the mouse will need it
+    nextRuntime = now + 16667;
     
     if (!resetButtonDebouncer.read()) {
       // This is the BIOS interrupt. Wait for it to clear and process it.
@@ -297,6 +300,7 @@ void runMaintenance(uint32_t now)
     }
 
     if (!g_biosInterrupt) {
+        g_mouse->maintainMouse();
         g_keyboard->maintainKeyboard();
     	usb.maintain();
     }	

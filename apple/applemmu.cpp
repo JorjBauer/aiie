@@ -55,16 +55,24 @@ page 0-1    4 pages (1k) [altzp]
 0xC1-0xCF   15 * 2 pages = 30 pages (7.5k) [intcxrom, slotLatch]
 0xD0 - 0xDF 16 * 5 pages = 80 pages (20k) [altzp, bank2, {r,w}bsr]
 0xE0 - 0xFF 32 * 3 pages = 96 pages (24k) [altzp, {r,w}bsr]
+... plus 8 additional pages for the mouse ROM
 
-= 147.75k (591 pages) stored off-chip
+= 147.75k (591 pages) stored off-chip (+ 8 more)
 
 Current read page table [512 bytes] in real ram
 Current write page table [512 bytes] in real ram
 
  */
 
-// This has a split memory model so more often addressed pages can be
-// in internal memory, and an external memory can hold others.
+// All the pages. Because we don't have enough RAM for both the
+// display's DMA and the Apple's 148k (128k + ROM space), we're using
+// an external SRAM for some of this. Anything that's accessed very
+// often should be in the *low* pages, b/c those are in internal
+// Teensy RAM. When we run out of preallocated RAM (cf. vmram.h), we
+// fall over to an external 256kB SRAM (which is much slower).
+//
+// Zero page (and its alts) are the most used pages (the stack is in
+// page 1).
 //
 // We want the video display pages in real RAM as much as possible,
 // since blits wind up touching so much of it. If we can keep that in
@@ -81,18 +89,18 @@ enum {
   MP_ZP  = 0,   // page 0/1 * 2 page variants = 4; 0..3
   MP_4 = 4, // 0x04 - 0x07 (text display pages) * 2 variants = 8; 4..11
   MP_20 = 12,   // 0x20 - 0x5F * 2 variants = 128; 12..139
-  // Pages that can go to external RAM if needed:
+  // Pages that can go to external SRAM:
   MP_2 = 140, // 0x02 - 0x03 * 2 variants = 4; 140..143
   MP_8 = 144, // 0x08 - 0x1F * 2 = 48; 144..191
   MP_60 = 192, // 0x60 - 0xBF * 2 = 192; 192..383
 
-  MP_C1 = 384,   // start of 0xC1-0xCF * 2 page variants = 30; 384-413
-  MP_D0 = 414,  // start of 0xD0-0xDF * 5 page variants = 80; 414-493
-  MP_E0 = 493, // start of 0xE0-0xFF * 3 page variants = 96; 494-589
-  MP_C0 = 590 
-              // = 591 pages in all (147.75k)
+  MP_C1 = 384,   // start of 0xC1-0xC7 * 2 page variants = 14; 384-397
+  MP_C8 = 398, // 0xc8 - 0xcf, 3 page variants = 24; 398 - 421
+  MP_D0 = 422,  // start of 0xD0-0xDF * 5 page variants = 80; 422 - 501
+  MP_E0 = 502, // start of 0xE0-0xFF * 3 page variants = 96; 502 - 597
+  MP_C0 = 598
+              // = 599 pages in all (149.75k)
 };
-
 
 static uint16_t _pageNumberForRam(uint8_t highByte, uint8_t variant)
 {
@@ -118,11 +126,14 @@ static uint16_t _pageNumberForRam(uint8_t highByte, uint8_t variant)
   if (highByte == 0xc0) {
     return MP_C0;
   }
-  if (highByte <= 0xCF) {
-    // 0xC1-0xCF   15 * 2 pages = 30 pages (7.5k)
+  if (highByte <= 0xC7) {
+    // 0xC1-0xC7
     return ((highByte - 0xC1) * 2 + variant + MP_C1);
   }
-
+  if (highByte <= 0xCF) {
+    // bank-switched ROM. 0 = built-in; 1 = 80-column (slot 3); 2 = mouse (slot 4)
+    return ((highByte - 0xC8) * 3 + variant + MP_C8);
+  }
   if (highByte <= 0xDF) {
     // 0xD0 - 0xDF 16 * 5 pages = 80 pages (20k)
     return ((highByte - 0xD0) * 5 + variant + MP_D0);
@@ -219,6 +230,8 @@ bool AppleMMU::Deserialize(int8_t fd)
  err:
   return false;
 }
+
+
 
 void AppleMMU::Reset()
 {
@@ -914,6 +927,9 @@ void AppleMMU::resetRAM()
 
   // Load system ROM
   for (uint16_t i=0x80; i<=0xFF; i++) {
+    uint16_t page0 = _pageNumberForRam(i, 0);
+    uint16_t page1 = _pageNumberForRam(i, 1);
+
     for (uint16_t k=0; k<0x100; k++) {
       uint16_t idx = ((i-0x80) << 8) | k;
 #ifdef TEENSYDUINO
@@ -921,36 +937,30 @@ void AppleMMU::resetRAM()
 #else
       uint8_t v = romData[idx];
 #endif
-      for (int j=0; j<5; j++) {
-	// For the ROM section from 0xc100 .. 0xcfff, we load in to 
-	// an alternate page space (INTCXROM).
 
-	uint16_t page0 = _pageNumberForRam(i, 0);
+      // The space from 0xc1 through 0xcf is ROM image territory. We
+      // load the C3 ROM in to page 0, but not page 1; and then we
+      // load c800.CFFF to both main ROM (page 0) and the C3 aux ROM
+      // (page 1) to convince the VM that we've got 128k of RAM and an
+      // 80-column card.
 
-	if (i >= 0xc1 && i <= 0xcf) {
-	  // If we want to convince the VM we've got 128k of RAM, we 
-	  // need to load C3 ROM in page 0 (but not 1, meaning there's 
-	  // a board installed); and C800.CFFF in both page [0] and [1]
-	  // (meaning there's an extended 80-column ROM available, 
-	  // that is also physically in the slot).
-	  // Everything else goes in page [1].
-
-	  uint16_t page1 = _pageNumberForRam(i, 1);
-
-	  if (i == 0xc3) {
-	    g_ram.writeByte((page0 << 8) | (k & 0xFF), v);
-	  }
-	  else if (i >= 0xc8) {
-	    g_ram.writeByte((page0 << 8) | (k & 0xFF), v);
-	    g_ram.writeByte((page1 << 8) | (k & 0xFF), v);
-	  }
-	  else {
-	    g_ram.writeByte((page1 << 8) | (k & 0xFF), v);
-	  }
-	} else {
-	  // Everything else goes in page 0.
+      if (i >= 0xc1 && i <= 0xcf) {
+	if (i == 0xc3) {
+	  // C300..C3FF => built-in ROM
 	  g_ram.writeByte((page0 << 8) | (k & 0xFF), v);
 	}
+	else if (i >= 0xc8) {
+	  // C800..CFFF => built-in ROM and slot 3 extended ROM
+	  g_ram.writeByte((page0 << 8) | (k & 0xFF), v);
+	  g_ram.writeByte((page1 << 8) | (k & 0xFF), v);
+	}
+	else {
+	  // C000..C2FF and C400..c7FF are main ROM
+	  g_ram.writeByte((page1 << 8) | (k & 0xFF), v);
+	}
+      } else {
+	// Everything else goes in page 0.
+	g_ram.writeByte((page0 << 8) | (k & 0xFF), v);
       }
     }
   }
@@ -959,11 +969,32 @@ void AppleMMU::resetRAM()
   for (uint8_t slotnum = 1; slotnum <= 7; slotnum++) {
     uint16_t page0 = _pageNumberForRam(0xC0 + slotnum, 0);
     if (slots[slotnum]) {
+      // Load the primary ROM for this peripheral (0xCsXX..0xCsFF)
       uint8_t tmpBuf[256];
       memset(tmpBuf, 0, sizeof(tmpBuf));
       slots[slotnum]->loadROM(tmpBuf);
       for (int i=0; i<256; i++) {
 	g_ram.writeByte( (page0 << 8) + i, tmpBuf[i] );
+      }
+
+      // See if there's an extended 2k ROM for this peripheral (0xC800..0xCFFF)
+      if (slots[slotnum]->hasExtendedRom()) {
+	for (int j=0; j<8; j++) {
+	  // Load each of the 256 byte chunks separately to its own VMRam page
+	  uint16_t slotPage = 0;
+	  if (slotnum == 4) {
+	    slotPage = _pageNumberForRam(0xC8 + j, 2);
+	  } else {
+#ifndef TEENSYDUINO
+	    fprintf(stderr, "ERROR: unsupported extended ROM peripheral in slot %d\n", slotnum);
+	    exit(1);
+#endif
+	  }
+	  if (slotPage) {
+	    uint8_t *p = g_ram.memPtr(slotPage << 8);
+	    slots[slotnum]->loadExtendedRom(p, j * 256);
+	  }
+	}
       }
     }
   }
@@ -1063,11 +1094,16 @@ void AppleMMU::updateMemoryPages()
   // If slotLatch is set (!= -1), then we are mapping 2k of ROM
   // for a given peripheral to C800..CFFF.
   if (slotLatch != -1) {
-    // FIXME: the only peripheral we support this with right now is 
-    // the 80-column card.
+    // FIXME: this is a hacky mess. Slot 3 (the 80-col card) is
+    // supported, as page "1"; and Slot 4 (the mouse card) is
+    // supported as page "2".
     if (slotLatch == 3) {
       for (int i=0xc8; i <= 0xcf; i++) {
 	readPages[i] = _pageNumberForRam(i, 1);
+      }
+    } else if (slotLatch == 4) {
+      for (int i=0xc8; i <= 0xcf; i++) {
+	readPages[i] = _pageNumberForRam(i, 2);
       }
     }
   }

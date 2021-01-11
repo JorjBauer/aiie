@@ -35,6 +35,9 @@ AppleVM::AppleVM()
 
   hd32 = new HD32((AppleMMU *)mmu);
   ((AppleMMU *)mmu)->setSlot(7, hd32);
+
+  mouse = new Mouse();
+  ((AppleMMU *)mmu)->setSlot(4, mouse);
 }
 
 AppleVM::~AppleVM()
@@ -133,6 +136,7 @@ void AppleVM::cpuMaintenance(int64_t cycles)
 
   keyboard->maintainKeyboard(cycles);
   disk6->maintenance(cycles);
+  mouse->maintainMouse(cycles);
 }
 
 void AppleVM::Reset()
@@ -188,4 +192,9 @@ void AppleVM::insertHD(uint8_t drivenum, const char *filename)
 VMKeyboard * AppleVM::getKeyboard()
 {
   return keyboard;
+}
+
+bool AppleVM::isMouseEnabled()
+{
+  return mouse->isEnabled();
 }

@@ -5,6 +5,7 @@ Cpu *g_cpu = NULL;
 VM *g_vm = NULL;
 PhysicalDisplay *g_display = NULL;
 PhysicalKeyboard *g_keyboard = NULL;
+PhysicalMouse *g_mouse = NULL;
 PhysicalSpeaker *g_speaker = NULL;
 PhysicalPaddles *g_paddles = NULL;
 PhysicalPrinter *g_printer = NULL;
