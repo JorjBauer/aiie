@@ -20,10 +20,14 @@ enum {
 // so for the moment I'll just catch that specifically.
 
 enum {
-  ST_MOUSEENABLE = 1,
-  ST_INTMOUSE    = 2,
-  ST_INTBUTTON   = 4,
-  ST_INTVBL      = 8
+  ST_MOUSEENABLE   = 0x01,
+  ST_INTMOUSE      = 0x02,
+  ST_INTBUTTON     = 0x04,
+  ST_INTVBL        = 0x08,
+  // 0x10 is reserved
+  ST_XYCHANGED     = 0x20,
+  ST_BUTTONWASDOWN = 0x40,
+  ST_BUTTONDOWN    = 0x80
 };
 
 Mouse::Mouse()
@@ -91,21 +95,22 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
     {
       uint16_t xpos, ypos;
       g_mouse->getPosition(&xpos, &ypos);
+      curButton = g_mouse->getButton();
+      uint8_t newStatus = g_vm->getMMU()->read(0x778+4) & ~0xC7; // clears low 3 bits per docs
+      if (curButton) { newStatus |= ST_BUTTONDOWN; };
+      if (lastButton) { newStatus |= ST_BUTTONWASDOWN; };
+      lastButton = curButton;
       if (lastX != xpos || lastY != ypos) {
-	interruptsTriggered |= 0x20; // "x or y changed since last reading"
+	newStatus |= ST_XYCHANGED;
 	lastX = xpos; lastY = ypos;
       }
-      curButton = g_mouse->getButton();
-      uint8_t newStatus = g_vm->getMMU()->read(0x778+4) & ~0xC0;
-      if (curButton) { newStatus |= 0x80; };
-      if (lastButton) { newStatus |= 0x40; };
-      //      lastButton = curButton; // FIXME untangle last handling here & in SERVEMOUSE
-      // if we add this here, it breaks GEOS.
-
-      g_vm->getMMU()->write(0x578+4, (xpos >> 8) & 0xFF); // high X
-      g_vm->getMMU()->write(0x478+4, xpos & 0xFF); // low X
-      g_vm->getMMU()->write(0x5F8+4, (ypos >> 8) & 0xFF); // high Y
-      g_vm->getMMU()->write(0x4F8+4, ypos); // low Y
+      
+      MMU *m = g_vm->getMMU();
+      m->write(0x578+4, (xpos >> 8) & 0xFF); // high X
+      m->write(0x478+4, xpos & 0xFF); // low X
+      m->write(0x5F8+4, (ypos >> 8) & 0xFF); // high Y
+      m->write(0x4F8+4, ypos); // low Y
+      m->write(0x778+4, newStatus);
     }
     break;
   case SW_R_INITMOUSE:
@@ -118,11 +123,6 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
     g_mouse->setClamp(YCLAMP, 0, 1023);
     break;
   case SW_R_SERVEMOUSE:
-    if (lastButton) interruptsTriggered |= 0x40;
-    if (curButton != lastButton) {
-      interruptsTriggered |= 0x80;
-      lastButton = curButton;
-    }
     g_vm->getMMU()->write(0x778+4, interruptsTriggered);
     g_vm->getMMU()->write(0x6B8+4, interruptsTriggered); // hack to appease ROM
     interruptsTriggered = 0;
@@ -351,7 +351,7 @@ void Mouse::maintainMouse(int64_t cycleCount)
 	 (xpos != lastXForInt || ypos != lastYForInt) ) {
       g_cpu->irq();
       
-      interruptsTriggered |= ST_INTMOUSE;
+      interruptsTriggered |= ST_INTMOUSE;      
       lastXForInt = xpos; lastYForInt = ypos;
     } else if ( (status & ST_MOUSEENABLE) &&
 		(status & ST_INTBUTTON) &&
