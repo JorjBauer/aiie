@@ -345,10 +345,14 @@ void TeensyDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
     // with a color between the two.
 
 #if 1
-    // This is straight blending, R/G/B average
+    // This is straight blending, R/G/B average, except in B&W mode
     uint16_t origColor = dmaBuffer[y+VOFFSET][(x>>1)+HOFFSET];
     uint16_t newColor = loresPixelColors[color];
-    cacheDoubleWidePixel(x>>1, y, blendColors(origColor, newColor));
+    if (g_displayType == m_blackAndWhite) {
+      cacheDoubleWidePixel(x>>1, y, (origColor && newColor) ? 0xFFFF : 0x0000);
+    } else {
+      cacheDoubleWidePixel(x>>1, y, blendColors(origColor, newColor));
+    }
 #endif
 
 #if 0

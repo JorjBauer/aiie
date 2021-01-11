@@ -216,10 +216,13 @@ inline void AppleDisplay::Draw14DoubleHiresPixelsAt(uint16_t addr)
 	drawApplePixel(bitTrain & 0x0F, col+xoff+1,row);
       } else {
 	// Perfect color, B&W, monochrome. Draw an exact version of the pixels, and let 
-	// the physical display figure out if they need to be reduced to B&W or not.
+	// the physical display figure out if they need to be reduced to B&W or not
+	// (for the most part - the m_blackAndWhite piece here allows full-res displays
+	// to give the crispest resolution.)
 
 	uint8_t color = bitTrain & 0x0F;
-	
+	if (g_displayType == m_blackAndWhite) { color = c_white; } 
+
 	g_display->cachePixel((col*2)+(xoff*2), row, 
 			      ((bitTrain & 0x01) ? color : c_black));
 	
