@@ -362,7 +362,6 @@ void Mouse::maintainMouse(int64_t cycleCount)
       lastButtonForInt = g_mouse->getButton();
     }
   }
-  /* FIXME: still need button */
 }
 
 bool Mouse::isEnabled()
