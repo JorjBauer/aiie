@@ -176,7 +176,9 @@ static struct timespec runCPU(struct timespec now)
   
   if (debugger.active()) {
     debugger.step();
-    // FIXME need to reset starttime for this and g_cpu->cycles
+    // reset time flags
+    cpuClockInitialized = false;
+    g_cpu->cycles = 0;
   }
   
   if (send_rst) {
