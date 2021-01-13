@@ -40,7 +40,11 @@ Debugger::Debugger()
 
   sd = socket(AF_INET, SOCK_STREAM, 0);
   cd = -1;
-  breakpoint = 0;
+  removeAllBreakpoints();
+
+  history = NULL;
+  endh = NULL;
+  historyCount = 0;
 
   optval=1;
   setsockopt(sd, SOL_SOCKET, SO_REUSEADDR,
@@ -69,6 +73,13 @@ Debugger::Debugger()
 
 Debugger::~Debugger()
 {
+  struct _history *h = history;
+  while (h) {
+    struct _history *n = history->next;
+    free(history->msg);
+    delete(history);
+    h = n;
+  }
 }
 
 bool getAddress(const char *buf, unsigned int *addrOut)
@@ -110,7 +121,7 @@ void Debugger::step()
   }
   steppingOut = false;
 
-  if (cd != -1) {
+  /*  if (cd != -1) {
     // Print the status back out the socket
     uint8_t p = g_cpu->flags;
     snprintf(buf, sizeof(buf), "OP: $%02x A: %02x  X: %02x  Y: %02x  PC: $%04x  SP: %02x  Flags: %c%cx%c%c%c%c%c\n",
@@ -128,34 +139,44 @@ void Debugger::step()
       close(cd);
       cd=-1;
       return;
-    }
+      }*/
 
-    if (!singleStep && breakpoint && g_cpu->pc != breakpoint) {
-      // Running until we reach the breakpoint
+    addCurrentPCToHistory();
+    
+    if (!singleStep && !isBreakpointAt(g_cpu->pc)) {
+      // Running until we reach any breakpoint
       return;
     }
     singleStep = false; // we have taken a single step, so reset flag
 
     uint8_t b; // byte value used in parsing
     unsigned int val; // common value buffer used in parsing
-    
+
   doover:
+    // Show a prompt
+    sprintf(buf, "debug> ");
+    if (write(cd, buf, strlen(buf)) != strlen(buf)) {
+      close(cd);
+      cd=-1;
+      return;
+    }
     do {
       GETCH;
-    } while (b != 'c' && // continue (with breakpoint set)
+    } while (b != 'c' && // continue (with any breakpoint set)
 	     b != 'q' && // quit
 	     b != 's' && // single step
 	     b != 'S' && // step out
 	     b != 'b' && // set breakpoint
 	     b != 'd' && // show disassembly
 	     b != 'L' && // load memory (lines)
+	     b != 'h' && // show history
 	     b != '*'    // show memory (byte)
 	     );
 
     switch (b) {
-    case 'c': // continue (if there is a breakpoint set)
-      if (breakpoint) {
-	snprintf(buf, sizeof(buf), "Continuing until breakpoint 0x%X\012\015", breakpoint);
+    case 'c': // continue (if there is any breakpoint set)
+      if (isAnyBreakpointSet()) {
+	snprintf(buf, sizeof(buf), "Continuing until any breakpoint\012\015");
 	write(cd, buf, strlen(buf));
       } else {
 	snprintf(buf, sizeof(buf), "No breakpoint to continue until\012\015");
@@ -164,35 +185,54 @@ void Debugger::step()
       }
       break;
       
+    case 'h': // show history
+      {
+	struct _history *h = history;
+	while (h) {
+	  write(cd, h->msg, strlen(h->msg));
+	  h = h->next;
+	}
+      }
+      goto doover;
+      
     case 'q': // Close debugging socket and quit
       printf("Closing debugging socket\n");
-      breakpoint = 0;
+      removeAllBreakpoints();
       close(cd); cd=-1;
       break;
-
+      
     case 's':
-      singleStep = true; // for when breakpoint is set: just step once
+      singleStep = true; // for when any breakpoint is set: just step once
+      for (int idx=0; idx<sizeof(cmdbuf); idx++) {
+	cmdbuf[idx] = g_vm->getMMU()->read(g_cpu->pc+idx);
+      }
+      dis.instructionToMnemonic(g_cpu->pc, cmdbuf, buf, sizeof(buf));
+      write(cd, buf, strlen(buf));
+      buf[0] = 13;
+      buf[1] = 10;
+      write(cd, buf, 2);
+      
       break;
       
     case 'S':
       steppingOut = true;
       break;
       
-    case 'b': // Set breakpoint
+    case 'b': // Set or remove all breakpoints
       GETLN;
       if (getAddress(buf, &val)) {
-	breakpoint = val;
+	if (addBreakpoint(val)) {
+	  snprintf(buf, sizeof(buf), "Breakpoint set for 0x%X\012\015", val);
+	} else {
+	  snprintf(buf, sizeof(buf), "Failed to set breakpoint for 0x%X\012\015", val);
+	}
       } else {
-	breakpoint = 0;
-      }
-      if (breakpoint) {
-	snprintf(buf, sizeof(buf), "Breakpoint set to 0x%X\012\015", breakpoint);
-      } else {
-	snprintf(buf, sizeof(buf), "Breakpoint removed\012\015");
+	removeAllBreakpoints();
+	snprintf(buf, sizeof(buf), "All breakpoints removed\012\015");
       }
       write(cd, buf, strlen(buf));
       break;
-
+      
     case 'd': // show disassembly @ PC
       { 
 	uint16_t loc=g_cpu->pc;
@@ -208,7 +248,6 @@ void Debugger::step()
 	}
       }
       goto doover;
-      break;
       
     case 'L': // Load data to memory. Use: "L 0x<address>\n" followed by lines of packed hex; ends with a blank line
       {
@@ -233,8 +272,7 @@ void Debugger::step()
 	}
       }
       goto doover;
-      break;
-
+      
     case '*': // read 1 byte of memory. Use '* 0x<address>'
       {
 	GETLN;
@@ -250,8 +288,7 @@ void Debugger::step()
 	}
       }
       goto doover;
-      break;
-
+      
     case 'G': // Goto (set PC)
       GETLN;
       if (getAddress(buf, &val)) {
@@ -265,7 +302,7 @@ void Debugger::step()
 	write(cd, buf, strlen(buf));
       }
       break;
-
+      
       // ... ?
       //   b - set breakpoint
       //   s - step over
@@ -275,18 +312,115 @@ void Debugger::step()
       //   L - load data to memory
       //   G - Goto (set PC)
     }
-
-  }
 }
+
 
 
 void Debugger::setSocket(int fd)
 {
   printf("New debugger session established\n");
   cd = fd;
+  singleStep = true; // want to stop
 }
 
 bool Debugger::active()
 {
   return (cd != -1);
+}
+
+
+bool Debugger::addBreakpoint(uint16_t addr)
+{
+  for (int i=0; i<MAX_BREAKPOINTS; i++) {
+    if (breakpoints[i] == 0) {
+      breakpoints[i] = addr;
+      return true;
+    }
+  }
+  return false;
+}
+
+bool Debugger::isAnyBreakpointSet()
+{
+  for (int i=0; i<MAX_BREAKPOINTS; i++) {
+    if (breakpoints[i]) return true;
+  }
+  return false;
+}
+
+bool Debugger::isBreakpointAt(uint16_t addr)
+{
+  for (int i=0; i<MAX_BREAKPOINTS; i++) {
+    if (breakpoints[i] == addr) return true;
+  }
+  return false;
+}
+
+bool Debugger::removeBreakpoint(uint16_t addr)
+{
+  for (int i=0; i<MAX_BREAKPOINTS; i++) {
+    if (breakpoints[i] == addr) {
+      breakpoints[i] = 0;
+      return true;
+    }
+  }
+  return false;
+}
+
+void Debugger::removeAllBreakpoints()
+{
+  for (int i=0; i<MAX_BREAKPOINTS; i++) {
+    breakpoints[i] = 0;
+  }
+}
+
+void Debugger::addStringToHistory(const char *s)
+{
+  struct _history *_newp = new struct _history;
+  _newp->msg = strdup(s);
+  _newp->next = NULL;
+
+  if (endh) endh->next = _newp;
+  endh = _newp;
+
+  if (!history) history = _newp;
+  historyCount++;
+
+  if (historyCount > MAX_HISTORY) {
+    struct _history *freeme = history;
+    history = history->next;
+    free(freeme->msg);
+    delete freeme;
+  }
+}
+
+void Debugger::addCurrentPCToHistory()
+{
+  // Get it as a disassembled hunk; add the flags; and then put it in
+  // the history
+  uint8_t toDisassemble[3];
+  char buf[255];
+  toDisassemble[0] = g_vm->getMMU()->read(g_cpu->pc);
+  toDisassemble[1] = g_vm->getMMU()->read(g_cpu->pc+1);
+  toDisassemble[2] = g_vm->getMMU()->read(g_cpu->pc+2);
+  dis.instructionToMnemonic(g_cpu->pc, toDisassemble, buf, sizeof(buf));
+
+  uint8_t p = g_cpu->flags;
+
+  while (strlen(buf) < 35) {
+    strcat(buf, " ");
+  }
+  // FIXME snprintf
+  sprintf(&buf[strlen(buf)], " ;; OP: $%02x A: %02x  X: %02x  Y: %02x  PC: $%04x SP: %02x  Flags: %c%cx%c%c%c%c%c\012\015",
+           g_vm->getMMU()->read(g_cpu->pc),
+           g_cpu->a, g_cpu->x, g_cpu->y, g_cpu->pc, g_cpu->sp,
+           p & (1<<7) ? 'N':' ',
+           p & (1<<6) ? 'V':' ',
+           p & (1<<4) ? 'B':' ',
+           p & (1<<3) ? 'D':' ',
+           p & (1<<2) ? 'I':' ',
+           p & (1<<1) ? 'Z':' ',
+           p & (1<<0) ? 'C':' '
+           );
+  addStringToHistory(buf);
 }
