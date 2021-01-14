@@ -160,14 +160,21 @@ static struct timespec runCPU(struct timespec now)
 
   // Run the CPU
   uint8_t executed = 0;
+  bool debuggerWasActive = false;
   if (debugger.active()) {
     // With the debugger running, we need to single-step through
     // instructions.
     executed = g_cpu->Run(1);
+    debuggerWasActive = true;
   } else {
     // Otherwise we can run a bunch of instructions at once to
     // save on the overhead.
     executed = g_cpu->Run(24);
+    if (debuggerWasActive) {
+      cpuClockInitialized = false;
+      g_cpu->cycles = 0;
+      debuggerWasActive = false;
+    }
   }
 
   // The paddles need to be triggered in real-time on the CPU
@@ -176,9 +183,6 @@ static struct timespec runCPU(struct timespec now)
   
   if (debugger.active()) {
     debugger.step();
-    // reset time flags
-    cpuClockInitialized = false;
-    g_cpu->cycles = 0;
   }
   
   if (send_rst) {

@@ -73,13 +73,13 @@ Debugger::Debugger()
 
 Debugger::~Debugger()
 {
-  struct _history *h = history;
-  while (h) {
+  while (history) {
     struct _history *n = history->next;
-    free(h->msg);
-    delete(h);
-    h = n;
+    free(history->msg);
+    delete(history);
+    history = n;
   }
+  history = NULL;
 }
 
 bool getAddress(const char *buf, unsigned int *addrOut)
