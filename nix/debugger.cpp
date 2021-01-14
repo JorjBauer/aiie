@@ -76,8 +76,8 @@ Debugger::~Debugger()
   struct _history *h = history;
   while (h) {
     struct _history *n = history->next;
-    free(history->msg);
-    delete(history);
+    free(h->msg);
+    delete(h);
     h = n;
   }
 }
@@ -120,27 +120,7 @@ void Debugger::step()
     return;
   }
   steppingOut = false;
-
-  /*  if (cd != -1) {
-    // Print the status back out the socket
-    uint8_t p = g_cpu->flags;
-    snprintf(buf, sizeof(buf), "OP: $%02x A: %02x  X: %02x  Y: %02x  PC: $%04x  SP: %02x  Flags: %c%cx%c%c%c%c%c\n",
-	   g_vm->getMMU()->read(g_cpu->pc),
-	   g_cpu->a, g_cpu->x, g_cpu->y, g_cpu->pc, g_cpu->sp,
-	   p & (1<<7) ? 'N':' ',
-	   p & (1<<6) ? 'V':' ',
-	   p & (1<<4) ? 'B':' ',
-	   p & (1<<3) ? 'D':' ',
-	   p & (1<<2) ? 'I':' ',
-	   p & (1<<1) ? 'Z':' ',
-	   p & (1<<0) ? 'C':' '
-	   );
-    if (write(cd, buf, strlen(buf)) != strlen(buf)) {
-      close(cd);
-      cd=-1;
-      return;
-      }*/
-
+  
     addCurrentPCToHistory();
     
     if (!singleStep && !isBreakpointAt(g_cpu->pc)) {
@@ -152,9 +132,30 @@ void Debugger::step()
     uint8_t b; // byte value used in parsing
     unsigned int val; // common value buffer used in parsing
 
+    if (cd != -1) {
+      // Print the status back out the socket
+      uint8_t p = g_cpu->flags;
+      snprintf(buf, sizeof(buf), "OP: $%02x A: %02x  X: %02x  Y: %02x  PC: $%04x  SP: %02x  Flags: %c%cx%c%c%c%c%c\n",
+	       g_vm->getMMU()->read(g_cpu->pc),
+	       g_cpu->a, g_cpu->x, g_cpu->y, g_cpu->pc, g_cpu->sp,
+	       p & (1<<7) ? 'N':' ',
+	       p & (1<<6) ? 'V':' ',
+	       p & (1<<4) ? 'B':' ',
+	       p & (1<<3) ? 'D':' ',
+	       p & (1<<2) ? 'I':' ',
+	       p & (1<<1) ? 'Z':' ',
+	       p & (1<<0) ? 'C':' '
+	       );
+      if (write(cd, buf, strlen(buf)) != strlen(buf)) {
+	close(cd);
+	cd=-1;
+	return;
+      }
+    }
+
   doover:
     // Show a prompt
-    sprintf(buf, "debug> ");
+    sprintf(buf, "debug [$%X]> ", g_cpu->pc);
     if (write(cd, buf, strlen(buf)) != strlen(buf)) {
       close(cd);
       cd=-1;
@@ -188,7 +189,10 @@ void Debugger::step()
     case 'h': // show history
       {
 	struct _history *h = history;
+	uint32_t i = 0;
 	while (h) {
+	  sprintf(buf, "%d ", i++);
+	  write(cd, buf, strlen(buf));
 	  write(cd, h->msg, strlen(h->msg));
 	  h = h->next;
 	}
@@ -411,9 +415,10 @@ void Debugger::addCurrentPCToHistory()
     strcat(buf, " ");
   }
   // FIXME snprintf
-  sprintf(&buf[strlen(buf)], " ;; OP: $%02x A: %02x  X: %02x  Y: %02x  PC: $%04x SP: %02x  Flags: %c%cx%c%c%c%c%c\012\015",
+  sprintf(&buf[strlen(buf)], " ;; OP: $%02x A: %02x  X: %02x  Y: %02x  PC: $%04x SP: %02x S: %.2x Flags: %c%cx%c%c%c%c%c\012\015",
            g_vm->getMMU()->read(g_cpu->pc),
            g_cpu->a, g_cpu->x, g_cpu->y, g_cpu->pc, g_cpu->sp,
+	  p,
            p & (1<<7) ? 'N':' ',
            p & (1<<6) ? 'V':' ',
            p & (1<<4) ? 'B':' ',
