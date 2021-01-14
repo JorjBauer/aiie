@@ -7,16 +7,19 @@ my $romfile = shift || die "Must provide the path to an Apple //e ROM image";
 my $diskrom = shift || die "Must also provide the path to an Apple //e Disk II ROM image";
 my $parallelrom = shift || die "Must also provide the path to an Apple // parallel card ROM image";
 my $hdrom = shift || die "Must also provide the path to the AppleWin HDDRVR.BIN";
-
+my $mouserom = shift || die "Also need the path to a mouse.rom image";
+    
 validate($romfile, 32768, "an Apple //e ROM image");
 validate($diskrom, 256, "a DiskII ROM image");
 validate($parallelrom, 256, "a parallel card ROM image");
 validate($hdrom, 256, "HDDRVR.BIN from AppleWin");
+validate($mouserom, 256, "mouse.rom, compiled as part of Aiie");
 
 dumpRom($romfile, "apple/applemmu-rom.h", "romData", 32768);
 dumpRom($diskrom, "apple/diskii-rom.h", "romData", 256);
 dumpRom($parallelrom, "apple/parallel-rom.h", "romData", 256);
 dumpRom($hdrom, "apple/hd32-rom.h", "romData", 256);
+dumpRom($mouserom, "apple/mouse-rom.h", "romData", 256);
 exit 0;
 
 sub validate {

@@ -20,7 +20,7 @@ SDLSRCS=sdl/sdl-speaker.cpp sdl/sdl-display.cpp sdl/sdl-keyboard.cpp sdl/sdl-pad
 
 SDLOBJS=sdl/sdl-speaker.o sdl/sdl-display.o sdl/sdl-keyboard.o sdl/sdl-paddles.o nix/nix-filemanager.o sdl/aiie.o sdl/sdl-printer.o nix/nix-clock.o nix/nix-prefs.o nix/debugger.o nix/disassembler.o sdl/sdl-mouse.o
 
-ROMS=apple/applemmu-rom.h apple/diskii-rom.h apple/parallel-rom.h apple/hd32-rom.h 
+ROMS=apple/applemmu-rom.h apple/diskii-rom.h apple/parallel-rom.h apple/hd32-rom.h apple/mouse-rom.h
 
 .PHONY: roms clean
 
@@ -39,14 +39,16 @@ test: $(TSRC)
 	./testharness -f tests/65C02_extended_opcodes_test.bin -s 0x400 && \
 	./testharness -f tests/65c02-all.bin -s 0x200
 
-roms: apple2e.rom disk.rom parallel.rom HDDRVR.BIN
-	./util/genrom.pl apple2e.rom disk.rom parallel.rom HDDRVR.BIN 
+roms: apple2e.rom disk.rom parallel.rom HDDRVR.BIN mouse.rom
+	./util/genrom.pl apple2e.rom disk.rom parallel.rom HDDRVR.BIN mouse.rom
 
 apple/applemmu-rom.h: roms
 
 apple/diskii-rom.h: roms
 
 apple/parallel-rom.h: roms
+
+apple/mouse-rom.h: roms
 
 clean:
 	rm -f *.o *~ */*.o */*~ testharness.basic testharness.verbose testharness.extended testharness apple/diskii-rom.h apple/applemmu-rom.h apple/parallel-rom.h aiie-sdl *.d */*.d

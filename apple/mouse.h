@@ -31,6 +31,8 @@ class Mouse : public Slot {
   
   bool isEnabled();
 
+  void performHack();
+
 private:
   uint8_t status;
   uint8_t interruptsTriggered;

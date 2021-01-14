@@ -1,0 +1,151 @@
+ca65 V2.18 - N/A
+Main file   : mouserom.asm
+Current file: mouserom.asm
+
+000000r 1               	.ORG	$C400
+00C400  1               Entry:
+00C400  1  2C 58 FF     	BIT	$FF58		; well-known RTS location - where RTS is $60
+00C403  1  70 1B        	BVS	PREntry		; always branches (used to relocatably branch)
+00C405  1               
+00C405  1               	.ORG	$C405
+00C405  1               INEntry:
+00C405  1  38           	SEC
+00C406  1  90 18        	BCC	PREntry		; never happens, but has a magic ID byte @ C407 == 18
+00C408  1  B8           	CLV
+00C409  1  50 15        	BVC	PREntry		; always branches
+00C40B  1               
+00C40B  1               	;; lookup table
+00C40B  1               	.ORG	$C40B
+00C40B  1  01           	.byte	$01		; magic identifier
+00C40C  1  20           	.byte	$20		; magic identifier
+00C40D  1  68           	.byte	.LOBYTE(ExitWithError)
+00C40E  1  68           	.byte	.LOBYTE(ExitWithError)
+00C40F  1  68           	.byte	.LOBYTE(ExitWithError)
+00C410  1  68           	.byte	.LOBYTE(ExitWithError)
+00C411  1  00           	.byte	$00
+00C412  1  60           	.byte	.LOBYTE(SetMouse)
+00C413  1  6A           	.byte	.LOBYTE(ServeMouse)
+00C414  1  7B           	.byte	.LOBYTE(ReadMouse)
+00C415  1  80           	.byte	.LOBYTE(ClearMouse)
+00C416  1  85           	.byte	.LOBYTE(PosMouse)
+00C417  1  8A           	.byte	.LOBYTE(ClampMouse)
+00C418  1  93           	.byte	.LOBYTE(HomeMouse)
+00C419  1  98           	.byte	.LOBYTE(InitMouse)
+00C41A  1  68           	.byte	.LOBYTE(ExitWithError)
+00C41B  1  68           	.byte	.LOBYTE(ExitWithError)
+00C41C  1  68           	.byte	.LOBYTE(ExitWithError)
+00C41D  1  68           	.byte	.LOBYTE(ExitWithError)
+00C41E  1  68           	.byte	.LOBYTE(ExitWithError)
+00C41F  1  68           	.byte	.LOBYTE(ExitWithError)
+00C420  1               
+00C420  1               	.ORG	$C420
+00C420  1               PREntry:
+00C420  1  48           	PHA			; save Y, X, A, S on the stack
+00C421  1  98           	TYA
+00C422  1  48           	PHA
+00C423  1  8A           	TXA
+00C424  1  48           	PHA
+00C425  1  08           	PHP
+00C426  1  78           	SEI			; turn off interrupts while we find our address via the stack
+00C427  1  20 58 FF     	JSR	$FF58		; well-known RTS
+00C42A  1  BA           	TSX			; grab stack pointer
+00C42B  1  BD 00 01     	LDA	$0100,X		; inspect the stack frame
+00C42E  1  AA           	TAX			; now A and X hold the high byte of the return address to *us*
+00C42F  1  0A           	ASL			; A <<= 4
+00C430  1  0A           	ASL
+00C431  1  0A           	ASL
+00C432  1  0A           	ASL
+00C433  1  A8           	TAY			; so Y = $n0, while X = $Cn for whatever slot we're in
+00C434  1  28           	PLP			; pull Status off the stack
+00C435  1  50 0F        	BVC	lastChance
+00C437  1  A5 38        	LDA	$38		; We're being invoked in an IN# context, not a PR# context.
+00C439  1  D0 0D        	BNE	PopAndReturn	; if $38/$39 don't point to us, then exit
+00C43B  1  8A           	TXA
+00C43C  1  45 39        	EOR	$39		; is $39 == $Cn?
+00C43E  1  D0 08        	BNE	PopAndReturn
+00C440  1               InstallInHandler:
+00C440  1  A9 05        	LDA	#$05		; Update IN handler to point to $Cn05 instead of $Cn00, so we know we've
+00C442  1  85 38        	STA	$38		;initialized it
+00C444  1  D0 0B        	BNE	INHandler
+00C446  1               lastChance:
+00C446  1  B0 09        	BCS	INHandler
+00C448  1               PopAndReturn:
+00C448  1  68           	PLA
+00C449  1  AA           	TAX
+00C44A  1  68           	PLA
+00C44B  1  EA           	NOP
+00C44C  1  68           	PLA
+00C44D  1  99 80 C0     	STA	$c080,Y		; call soft-switch #0 for our slot to set mouse state
+00C450  1  60           	RTS
+00C451  1               INHandler:
+00C451  1  99 81 C0     	STA	$c081,Y		; call soft-switch #1 for our slot to fill the keyboard buffer w/ mouse info
+00C454  1  68           	PLA
+00C455  1  BD 38 06     	LDA	$0638,X		; pull the string length from this magic screen hole (X == $Cn)
+00C458  1  AA           	TAX			;   which we'll return to the caller in X
+00C459  1  68           	PLA			; restore Y
+00C45A  1  A8           	TAY
+00C45B  1  68           	PLA			; restore A
+00C45C  1  BD 00 02     	LDA	$200,X		; Grab the last character entered in to the buffer by the magic switch call
+00C45F  1  60           	RTS
+00C460  1               
+00C460  1               SetMouse:
+00C460  1  C9 0A        	CMP	#$0A		; values >= 10 are invalid
+00C462  1  B0 04        	BCS	ExitWithError
+00C464  1  8D CF C0     	STA	$C0CF		; soft switch 0x0F, hard-coded slot 4 for now
+00C467  1  60           	RTS
+00C468  1               
+00C468  1               ExitWithError:
+00C468  1  38           	SEC			; the spec says carry is set on errors
+00C469  1  60           	RTS
+00C46A  1               
+00C46A  1               ServeMouse:
+00C46A  1  48           	PHA
+00C46B  1  78           	SEI			; disable interrupts while we find out about interrupts
+00C46C  1  8D CE C0     	STA	$C0CE		; soft switch 0x0E, hard-coded slot 4 for now
+00C46F  1  A2 04        	LDX	#$04
+00C471  1  BD B8 06     	LDA	$6B8,X		; check what interrupts we serviced
+00C474  1  29 0E        	AND	#$0E
+00C476  1  D0 01        	BNE	_sm1		; if we serviced any, leave carry clear
+00C478  1  38           	SEC			; ... but set carry if we serviced none
+00C479  1               _sm1:
+00C479  1  68           	PLA
+00C47A  1  60           	RTS
+00C47B  1               
+00C47B  1               ReadMouse:
+00C47B  1  8D CB C0     	STA	$C0CB		; soft switch 0x0B, hard-coded slot 4 for now
+00C47E  1  18           	CLC
+00C47F  1  60           	RTS
+00C480  1               
+00C480  1               ClearMouse:
+00C480  1  8D CA C0     	STA	$C0CA		; soft switch 0x0A, hard-coded slot 4 for now
+00C483  1  18           	CLC
+00C484  1  60           	RTS
+00C485  1               
+00C485  1               PosMouse:
+00C485  1  8D C9 C0     	STA	$C0C9		; soft switch 0x09, hard-coded slot 4 for now
+00C488  1  18           	CLC
+00C489  1  60           	RTS
+00C48A  1               
+00C48A  1               ClampMouse:
+00C48A  1  C9 02        	CMP	#$02
+00C48C  1  B0 DA        	BCS	ExitWithError
+00C48E  1  8D CD C0     	STA	$C0CD		; soft switch 0x0D, hard-coded slot 4 for now
+00C491  1  18           	CLC
+00C492  1  60           	RTS
+00C493  1               
+00C493  1               HomeMouse:
+00C493  1  8D C8 C0     	STA	$C0C8		; soft switch 0x08, hard-coded slot 4 for now
+00C496  1  18           	CLC
+00C497  1  60           	RTS
+00C498  1               
+00C498  1               InitMouse:
+00C498  1  8D CC C0     	STA	$C0CC		; soft switch 0x0C, hard-coded slot 4 for now
+00C49B  1  18           	CLC
+00C49C  1  60           	RTS
+00C49D  1               
+00C49D  1               	.ORG	$C4FB
+00C4FB  1  D6           	.byte	$D6		; magic identifier
+00C4FC  1               	.ORG 	$C4FF
+00C4FF  1  01           	.byte	$01		; version
+00C500  1               
+00C500  1               
