@@ -143,8 +143,19 @@ uint8_t Disassembler::instructionToMnemonic(uint16_t addr, uint8_t *p, char *out
   case A_ABY:
   case A_ABX:
   case A_ABI://indirect
+  case A_ABXI:
+  case A_ZIND:
       target = (*(p+2) << 8) | (*(p+1)); // FIXME: is this correct?
       break;
+  case A_ZER:
+  case A_INX:
+  case A_INY:
+  case A_ZEX:
+  case A_ZEY:
+  case A_ZPREL:
+  case A_IMM:
+    target = *(int8_t *)(p+1);
+    break;
   default:
     target = 0;
     break;
