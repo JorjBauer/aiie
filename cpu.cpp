@@ -444,6 +444,16 @@ void Cpu::brk()
   cycles += 2;
 }
 
+void Cpu::assertIrq()
+{
+  irqPending = true;
+}
+
+void Cpu::deassertIrq()
+{
+  irqPending = false;
+}
+
 void Cpu::irq()
 {
   // If interrupts are disabled, then do nothing
@@ -472,7 +482,6 @@ uint8_t Cpu::Run(uint8_t numSteps)
 uint8_t Cpu::step()
 {
   if (irqPending) {
-    irqPending = false;
     irq();
   }
 
@@ -1215,11 +1224,6 @@ uint16_t Cpu::popS16()
   uint8_t msb = popS8();
 
   return (msb << 8) | lsb;
-}
-
-void Cpu::stageIRQ()
-{
-  irqPending = true;
 }
 
 void Cpu::realtime()

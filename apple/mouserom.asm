@@ -85,7 +85,7 @@ INHandler:
 	RTS
 
 SetMouse:
-	CMP	#$0A		; values >= 10 are invalid
+	CMP	#$10		; values >= $10 are invalid
 	BCS	ExitWithError
 	STA	$C0CF		; soft switch 0x0F, hard-coded slot 4 for now
 	RTS

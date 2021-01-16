@@ -10,6 +10,8 @@
 enum {
   SW_W_INITPR     = 0x00,
   SW_W_HANDLEIN   = 0x01,
+
+  SW_R_ERR        = 0x07,
   
   SW_R_HOMEMOUSE  = 0x08,
   SW_R_POSMOUSE   = 0x09,
@@ -159,6 +161,7 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
     g_vm->getMMU()->write(0x778+4, interruptsTriggered);
     g_vm->getMMU()->write(0x6B8+4, interruptsTriggered); // hack to appease ROM
     interruptsTriggered = 0;
+    g_cpu->deassertIrq();
     break;
   case SW_W_CLAMPMOUSE:
     {
@@ -198,7 +201,7 @@ void Mouse::loadROM(uint8_t *toWhere)
     toWhere[i] = pgm_read_byte(&romData[i]);
   }
 #else
-  printf("loading HD32 rom\n");
+  printf("loading Mouse rom\n");
   memcpy(toWhere, romData, 256);
 #endif
 }
@@ -216,11 +219,10 @@ void Mouse::maintainMouse(int64_t cycleCount)
 {
   // Fake a 60Hz VBL in case we need it for our interrupts
   static int64_t nextInterruptTime = cycleCount + 17050;
-  
   if ( (status & ST_MOUSEENABLE) &&
        (status & ST_INTVBL)  &&
        (cycleCount >= nextInterruptTime) ) {
-    g_cpu->irq();
+    g_cpu->assertIrq();
     
     interruptsTriggered |= ST_INTVBL;
     
@@ -232,14 +234,14 @@ void Mouse::maintainMouse(int64_t cycleCount)
     if ( (status & ST_MOUSEENABLE) &&
 	 (status & ST_INTMOUSE) &&
 	 (xpos != lastXForInt || ypos != lastYForInt) ) {
-      g_cpu->irq();
+      g_cpu->assertIrq();
       
       interruptsTriggered |= ST_INTMOUSE;      
       lastXForInt = xpos; lastYForInt = ypos;
     } else if ( (status & ST_MOUSEENABLE) &&
 		(status & ST_INTBUTTON) &&
 		lastButtonForInt != g_mouse->getButton()) {
-      g_cpu->irq();
+      g_cpu->assertIrq();
 
       interruptsTriggered |= ST_INTBUTTON;
       lastButtonForInt = g_mouse->getButton();

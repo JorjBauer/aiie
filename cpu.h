@@ -151,6 +151,9 @@ class Cpu {
   void brk();
   void irq();
 
+  void assertIrq();
+  void deassertIrq();
+
   uint8_t Run(uint8_t numSteps);
   uint8_t step();
 
@@ -160,8 +163,6 @@ class Cpu {
   uint16_t PC();
   uint8_t SP();
   uint8_t P();
-
-  void stageIRQ();
 
  protected:
   // Stack manipulation

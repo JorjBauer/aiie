@@ -89,7 +89,7 @@ Current file: mouserom.asm
 00C45F  1  60           	RTS
 00C460  1               
 00C460  1               SetMouse:
-00C460  1  C9 0A        	CMP	#$0A		; values >= 10 are invalid
+00C460  1  C9 10        	CMP	#$10		; values >= $10 are invalid
 00C462  1  B0 04        	BCS	ExitWithError
 00C464  1  8D CF C0     	STA	$C0CF		; soft switch 0x0F, hard-coded slot 4 for now
 00C467  1  60           	RTS
