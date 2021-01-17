@@ -291,8 +291,8 @@ inline void AppleDisplay::Draw14HiresPixelsAt(uint16_t addr)
       bit train backward, so the bits are reversed.)
      */
 
-    uint8_t b1 = mmu->read(addr);
-    uint8_t b2 = mmu->read(addr+1);
+    uint8_t b1 = mmu->readDirect(addr, 0);
+    uint8_t b2 = mmu->readDirect(addr+1, 0);
 
     // Used for color modes...
     bool highBitOne = (b1 & 0x80);
@@ -435,7 +435,7 @@ void AppleDisplay::redraw40ColumnText(uint8_t startingY)
 
     // Only draw onscreen locations
     if (row >= startingY && col <= 39 && row <= 23) {
-      const uint8_t *cptr = xlateChar(mmu->read(addr), &invert);
+      const uint8_t *cptr = xlateChar(mmu->readDirect(addr, 0), &invert);
       
       for (uint8_t y2 = 0; y2<8; y2++) {
 	uint8_t d = *(cptr + y2);
@@ -493,7 +493,7 @@ void AppleDisplay::redrawLores()
       uint8_t row, col;
       deinterlaceAddress(addr, &row, &col);
       if (col <= 39 && row <= 23) {
-	DrawLoresPixelAt(mmu->read(addr), col, row);
+	DrawLoresPixelAt(mmu->readDirect(addr, 0), col, row);
       }
     }
   }
