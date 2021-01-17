@@ -5,7 +5,7 @@
 
 #include "font.h"
 
-/* Fourpossible Hi-Res color-drawing modes..
+/* Four possible Hi-Res color-drawing modes..
    MONOCHROME: show all the pixels, but only in green;
    BLACKANDWHITE: monochrome, but use B&W instead of B&G;
    NTSCLIKE: reduce the resolution to 140 pixels wide, similar to how an NTSC monitor would blend it
@@ -190,6 +190,7 @@ inline void AppleDisplay::Draw14DoubleHiresPixelsAt(uint16_t addr)
   }
 
   // Make sure it's a valid graphics area, not a dead hole
+#define UNSWIZ(x) ((((x)&0x77)<<1) | (((x)&0x88)>>3))
   if (col <= 280 && row <= 192) {
     // Grab the 4 bytes we care about
     uint8_t b1A = mmu->readDirect(addr, 0);
@@ -205,22 +206,22 @@ inline void AppleDisplay::Draw14DoubleHiresPixelsAt(uint16_t addr)
     bitTrain |= (b1A & 0x7F);
     bitTrain <<= 7;
     bitTrain |= (b1B & 0x7F);
-    
     // Now we pop groups of 4 bits off the bottom and draw.
 
     for (int8_t xoff = 0; xoff < 14; xoff += 2) {
+      uint8_t color = bitTrain & 0x0F;
+      color = UNSWIZ(color); //((color & 7) << 1) | ((color & 8) >> 3); // un-swizzle the bits
       if (g_displayType == m_ntsclike) {
 	// NTSC-like color - use drawApplePixel to show the messy NTSC color bleeds.
 	// This draws two doubled pixels with greater color, but lower pixel, resolution.
-	drawApplePixel(bitTrain & 0x0F, col+xoff, row);
-	drawApplePixel(bitTrain & 0x0F, col+xoff+1,row);
+	drawApplePixel(color, col+xoff, row);
+	drawApplePixel(color, col+xoff+1,row);
       } else {
 	// Perfect color, B&W, monochrome. Draw an exact version of the pixels, and let 
 	// the physical display figure out if they need to be reduced to B&W or not
 	// (for the most part - the m_blackAndWhite piece here allows full-res displays
 	// to give the crispest resolution.)
 
-	uint8_t color = bitTrain & 0x0F;
 	if (g_displayType == m_blackAndWhite) { color = c_white; } 
 
 	g_display->cachePixel((col*2)+(xoff*2), row, 
