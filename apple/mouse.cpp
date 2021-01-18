@@ -196,7 +196,7 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
 void Mouse::loadROM(uint8_t *toWhere)
 {
 #ifdef TEENSYDUINO
-  println("loading Mouse rom");
+  Serial.println("loading Mouse rom");
   for (uint16_t i=0; i<=0xFF; i++) {
     toWhere[i] = pgm_read_byte(&romData[i]);
   }
