@@ -280,74 +280,99 @@ inline void AppleDisplay::Draw14HiresPixelsAt(uint16_t addr)
       10 violet/blue
       11 white
 
-      When the horizontal byte number is even, we ignore the last
-      bit. When the horizontal byte number is odd, we use that dropped
-      bit.
-
       So each even byte turns in to 3 bits; and each odd byte turns in
       to 4. Our effective output is therefore 140 pixels (half the 
       actual B&W resolution).
 
-      (Note that I swap 0x02 and 0x01 below, because we're running the
-      bit train backward, so the bits are reversed.)
+      In practice, it's not that way, though: white isn't decided by a
+      simple 11, because, if you consider its righthand neighbor bit,
+      it could be 011 which would also be white. So this bit is
+      influenced by the bit on the left, and also influences the bit
+      on the right. Which means we have to keep a rolling bit train
+      and watch for edge conditions when we're painting this pixel.
      */
 
-    uint8_t b1 = mmu->readDirect(addr, 0);
-    uint8_t b2 = mmu->readDirect(addr+1, 0);
+    uint32_t b1 = mmu->readDirect(addr, 0);
+    uint32_t b2 = mmu->readDirect(addr+1, 0);
 
-    // Used for color modes...
+    // Get the neighboring pixel states
+    // FIXME I think there's a minor error here in b0/b3's condition checking - review carefully
+    uint32_t b0 = ((col < 14) ? 0 : mmu->readDirect(addr-1, 0));
+    uint32_t b3 = ((col >= (280-14)) ? 0 : mmu->readDirect(addr+2, 0));
+
+    // Used for color modes.
     bool highBitOne = (b1 & 0x80);
     bool highBitTwo = (b2 & 0x80);
 
-    uint16_t bitTrain = (b1 & 0x7F) | ((b2 & 0x7F) << 7);
+    uint32_t bitTrain = (b0 & 0x7F) | ((b1 & 0x7F) << 7) |
+      ((b2 & 0x7F) << 14) | ((b3 & 0x7F) << 21);
+    bool odd = (col % 2); // we need to know odd/even column so we can tell color
+    
+    uint8_t color = c_black;
+    for (int8_t xoff = 0; xoff < 14; xoff++) {
+      
+      bool highBitSet = (xoff >= 7 ? highBitTwo : highBitOne);
+      
+      // Check neighbor pixels to see what color needs to be onscreen
+      uint32_t mask  =  0x01C0;
+      uint32_t neighborMask = 0x140;
+      uint32_t ourMask = 0x080;
 
-    for (int8_t xoff = 0; xoff < 14; xoff += 2) {
+      // Now we need to talk about what video mode we're representing.
+      // If we're doing "true" m_perfectcolor, then it's simple:
+      // either the pixel is on or off. If it's on, then the color is
+      // either the color we asked for or it's white (if we have a
+      // neighbor that's on).
+      // 
+      // If we're doing NTSC, then we draw even when this pixel is
+      // off, if both of our neighboring pixels are on (and we use
+      // their color, or white).
+      //
+      // If we're doing black and white or monochrome, then we follow
+      // rules for perfectcolor - except the color we draw is either
+      // black or (white/green, depending on mode).
 
-      if (g_displayType == m_ntsclike) {
-	// Use the NTSC-like color mode, where we're only 140 pixels wide.
-	
-	bool highBitSet = (xoff >= 7 ? highBitTwo : highBitOne);
-	uint8_t color;
-	switch (bitTrain & 0x03) {
-	case 0x00:
-	  color = c_black;
-	  break;
-	case 0x02:
-	  color = (highBitSet ? c_orange : c_green);
-	  break;
-	case 0x01:
-	  color = (highBitSet ? c_medblue : c_purple);
-	  break;
-	case 0x03:
+      // If our pixel is on, then adopt this pixel's color
+      if (bitTrain & ourMask) {
+	if (g_displayType == m_monochrome || g_displayType == m_blackAndWhite) {
+	  // The actual display will turn white into green if necessary for m_monochrome
 	  color = c_white;
-	  break;
+	} else {
+	  color = odd ? (highBitSet ? c_orange : c_green) : (highBitSet ? c_medblue : c_purple);
 	}
-	
-	draw2Pixels( color, color, col+xoff, row );
-      } else {
-	// Use the "perfect" color mode, like the Apple RGB monitor showed.
-	bool highBitSet = (xoff >= 7 ? highBitTwo : highBitOne);
-	uint8_t color;
-	switch (bitTrain & 0x03) {
-	case 0x00:
-	  color = c_black;
-	  break;
-	case 0x02:
-	  color = (highBitSet ? c_orange : c_green);
-	  break;
-	case 0x01:
-	  color = (highBitSet ? c_medblue : c_purple);
-	  break;
-	case 0x03:
-	  color = c_white;
-	  break;
-	}
-
-	draw2Pixels( (color==c_white || (bitTrain & 0x02)) ? color : c_black,
-		     (color==c_white || (bitTrain & 0x01)) ? color : c_black,
-		     col+xoff, row );
+      } else if (g_displayType == m_ntsclike) {
+	// If our bit is off, we might still have to display our
+	// neighbor's color - if the bit to our right is on, and we're
+	// the first bit in the train. So preset based on the
+	// alternate color.
+	color = (!odd) ? (highBitSet ? c_orange : c_green) : (highBitSet ? c_medblue : c_purple);
       }
-      bitTrain >>= 2;
+
+      if ((bitTrain & mask) == ourMask) {
+	// In all color modes, if our pixel is on but our neighbors
+	// are off, then we draw our color.
+	drawApplePixel(color, col+xoff, row);
+      } else if ((bitTrain & mask) == neighborMask) {
+	if (g_displayType == m_ntsclike) {
+	  // If it's NTSCLIKE and our neighbors are on, then we are also on
+	  drawApplePixel(color, col+xoff, row);
+	} else {
+	  // For all others: if we're off, then draw black
+	  drawApplePixel(c_black, col+xoff, row);
+	}
+      } else {
+	// otherwise it's black-or-white
+	if (bitTrain & ourMask) {
+	  // It's either 110 or 011, either way is white
+	  drawApplePixel(c_white, col+xoff, row);
+	} else {
+	  // Must be 100, 001, or 000 - in all cases it's black
+	  drawApplePixel(c_black, col+xoff, row);
+	}
+      }
+      
+      bitTrain >>= 1;
+      odd = !odd;
     }
   }
 }
