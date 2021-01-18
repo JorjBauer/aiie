@@ -20,21 +20,21 @@ extern const unsigned char interface_glyphs[256];
 
 // RGB map of each of the lowres colors
 const uint8_t loresPixelColors[16][3] = { { 0, 0, 0 }, // black
-					  { 195, 0, 48 }, // magenta
-					  { 0, 0, 130 }, // dark blue
-					  { 166, 52, 170 }, // purple
-					  { 0, 146, 0 }, // dark green
-					  { 105, 105, 105 }, // drak grey
-					  { 24, 113, 255 }, // medium blue
-					  { 12, 190, 235 }, // light blue
-					  { 150, 85, 40 }, // brown
-					  { 255, 24, 44 }, // orange
-					  { 150, 170, 170 }, // light gray
-					  { 255, 158, 150 }, // pink
-					  { 0, 255, 0 }, // green
-					  { 255, 255, 0 }, // yellow
-					  { 130, 255, 130 }, // aqua
-					  { 255, 255, 255 } // white
+					  { 0xAC, 0x12, 0x4C }, // magenta
+					  { 0x00, 0x07, 0x83 }, // dark blue
+					  { 0xAA, 0x1A, 0xD1 }, // purple
+					  { 0x00, 0x83, 0x2F }, // dark green
+					  { 0x9F, 0x97, 0x7E }, // drak grey
+					  { 0x00, 0x8A, 0xB5 }, // medium blue
+					  { 0x9F, 0x9E, 0xFF }, // light blue
+					  { 0x7A, 0x5F, 0x00 }, // brown
+					  { 0xFF, 0x72, 0x47 }, // orange
+					  { 0x78, 0x68, 0x7F }, // light gray
+					  { 0xFF, 0x7A, 0xCF }, // pink
+					  { 0x6F, 0xE6, 0x2C }, // green
+					  { 0xFF, 0xF6, 0x7B }, // yellow
+					  { 0x6C, 0xEE, 0xB2 }, // aqua
+					  { 0xFF, 0xFF, 0xFF } // white
 };
 
 SDLDisplay::SDLDisplay()
@@ -124,8 +124,9 @@ void SDLDisplay::blit(AiieRect r)
 	g = fv;
       }
       else if (g_displayType == m_blackAndWhite) {
-	float fv = 0.2125 * r + 0.7154 * g + 0.0721 * b;
-	r = g = b = fv;
+	// Used to reduce to B&W in this driver, but now it's up in the apple display
+	//	float fv = 0.2125 * r + 0.7154 * g + 0.0721 * b;
+	//	r = g = b = fv;
       }
 
       SDL_SetRenderDrawColor(renderer, r, g, b, 255);
