@@ -60,20 +60,22 @@ enum {
   ACT_REBOOTANDEJECT = 4,
   ACT_MONITOR = 5,
   ACT_DISPLAYTYPE = 6,
-  ACT_DEBUG = 7,
-  ACT_DISK1 = 8,
-  ACT_DISK2 = 9,
-  ACT_HD1 = 10,
-  ACT_HD2 = 11,
-  ACT_VOLPLUS = 12,
-  ACT_VOLMINUS = 13,
-  ACT_SUSPEND = 14,
-  ACT_RESTORE = 15,
-  ACT_PADX_INV = 16,
-  ACT_PADY_INV = 17,
-  ACT_PADDLES = 18,
-  ACT_SPEED = 19,
-  ACT_ABOUT = 20,
+  ACT_LUMINANCEUP = 7,
+  ACT_LUMINANCEDOWN = 8,
+  ACT_DEBUG = 9,
+  ACT_DISK1 = 10,
+  ACT_DISK2 = 11,
+  ACT_HD1 = 12,
+  ACT_HD2 = 13,
+  ACT_VOLPLUS = 14,
+  ACT_VOLMINUS = 15,
+  ACT_SUSPEND = 16,
+  ACT_RESTORE = 17,
+  ACT_PADX_INV = 18,
+  ACT_PADY_INV = 19,
+  ACT_PADDLES = 20,
+  ACT_SPEED = 21,
+  ACT_ABOUT = 22,
 };
 
 #define NUM_TITLES 4
@@ -85,7 +87,8 @@ const uint8_t aiieActions[] = { ACT_ABOUT };
 const uint8_t vmActions[] = { ACT_EXIT, ACT_RESET, ACT_REBOOT, ACT_REBOOTANDEJECT,
                               ACT_MONITOR,
 			      ACT_DEBUG, ACT_SUSPEND, ACT_RESTORE };
-const uint8_t hardwareActions[] = { ACT_DISPLAYTYPE,  ACT_SPEED,
+const uint8_t hardwareActions[] = { ACT_DISPLAYTYPE,  ACT_LUMINANCEUP,
+                                    ACT_LUMINANCEDOWN, ACT_SPEED,
 				    ACT_PADX_INV, ACT_PADY_INV,
 				    ACT_PADDLES, ACT_VOLPLUS, ACT_VOLMINUS };
 const uint8_t diskActions[] = { ACT_DISK1, ACT_DISK2, 
@@ -386,6 +389,20 @@ uint16_t BIOS::HardwareMenuHandler(bool needsRedraw, bool performAction)
 	((AppleDisplay*)g_display)->displayTypeChanged();
 	localRedraw = true;
 	break;
+
+     case ACT_LUMINANCEUP:
+       if (g_luminanceCutoff < 255)
+	 g_luminanceCutoff++;
+	((AppleDisplay*)g_display)->displayTypeChanged();
+	localRedraw = true;
+       break;
+       
+     case ACT_LUMINANCEDOWN:
+       if (g_luminanceCutoff > 0)
+	 g_luminanceCutoff--;
+	((AppleDisplay*)g_display)->displayTypeChanged();
+	localRedraw = true;
+       break;
 	
       case ACT_SPEED:
 	currentCPUSpeedIndex++;
@@ -797,6 +814,11 @@ bool BIOS::isActionActive(int8_t action)
   case ACT_PADDLES:
     return true;
 
+  case ACT_LUMINANCEUP:
+    return (g_luminanceCutoff < 255);
+  case ACT_LUMINANCEDOWN:
+    return (g_luminanceCutoff > 0);
+    
   case ACT_VOLPLUS:
     return (g_volume < 15);
   case ACT_VOLMINUS:
@@ -934,6 +956,14 @@ void BIOS::DrawHardwareMenu()
 	}
       }
       break;
+      
+    case ACT_LUMINANCEUP:
+      sprintf(buf, "Luminance+: %d", g_luminanceCutoff);
+      break;
+    case ACT_LUMINANCEDOWN:
+      sprintf(buf, "Luminance-: %d", g_luminanceCutoff);
+      break;
+      
     case ACT_SPEED:
       {
 	const char *templateString = "CPU Speed: %s";

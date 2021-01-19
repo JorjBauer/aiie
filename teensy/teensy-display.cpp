@@ -2,6 +2,7 @@
 #include <DMAChannel.h>
 
 #include "teensy-display.h"
+#include "iocompat.h"
 
 #include "appleui.h"
 // FIXME should be able to omit this include and rely on the xterns, which
@@ -54,8 +55,10 @@ DMAMEM uint16_t dmaBuffer[TEENSYDISPLAY_HEIGHT][TEENSYDISPLAY_WIDTH];
 
 #define RGBto565(r,g,b) ((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
 #define _565toR(c) ( ((c) & 0xF800) >> 8 )
-#define _565toG(c) ( ((c) & 0x07E0) >> 5 )
-#define _565toB(c) ( ((c) & 0x001F) )
+#define _565toG(c) ( ((c) & 0x07E0) >> 3 )
+#define _565toB(c) ( ((c) & 0x001F) << 3 )
+#define luminanceFromRGB(r,g,b) ( ((r)*0.2126) + ((g)*0.7152) + ((b)*0.0722) )
+
 
 ILI9341_t3n tft = ILI9341_t3n(PIN_CS, PIN_DC, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
 
@@ -125,7 +128,7 @@ void TeensyDisplay::blit()
       if (overlayMessage[0]) {
 	drawString(M_SELECTDISABLED, 1, TEENSYDISPLAY_HEIGHT - (16 + 12)*TEENSYDISPLAY_SCALE, overlayMessage);
       }
-      nextMessageTime = millis() + 1000;
+      nextMessageTime = millis() + 10; // DEBUGGING FIXME make 1000 again
     }
   }
 }
@@ -262,17 +265,25 @@ void TeensyDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
   // This is the case where we need to blend together neighboring
   // pixels, because we don't have enough physical screen resoultion.
   if (x&1) {
-    uint8_t origColor = dmaBuffer[y+SCREENINSET_Y][(x>>1)*TEENSYDISPLAY_SCALE+SCREENINSET_X];
-    cacheDoubleWidePixel(x>>1, y, color);
-#if 0    
-    uint8_t newColor = (uint16_t) (origColor + color) / 2;
+    uint16_t origColor = dmaBuffer[y+SCREENINSET_Y][(x>>1)*TEENSYDISPLAY_SCALE+SCREENINSET_X];
+    uint16_t newColor = (uint16_t) loresPixelColors[color];
     if (g_displayType == m_blackAndWhite) {
-      cacheDoubleWidePixel(x>>1, y, (origColor && newColor) ? 0xFFFF : 0x0000);
+      // There are four reasonable decisions here: if either pixel
+      // *was* on, then it's on; if both pixels *were* on, then it's
+      // on; and if the blended value of the two pixels were on, then
+      // it's on; or if the blended value of the two is above some
+      // certain overall brightness, then it's on. This is the last of
+      // those - where the brightness cutoff is defined in the bios as
+      // g_luminanceCutoff.
+      uint16_t blendedColor = blendColors(origColor, newColor);
+      uint16_t luminance = luminanceFromRGB(_565toR(blendedColor),
+					    _565toG(blendedColor),
+					    _565toB(blendedColor));
+      cacheDoubleWidePixel(x>>1,y,(uint16_t)((luminance >= g_luminanceCutoff) ? 0xFFFF : 0x0000));
     } else {
-      cacheDoubleWidePixel(x>>1,y,blendColors(origColor, newColor));
+      cacheDoubleWidePixel(x>>1,y,color);
       // Else if it's black, we leave whatever was in the other pixel.
     }
-#endif
   } else {
     // The even pixels always draw.
     cacheDoubleWidePixel(x>>1,y,color);
@@ -289,6 +300,14 @@ void TeensyDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 }
 
 
+void TeensyDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint16_t color16)
+{
+  for (int yoff=0; yoff<TEENSYDISPLAY_SCALE; yoff++) {
+    for (int xoff=0; xoff<TEENSYDISPLAY_SCALE; xoff++) {
+      dmaBuffer[(y*TEENSYDISPLAY_SCALE+yoff+SCREENINSET_Y)][x*TEENSYDISPLAY_SCALE+xoff+SCREENINSET_X] = color16;
+    }
+  }
+}
 
 // "DoubleWide" means "please double the X because I'm in low-res
 // width mode".

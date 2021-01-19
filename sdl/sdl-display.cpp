@@ -39,10 +39,14 @@ const uint8_t loresPixelColors[16][3] = { { 0, 0, 0 }, // black
 
 #define color16To32(x) ( (((x) & 0xF800) << 8) | (((x) & 0x07E0) << 5) | (((x) & 0x001F)<<3) )
 #define packColor32(x) ( (x[0] << 16) | (x[1] << 8) | (x[2]) )
+#define unpackRed(x) ( ((x) & 0xFF0000) >> 16 )
+#define unpackGreen(x) ( ((x) & 0xFF00) >> 8 )
+#define unpackBlue(x) ( ((x) & 0xFF) )
 // FIXME this blend could be optimized - and it's a dumb blend that
 // just averages RGB values individually, rather than trying to find a
 // sane blend of 2 pixels. Needs thought.
-#define blendPackedColor(x,y) ( (((x) & 0xFF0000) + ((y) & 0xFF0000) / 2) + (((x) & 0x00FF00) + ((y) & 0x00FF00)) / 2 + (((x) & 0x0000FF) + ((y) & 0x0000FF)) / 2 )
+#define blendPackedColor(x,y) ( (((unpackRed(x) + unpackRed(y))/2) << 16) + (((unpackGreen(x) + unpackGreen(y))/2) << 8) + ((unpackBlue(x) + unpackBlue(y))/2) )
+#define luminanceFromRGB(r,g,b) ( ((r)*0.2126) + ((g)*0.7152) + ((b)*0.0722) )
 
 SDLDisplay::SDLDisplay()
 {
@@ -128,9 +132,9 @@ void SDLDisplay::blit(AiieRect r)
       b = (colorIdx & 0x0000FF);
 
       if (g_displayType == m_monochrome) {
-	float fv = 0.2125 * r + 0.7154 * g + 0.0721 * b;
-	r = b = 0;
-	g = fv;
+	//	float fv = 0.2125 * r + 0.7154 * g + 0.0721 * b;
+	//	r = b = 0;
+	//	g = fv;
       }
       else if (g_displayType == m_blackAndWhite) {
 	// Used to reduce to B&W in this driver, but now it's up in the apple display
@@ -263,23 +267,32 @@ void SDLDisplay::clrScr(uint8_t coloridx)
   SDL_RenderPresent(renderer); // perform the render
 }
 
-// This was called with the expectation that it can draw every one of                                
-// the 560x192 pixels that could be addressed. If TEENSYDISPLAY_SCALE                                
-// is 1, then we have half of that horizontal resolution - so we need                                
-// to be creative and blend neighboring pixels together.                                             
+// This was called with the expectation that it can draw every one of
+// the 560x192 pixels that could be addressed. If TEENSYDISPLAY_SCALE
+// is 1, then we have half of that horizontal resolution - so we need
+// to be creative and blend neighboring pixels together.
 void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 {
 #if SDLDISPLAY_SCALE == 1
-  // This is the case where we need to blend together neighboring                                    
-  // pixels, because we don't have enough physical screen resoultion.                                
+  // This is the case where we need to blend together neighboring
+  // pixels, because we don't have enough physical screen resoultion.
   
   if (x&1) {
     uint32_t origColor = videoBuffer[y][(x>>1)*SDLDISPLAY_SCALE];
     uint32_t newColor = packColor32(loresPixelColors[color]);
     if (g_displayType == m_blackAndWhite) {
-      // FIXME: the two possible sets here of 'origColor && newColor' or 'origColor||newColor'
-      // work well for black-on-white and white-on-black. But neither is good in the other.
-      cacheDoubleWidePixel(x>>1,y,(uint32_t)((origColor && newColor) ? 0xFFFFFF : 0x000000));
+      // There are four reasonable decisions here: if either pixel
+      // *was* on, then it's on; if both pixels *were* on, then it's
+      // on; and if the blended value of the two pixels were on, then
+      // it's on; or if the blended value of the two is above some
+      // certain overall brightness, then it's on. This is the last of
+      // those - where the brightness cutoff is defined in the bios as
+      // g_luminanceCutoff.
+      uint32_t blendedColor = blendPackedColor(origColor, newColor);
+      uint32_t luminance = luminanceFromRGB(unpackRed(blendedColor),
+					    unpackGreen(blendedColor),
+					    unpackBlue(blendedColor));
+      cacheDoubleWidePixel(x>>1,y,(uint32_t)((luminance >= g_luminanceCutoff) ? 0xFFFFFF : 0x000000));
     } else {
       cacheDoubleWidePixel(x>>1,y,(uint32_t)blendPackedColor(origColor, newColor));
     }

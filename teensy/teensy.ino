@@ -16,6 +16,8 @@
 #include "teensy-println.h"
 #include "smalloc.h"
 
+#include "iocompat.h"
+
 //#define DEBUG_TIMING
 
 #if F_CPU < 240000000
@@ -127,7 +129,12 @@ static uint8_t usb_scanmap[256] = {
   
 void onKeypress(uint8_t keycode)
 {
-  ((AppleVM *)g_vm)->getKeyboard()->keyDepressed(usb_scanmap[keycode]);
+  if (keycode == 67) {
+    // F10 is our interrupt button; FIXME this probably needs to be adjustable
+    g_biosInterrupt = true;
+  } else {
+    ((AppleVM *)g_vm)->getKeyboard()->keyDepressed(usb_scanmap[keycode]);
+  }
 }
 
 void onKeyrelease(uint8_t keycode)
@@ -510,7 +517,7 @@ void loop()
       wasBios = false;
     }
   }
-  
+
   if (!g_biosInterrupt) {
     runCPU(now);
   }
@@ -588,11 +595,22 @@ void readPrefs()
     if (p.hd2[0]) {
       ((AppleVM *)g_vm)->insertHD(1, p.hd2);
     }
+    
+    g_luminanceCutoff = p.luminanceCutoff;
+    
+    g_invertPaddleX = p.invertPaddleX;
+    g_invertPaddleY = p.invertPaddleY;
+    
+  } else {
+    // Set some defaults!
+    g_volume = 7;
+    g_displayType = 3; // FIXME constant
+    g_debugMode = D_NONE;
+    g_speed = 1023000;
+    g_luminanceCutoff = 127;
+    g_invertPaddleX = g_invertPaddleY = false;
+    
   }
-
-  g_invertPaddleX = p.invertPaddleX;
-  g_invertPaddleY = p.invertPaddleY;
-
   // Update the paddles with the new inversion state
   ((TeensyPaddles *)g_paddles)->setRev(g_invertPaddleX, g_invertPaddleY);
 }
@@ -603,6 +621,7 @@ void writePrefs()
   prefs_t p;
 
   p.magic = PREFSMAGIC;
+  p.magicFooter = PREFSMAGIC;
   p.prefsSize = sizeof(prefs_t);
   p.version = PREFSVERSION;
 
@@ -611,6 +630,7 @@ void writePrefs()
 
   p.volume = g_volume;
   p.displayType = g_displayType;
+  p.luminanceCutoff = g_luminanceCutoff;
   p.debug = g_debugMode;
   p.speed = g_speed / (1023000/2);
   strcpy(p.disk1, ((AppleVM *)g_vm)->DiskName(0));

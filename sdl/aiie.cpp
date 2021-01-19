@@ -451,6 +451,8 @@ void readPrefs()
   if (np.readPrefs(&p)) {
     g_volume = p.volume;
     g_displayType = p.displayType;
+    g_luminanceCutoff = p.luminanceCutoff;
+
     g_debugMode = p.debug;
     g_speed = (p.speed * (1023000/2)); // steps of half normal speed
     if (g_speed < (1023000/2))
@@ -484,7 +486,10 @@ void writePrefs()
   p.version = PREFSVERSION;
 
   p.volume = g_volume;
+
   p.displayType = g_displayType;
+  p.luminanceCutoff = g_luminanceCutoff;
+  
   p.debug = g_debugMode;
   p.speed = g_speed / (1023000/2);
   strcpy(p.disk1, ((AppleVM *)g_vm)->DiskName(0));

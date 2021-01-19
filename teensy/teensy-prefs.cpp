@@ -18,7 +18,8 @@ bool TeensyPrefs::readPrefs(prefs_t *readTo)
     *pp++ = EEPROM.read(i);
   }
 
-  if (readTo->magic != PREFSMAGIC) {
+  if (readTo->magic != PREFSMAGIC ||
+      readTo->magicFooter != PREFSMAGIC) {
     return false;
   }
   if (readTo->prefsSize != sizeof(prefs_t)) {

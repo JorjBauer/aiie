@@ -31,6 +31,7 @@ class TeensyDisplay : public PhysicalDisplay {
 
   virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint8_t sizey, uint16_t wherex, uint8_t wherey);
 
+  void cacheDoubleWidePixel(uint16_t x, uint16_t y, uint16_t color16);
   virtual void cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color);
   virtual void cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorA, uint8_t colorB);
   virtual void cachePixel(uint16_t x, uint16_t y, uint8_t color);
