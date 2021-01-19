@@ -7,7 +7,7 @@
 #include "applevm.h"
 
 #include "apple/appleui.h"
-// FIXME should be able to omit this include and relay on the xterns, which
+// FIXME should be able to omit this include and rely on the xterns, which
 // would prove it's linking properly
 #include "apple/font.h"
 extern const unsigned char ucase_glyphs[512];
@@ -37,6 +37,13 @@ const uint8_t loresPixelColors[16][3] = { { 0, 0, 0 }, // black
 					  { 0xFF, 0xFF, 0xFF } // white
 };
 
+#define color16To32(x) ( (((x) & 0xF800) << 8) | (((x) & 0x07E0) << 5) | (((x) & 0x001F)<<3) )
+#define packColor32(x) ( (x[0] << 16) | (x[1] << 8) | (x[2]) )
+// FIXME this blend could be optimized - and it's a dumb blend that
+// just averages RGB values individually, rather than trying to find a
+// sane blend of 2 pixels. Needs thought.
+#define blendPackedColor(x,y) ( (((x) & 0xFF0000) + ((y) & 0xFF0000) / 2) + (((x) & 0x00FF00) + ((y) & 0x00FF00)) / 2 + (((x) & 0x0000FF) + ((y) & 0x0000FF)) / 2 )
+
 SDLDisplay::SDLDisplay()
 {
   memset(videoBuffer, 0, sizeof(videoBuffer));
@@ -63,6 +70,7 @@ SDLDisplay::~SDLDisplay()
 
 void SDLDisplay::flush()
 {
+  blit();
   SDL_RenderPresent(renderer);
 }
 
@@ -70,7 +78,6 @@ void SDLDisplay::redraw()
 {
   // primarily for the device, where it's in and out of the
   // bios. Draws the background image.
-  printf("redraw background\n");
   g_ui->drawStaticUIElement(UIeOverlay);
 
   if (g_vm && g_ui) {
@@ -99,7 +106,9 @@ void SDLDisplay::drawImageOfSizeAt(const uint8_t *img,
 
 void SDLDisplay::blit()
 {
-  // Whole-screen blit - unimplemented here
+  // Whole-screen blit
+  AiieRect r = { 0,0,191,279 };
+  blit(r);
 }
 
 // Blit the videoBuffer to the display device, in the rect given
@@ -111,12 +120,12 @@ void SDLDisplay::blit(AiieRect r)
 
   for (uint16_t y=r.top*SDLDISPLAY_SCALE; y<r.bottom*SDLDISPLAY_SCALE; y++) {
     for (uint16_t x=r.left*SDLDISPLAY_SCALE; x<r.right*SDLDISPLAY_SCALE; x++) {
-      uint8_t colorIdx = videoBuffer[y*SDLDISPLAY_WIDTH+x];
+      uint32_t colorIdx = videoBuffer[y][x];
 
       uint8_t r, g, b;
-      r = loresPixelColors[colorIdx][0];
-      g = loresPixelColors[colorIdx][1];
-      b = loresPixelColors[colorIdx][2];
+      r = (colorIdx & 0xFF0000) >> 16;
+      g = (colorIdx & 0x00FF00) >>  8;
+      b = (colorIdx & 0x0000FF);
 
       if (g_displayType == m_monochrome) {
 	float fv = 0.2125 * r + 0.7154 * g + 0.0721 * b;
@@ -149,7 +158,11 @@ inline void putpixel(SDL_Renderer *renderer, int x, int y, uint8_t r, uint8_t g,
 
 void SDLDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
 {
-  drawPixel(x*SDLDISPLAY_SCALE, y, color);
+  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
+    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
+      videoBuffer[y*SDLDISPLAY_SCALE+yoff][x*SDLDISPLAY_SCALE+xoff] = color16To32(color);
+    }
+  }
 }
 
 void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
@@ -239,6 +252,12 @@ void SDLDisplay::clrScr(uint8_t coloridx)
   if (coloridx <= 16)
     rgbptr = loresPixelColors[coloridx];
 
+  for (uint16_t y=0; y<SDLDISPLAY_HEIGHT; y++) {
+    for (uint16_t x=0; x<SDLDISPLAY_WIDTH; x++) {
+      videoBuffer[y][x] = packColor32(loresPixelColors[coloridx]);
+    }
+  }
+
   SDL_SetRenderDrawColor(renderer, rgbptr[0], rgbptr[1], rgbptr[2], 255); // select a color
   SDL_RenderClear(renderer); // clear it to the selected color
   SDL_RenderPresent(renderer); // perform the render
@@ -258,10 +277,8 @@ void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
     // always wind up redrawing the entirety. So we can look at the pixel in
     // the "shared" cell of RAM, and come up with a color between the two.
     if (x&1) {
-      uint8_t origColor = videoBuffer[(y*SDLDISPLAY_SCALE)*SDLDISPLAY_WIDTH+(x>>1)*SDLDISPLAY_SCALE];
-
-      uint8_t newColor = (uint16_t) (origColor + color) / 2;
-
+      uint32_t origColor = videoBuffer[y][(x>>1)*SDLDISPLAY_SCALE];
+      uint32_t newColor = blendPackedColor(origColor, packColor32(loresPixelColors[color]));
       cacheDoubleWidePixel(x>>1,y,newColor);
       // Else if it's black, we leave whatever was in the other pixel.
     } else {
@@ -274,7 +291,7 @@ void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
     x = (x * SDLDISPLAY_SCALE)/2;
     for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
       for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-	videoBuffer[(y*SDLDISPLAY_SCALE+yoff)*SDLDISPLAY_WIDTH+x+xoff] = color;
+	videoBuffer[(y*SDLDISPLAY_SCALE+yoff)][x+xoff] = packColor32(loresPixelColors[color]);
       }
     }
   }
@@ -285,7 +302,16 @@ void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
 {
   for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
     for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)*SDLDISPLAY_WIDTH+x*SDLDISPLAY_SCALE+xoff] = color;
+      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)][x*SDLDISPLAY_SCALE+xoff] = packColor32(loresPixelColors[color]);
+    }
+  }
+}
+
+void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint32_t packedColor)
+{
+  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
+    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
+      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)][x*SDLDISPLAY_SCALE+xoff] = packedColor;
     }
   }
 }
@@ -294,8 +320,8 @@ void SDLDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorB, 
 {
   for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
     for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)*SDLDISPLAY_WIDTH+x*SDLDISPLAY_SCALE+2*xoff] = colorA;
-      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)*SDLDISPLAY_WIDTH+x*SDLDISPLAY_SCALE+1+2*xoff] = colorB;
+      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)][x*SDLDISPLAY_SCALE+2*xoff] = packColor32(loresPixelColors[colorA]);
+      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)][x*SDLDISPLAY_SCALE+1+2*xoff] = packColor32(loresPixelColors[colorB]);
     }
   }
 }

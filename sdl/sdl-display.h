@@ -38,11 +38,12 @@ class SDLDisplay : public PhysicalDisplay {
 
   virtual void cachePixel(uint16_t x, uint16_t y, uint8_t color);
   virtual void cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color);
+  void cacheDoubleWidePixel(uint16_t x, uint16_t y, uint32_t packedColor);
   virtual void cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorA, uint8_t colorB);
 
 
  private:
-  uint8_t videoBuffer[SDLDISPLAY_HEIGHT * SDLDISPLAY_WIDTH];
+  uint32_t videoBuffer[SDLDISPLAY_HEIGHT][SDLDISPLAY_WIDTH];
 
   SDL_Window *screen;
   SDL_Renderer *renderer;
