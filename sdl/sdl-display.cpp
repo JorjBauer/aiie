@@ -263,38 +263,41 @@ void SDLDisplay::clrScr(uint8_t coloridx)
   SDL_RenderPresent(renderer); // perform the render
 }
 
-// This was called with the expectation that it can draw every one of
-// the 560x192 pixels that could be addressed. The SDLDISPLAY_SCALE is
-// basically half the X scale - so a 320-pixel-wide screen can show 40
-// columns fine, which means that we need to be creative for 80 columns,
-// which need to be alpha-blended...
+// This was called with the expectation that it can draw every one of                                
+// the 560x192 pixels that could be addressed. If TEENSYDISPLAY_SCALE                                
+// is 1, then we have half of that horizontal resolution - so we need                                
+// to be creative and blend neighboring pixels together.                                             
 void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 {
-  if (SDLDISPLAY_SCALE == 1) {
-    // we need to alpha blend the X because there aren't enough screen pixels.
-    // This takes advantage of the fact that we always call this linearly
-    // for the 80-column text -- we never (?) do partial screen blits, but
-    // always wind up redrawing the entirety. So we can look at the pixel in
-    // the "shared" cell of RAM, and come up with a color between the two.
-    if (x&1) {
-      uint32_t origColor = videoBuffer[y][(x>>1)*SDLDISPLAY_SCALE];
-      uint32_t newColor = blendPackedColor(origColor, packColor32(loresPixelColors[color]));
-      cacheDoubleWidePixel(x>>1,y,newColor);
-      // Else if it's black, we leave whatever was in the other pixel.
+#if SDLDISPLAY_SCALE == 1
+  // This is the case where we need to blend together neighboring                                    
+  // pixels, because we don't have enough physical screen resoultion.                                
+  
+  if (x&1) {
+    uint32_t origColor = videoBuffer[y][(x>>1)*SDLDISPLAY_SCALE];
+    uint32_t newColor = packColor32(loresPixelColors[color]);
+    if (g_displayType == m_blackAndWhite) {
+      // FIXME: the two possible sets here of 'origColor && newColor' or 'origColor||newColor'
+      // work well for black-on-white and white-on-black. But neither is good in the other.
+      cacheDoubleWidePixel(x>>1,y,(uint32_t)((origColor && newColor) ? 0xFFFFFF : 0x000000));
     } else {
-      // The even pixels always draw.
-      cacheDoubleWidePixel(x>>1,y,color);
+      cacheDoubleWidePixel(x>>1,y,(uint32_t)blendPackedColor(origColor, newColor));
     }
-    
+    // Else if it's black, we leave whatever was in the other pixel.
   } else {
-    // we have enough resolution to show all the pixels, so just do it
-    x = (x * SDLDISPLAY_SCALE)/2;
-    for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
-      for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-	videoBuffer[(y*SDLDISPLAY_SCALE+yoff)][x+xoff] = packColor32(loresPixelColors[color]);
-      }
+    // The even pixels always draw.
+    cacheDoubleWidePixel(x>>1,y,color);
+  }
+#else
+  // we have enough resolution to show all the pixels, so just do it
+  x = (x * SDLDISPLAY_SCALE)/2;
+  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
+    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
+      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)][x+xoff] = packColor32(loresPixelColors[color]);
     }
   }
+#endif
+  
 }
 
 // "DoubleWide" means "please double the X because I'm in low-res width mode"
