@@ -496,7 +496,7 @@ uint16_t BIOS::DisksMenuHandler(bool needsRedraw, bool performAction)
 	localRedraw = true;
 	break;
       } else {
-	strcpy(fileFilter, "img");
+	strcpy(fileFilter, "img,hdv");
 	fileSelectionFor = ACT_HD1;
 	return BIOS_SELECTFILE;
       }
