@@ -124,20 +124,34 @@ static uint8_t usb_scanmap[256] = {
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, // 240-249
   0, 0, 0, 0, 0, 0 // 250-255
 };
-  
+	
+uint8_t keysPressed[256]; // FIXME: if we need to save RAM, make this bitflags
+
 void onKeypress(uint8_t keycode)
 {
+  if (keysPressed[keycode])
+    return; // defeat auto-repeat
+  if (!usb_scanmap[keycode])
+    return; // skip undefined keys
+
   if (keycode == 67 || keycode == 70) {
     // F10 or PrtSc/SysRq are interrupt buttons. Probably needs to be
     // configurable somehow...
     g_biosInterrupt = true;
   } else {
+    keysPressed[keycode] = 1;
     ((TeensyKeyboard *)g_keyboard)->pressedKey(usb_scanmap[keycode]);
   }
 }
 
 void onKeyrelease(uint8_t keycode)
 {
+  if (!keysPressed[keycode])
+    return; // defeat auto-repeat
+  if (!usb_scanmap[keycode])
+    return; // skip undefined keys
+
+  keysPressed[keycode] = 0;
   ((TeensyKeyboard *)g_keyboard)->releasedKey(usb_scanmap[keycode]);
 }
 
@@ -160,6 +174,7 @@ void setup()
 //  enableFaultHandler();
 //  SCB_SHCSR |= SCB_SHCSR_BUSFAULTENA | SCB_SHCSR_USGFAULTENA | SCB_SHCSR_MEMFAULTENA;
 
+  memset(keysPressed, 0, sizeof(keysPressed));
 
   // set the Time library to use Teensy 3.0's RTC to keep time
   setSyncProvider(getTeensy3Time);

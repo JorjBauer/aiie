@@ -33,10 +33,15 @@ uint8_t kbEventCount = 0;
 uint8_t kbEventHead = 0;
 uint8_t kbEventPtr = 0;
 
-bool addEvent(uint8_t kc, bool pressed)
+bool TeensyKeyboard::addEvent(uint8_t kc, bool pressed)
 {
   if (kbEventCount >= MAXKBEVENTS)
     return false;
+
+  if (pressed && kbEventCount+numPressed >= MAXKBEVENTS) {
+    // save space in the event queue for any keyup events that may come
+    return false;
+  }
 
   keyboardEvents[kbEventPtr].keycode = kc;
   keyboardEvents[kbEventPtr++].pressedIfTrue = pressed;
@@ -44,7 +49,7 @@ bool addEvent(uint8_t kc, bool pressed)
   kbEventCount++;
 }
 
-bool popEvent(uint8_t *kc, bool *pressed)
+bool TeensyKeyboard::popEvent(uint8_t *kc, bool *pressed)
 {
   if (kbEventCount) {
     *kc = keyboardEvents[kbEventHead].keycode;
@@ -258,12 +263,8 @@ void TeensyKeyboard::maintainKeyboard()
     bool pressed;
     if (popEvent(&kc, &pressed)) {
       if (pressed) {
-	sprintf(debugBuf, "%d press  ", kc);
-	g_display->debugMsg(debugBuf);
 	vmkeyboard->keyDepressed(kc);
       } else {
-	sprintf(debugBuf, "%d relsd  ", kc);
-	g_display->debugMsg(debugBuf);
 	vmkeyboard->keyReleased(kc);
       }
     }

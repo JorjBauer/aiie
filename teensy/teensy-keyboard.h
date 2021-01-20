@@ -21,6 +21,10 @@ class TeensyKeyboard : public PhysicalKeyboard {
   void pressedKey(uint8_t key);
   void releasedKey(uint8_t key);
 
+private:
+  bool addEvent(uint8_t kc, bool pressed);
+  bool popEvent(uint8_t *kc, bool *pressed);
+
  private:
   bool leftShiftPressed;
   bool rightShiftPressed;
