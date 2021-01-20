@@ -16,8 +16,6 @@
 #include "teensy-println.h"
 #include "smalloc.h"
 
-#include "iocompat.h"
-
 //#define DEBUG_TIMING
 
 #if F_CPU < 240000000
@@ -129,17 +127,18 @@ static uint8_t usb_scanmap[256] = {
   
 void onKeypress(uint8_t keycode)
 {
-  if (keycode == 67) {
-    // F10 is our interrupt button; FIXME this probably needs to be adjustable
+  if (keycode == 67 || keycode == 70) {
+    // F10 or PrtSc/SysRq are interrupt buttons. Probably needs to be
+    // configurable somehow...
     g_biosInterrupt = true;
   } else {
-    ((AppleVM *)g_vm)->getKeyboard()->keyDepressed(usb_scanmap[keycode]);
+    ((TeensyKeyboard *)g_keyboard)->pressedKey(usb_scanmap[keycode]);
   }
 }
 
 void onKeyrelease(uint8_t keycode)
 {
-  ((AppleVM *)g_vm)->getKeyboard()->keyReleased(usb_scanmap[keycode]);
+  ((TeensyKeyboard *)g_keyboard)->releasedKey(usb_scanmap[keycode]);
 }
 
 void setup()

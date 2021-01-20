@@ -16,7 +16,8 @@ class TeensyKeyboard : public PhysicalKeyboard {
   virtual int8_t read();
 
 
- private:
+ public:
+  // These are only public b/c teensy.ino (not a class) needs them.
   void pressedKey(uint8_t key);
   void releasedKey(uint8_t key);
 
