@@ -21,8 +21,11 @@ bool g_invertPaddleY = false;
 
 uint8_t g_luminanceCutoff = 122; // reasonable values are 127 and 128 for 32-bit (SDL); and 122/123 for 16-bit (teensy) depending on whether we're talking about white-on-black or black-on-white
 
+#ifdef TEENSYDUINO
+EXTMEM
+#endif
 char debugBuf[255];
 
 #ifdef TEENSYDUINO
-char fsbuf[200];
+EXTMEM char fsbuf[200];
 #endif

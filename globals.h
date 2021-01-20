@@ -1,6 +1,10 @@
 #ifndef __GLOBALS_H
 #define __GLOBALS_H
 
+#ifdef TEENSYDUINO
+#include <Arduino.h>
+#endif
+
 #include <stdint.h>
 
 #include "filemanager.h"
