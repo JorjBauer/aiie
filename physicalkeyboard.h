@@ -22,6 +22,9 @@
 #define PK_LA    0x85 // left (open) apple, aka paddle0 button
 #define PK_RA    0x86 // right (closed) apple aka paddle1 button
 
+#define PK_NONE  0xFF // not a key; but 0x00 is used internally by the
+		      // library, and I don't want to harsh its buzz
+
 class PhysicalKeyboard {
  public:
   PhysicalKeyboard(VMKeyboard *k) { this->vmkeyboard = k; }

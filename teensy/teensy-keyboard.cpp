@@ -13,8 +13,8 @@ char keys[ROWS][COLS] = {
   {  '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', PK_DEL },
   {  PK_ESC, 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']' },
   { PK_CTRL, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', PK_RET },
-  { PK_LSHFT, 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', PK_RSHFT, 0 },
-  { PK_LOCK, '`', PK_TAB, '\\', PK_LA, ' ', PK_RA, PK_LARR, PK_RARR, PK_DARR, PK_UARR, 0, 0 }
+  { PK_LSHFT, 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', PK_RSHFT, PK_NONE },
+  { PK_LOCK, '`', PK_TAB, '\\', PK_LA, ' ', PK_RA, PK_LARR, PK_RARR, PK_DARR, PK_UARR, PK_NONE, PK_NONE }
 };
 
 uint8_t rowsPins[ROWS] = { 33, 34, 35, 36, 37 };
@@ -81,8 +81,8 @@ static uint8_t shiftedNumber[] = { '<', // ,
 
 TeensyKeyboard::TeensyKeyboard(VMKeyboard *k) : PhysicalKeyboard(k)
 {
-  keypad.setDebounceTime(5);
-
+  keypad.setDebounceTime(10);
+  
   leftShiftPressed = false;
   rightShiftPressed = false;
   ctrlPressed = false;
@@ -100,7 +100,6 @@ TeensyKeyboard::~TeensyKeyboard()
 void TeensyKeyboard::pressedKey(uint8_t key)
 {
   numPressed++;
-
   if (key & 0x80) {
     // it's a modifier key.
     switch (key) {
@@ -124,6 +123,7 @@ void TeensyKeyboard::pressedKey(uint8_t key)
       rightApplePressed = 1;
       break;
     }
+    addEvent(key, true);
     return;
   }
 
@@ -219,7 +219,7 @@ bool TeensyKeyboard::kbhit()
 {
   if (keypad.getKeys()) {
     for (int i=0; i<LIST_MAX; i++) {
-      if ( keypad.key[i].stateChanged ) {
+      if ( keypad.key[i].stateChanged && keypad.key[i].kchar != PK_NONE ) {
         switch (keypad.key[i].kstate) {
 	case PRESSED:
 	  pressedKey(keypad.key[i].kchar);
