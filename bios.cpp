@@ -181,7 +181,7 @@ bool BIOS::loop()
 
   bool hitReturn = false;
   
-  uint16_t rv;
+  uint16_t rv = BIOS_DONE;
   bool changingMenu = false;
   if (g_keyboard->kbhit()) {
     switch (g_keyboard->read()) {
