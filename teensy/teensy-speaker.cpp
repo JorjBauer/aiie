@@ -124,7 +124,9 @@ void TeensySpeaker::toggle(int64_t c)
   if (newIdx > bufIdx) {
     long count = (long)newIdx - bufIdx;
     for (long i=0; i<count; i++) {
-      soundBuf[bufIdx+i] = toggleState ? HIGHVAL : LOWVAL;
+      if (bufIdx+i+1 < sizeof(soundBuf)/sizeof(short)) {
+	soundBuf[bufIdx+i] = toggleState ? HIGHVAL : LOWVAL;
+      }
     }
     bufIdx = newIdx;
   }
