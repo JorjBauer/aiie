@@ -81,6 +81,12 @@ static uint8_t shiftedNumber[] = { '<', // ,
 
 TeensyKeyboard::TeensyKeyboard(VMKeyboard *k) : PhysicalKeyboard(k)
 {
+  // Need to set the rows to be pull-ups early, so the pullups have
+  // time to settle -- otherwise we get a phantom set of keypresses
+  // on startup for all the keys in the first column
+  for (byte i=0; i<ROWS; i++) {
+    pinMode(rowsPins[i], INPUT_PULLUP);
+  }
   keypad.setDebounceTime(10);
   
   leftShiftPressed = false;
