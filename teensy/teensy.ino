@@ -125,7 +125,7 @@ static uint8_t usb_scanmap[256] = {
   0, 0, 0, 0, 0, 0 // 250-255
 };
 	
-uint8_t keysPressed[256]; // FIXME: if we need to save RAM, make this bitflags
+EXTMEM uint8_t keysPressed[256]; // FIXME: if we need to save RAM, make this bitflags
 
 void onKeypress(uint8_t keycode)
 {
@@ -163,6 +163,7 @@ void setup()
   while (!Serial) {
     yield();
   }
+  delay(2000);
 #endif
   delay(200); // let the power settle & serial to get its bearings
 
@@ -212,11 +213,6 @@ void setup()
   println(" cpu");
   g_cpu = new Cpu();
 
-  println(" usb");
-  usb.init();
-  usb.attachKeypress(onKeypress);
-  usb.attachKeyrelease(onKeyrelease);
-
   // Create the virtual machine. This may read from g_filemanager to
   // get ROMs if necessary.  (The actual Apple VM we've built has them
   // compiled in, though.) It will create its virutal hardware (MMU,
@@ -230,13 +226,23 @@ void setup()
   println("  [setMMU]");
   g_cpu->SetMMU(g_vm->getMMU());
 
+  // the paddles are used by the teensy mouse
+  println(" paddles");
+  g_paddles = new TeensyPaddles(A3, A2, g_invertPaddleX, g_invertPaddleY);
+
+  // The keyboard reaches in to the mouse
+  println(" mouse");
+  g_mouse = new TeensyMouse();
+  
   // And the physical keyboard needs hooks in to the virtual keyboard...
   println(" keyboard");
   g_keyboard = new TeensyKeyboard(g_vm->getKeyboard());
-  g_mouse = new TeensyMouse();
 
-  println(" paddles");
-  g_paddles = new TeensyPaddles(A3, A2, g_invertPaddleX, g_invertPaddleY);
+  // the usb keyboard piggybacks on g_keyboard
+  println(" usb");
+  usb.init();
+  usb.attachKeypress(onKeypress);
+  usb.attachKeyrelease(onKeyrelease);
 
   // Now that all the virtual hardware is glued together, reset the VM
   println("Resetting VM");
@@ -246,11 +252,6 @@ void setup()
   readPrefs(); // read from eeprom and set anything we need setting
   g_speaker->begin(); // let the speaker reset its volume from g_volume
   
-  // Debugging: insert a disk on startup...
-  //((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/UTIL/mock2dem.dsk", false);
-  //((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/JORJ/disk_s6d1.dsk", false);
-  //  ((AppleVM *)g_vm)->insertDisk(0, "/A2DISKS/GAMES/ALIBABA.DSK", false);
-
   resetButtonDebouncer.attach(RESETPIN);
   resetButtonDebouncer.interval(5); // ms
 
