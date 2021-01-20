@@ -524,7 +524,7 @@ uint16_t BIOS::DisksMenuHandler(bool needsRedraw, bool performAction)
 	localRedraw = true;
 	break;
       } else {
-	strcpy(fileFilter, "img");
+	strcpy(fileFilter, "img,hdv");
 	fileSelectionFor = ACT_HD2;
 	return BIOS_SELECTFILE;
       }
@@ -1214,11 +1214,15 @@ uint16_t BIOS::cacheAllEntries(const char *filter)
     struct _cacheEntry *ce = &biosCache[numCacheEntries];
     idx = g_filemanager->readDir(rootPath, filter, ce->fn, idx, BIOS_MAXPATH);
     if (idx == -1) {
+      // add a terminating entry
+      biosCache[numCacheEntries].fn[0] = '\0';
       return numCacheEntries;
     }
     idx++;
     numCacheEntries++;
-    if (numCacheEntries >= BIOSCACHESIZE-1) {
+    if (numCacheEntries >= BIOSCACHESIZE-2) {
+      // need a terminating entry
+      biosCache[BIOSCACHESIZE-1].fn[0] = '\0';
       return numCacheEntries;
     }
   }
