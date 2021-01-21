@@ -79,6 +79,15 @@ These libraries I'm using right from Teensy's environment: TimerOne;
 SPI; EEPROM; Time; Keypad; SdFat (previously called "SdFat-beta" but
 renamed in TeensyDuino 1.54).
 
+You'll also need the ILI9341_t3n library from
+
+       https://github.com/KurtE/ILI9341_t3n/
+
+I'm using it at tag f1bfb81825c60e39e011e502fe5c39a04305e1dc - not
+because that tag is special, but because that's when I checked out the
+repo. I haven't tested newer code and if you have problems, you'll
+want to roll back to that tag.
+
 # Running (on the Teensy)
 
 The reset/menu button brings up a BIOS menu with options like:
