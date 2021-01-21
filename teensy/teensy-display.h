@@ -26,10 +26,10 @@ class TeensyDisplay : public PhysicalDisplay {
   virtual void clrScr(uint8_t coloridx);
   virtual void flush();
 
-  virtual void drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c);
-  virtual void drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str);
+  virtual void drawCharacter(uint8_t mode, uint16_t x, uint16_t y, char c);
+  virtual void drawString(uint8_t mode, uint16_t x, uint16_t y, const char *str);
 
-  virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint8_t sizey, uint16_t wherex, uint8_t wherey);
+  virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint16_t sizey, uint16_t wherex, uint16_t wherey);
 
   void cacheDoubleWidePixel(uint16_t x, uint16_t y, uint16_t color16);
   virtual void cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color);

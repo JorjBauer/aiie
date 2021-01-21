@@ -101,10 +101,10 @@ void SDLDisplay::redraw()
 // images themselves aren't aware of the double resolution. This is an
 // inconsistency that probably should be addressed. FIXME?
 void SDLDisplay::drawImageOfSizeAt(const uint8_t *img,
-				   uint16_t sizex, uint8_t sizey,
-				   uint16_t wherex, uint8_t wherey)
+				   uint16_t sizex, uint16_t sizey,
+				   uint16_t wherex, uint16_t wherey)
 {
-  for (uint8_t y=0; y<sizey; y++) {
+  for (uint16_t y=0; y<sizey; y++) {
     for (uint16_t x=0; x<sizex; x++) {
       const uint8_t *p = &img[(y * sizex + x)*3];
       p = &img[(y * sizex + x)*3];
@@ -189,7 +189,7 @@ void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t
   }
 }
 
-void SDLDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
+void SDLDisplay::drawCharacter(uint8_t mode, uint16_t x, uint16_t y, char c)
 {
   int8_t xsize = 8,
     ysize = 0x07;
@@ -234,7 +234,7 @@ void SDLDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
   }
 }
 
-void SDLDisplay::drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str)
+void SDLDisplay::drawString(uint8_t mode, uint16_t x, uint16_t y, const char *str)
 {
   int8_t xsize = 8; // width of a char in this font
   

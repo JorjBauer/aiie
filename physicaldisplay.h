@@ -15,10 +15,10 @@ class PhysicalDisplay {
   virtual void blit() = 0;             // blit everything to the display (including UI area)
   virtual void blit(AiieRect r) = 0;   // blit a piece of the VM area to the display
 
-  virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint8_t sizey, uint16_t wherex, uint8_t wherey) = 0;
+  virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint16_t sizey, uint16_t wherex, uint16_t wherey) = 0;
 
-  virtual void drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c) = 0;
-  virtual void drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str) = 0;
+  virtual void drawCharacter(uint8_t mode, uint16_t x, uint16_t y, char c) = 0;
+  virtual void drawString(uint8_t mode, uint16_t x, uint16_t y, const char *str) = 0;
   virtual void debugMsg(const char *msg) {   strncpy(overlayMessage, msg, sizeof(overlayMessage));overlayMessage[strlen(overlayMessage)] = 0; }
 
   virtual void drawPixel(uint16_t x, uint16_t y, uint16_t color) = 0;

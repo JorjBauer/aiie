@@ -169,7 +169,6 @@ void SDLKeyboard::maintainKeyboard()
       // didn't belong here, but this REALLY is wrong.
     case SDL_WINDOWEVENT:
       if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
-	printf("Window was resized\n");
 	((SDLDisplay *)g_display)->windowResized(event.window.data1, event.window.data2);
       }
       break;

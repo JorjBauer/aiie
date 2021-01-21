@@ -100,13 +100,13 @@ void TeensyDisplay::redraw()
 }
 
 void TeensyDisplay::drawImageOfSizeAt(const uint8_t *img, 
-				      uint16_t sizex, uint8_t sizey, 
-				      uint16_t wherex, uint8_t wherey)
+				      uint16_t sizex, uint16_t sizey, 
+				      uint16_t wherex, uint16_t wherey)
 {
   uint8_t r, g, b;
 
   // FIXME this needs to scale with TEENSYDISPLAY_SCALE
-  for (uint8_t y=0; y<sizey; y++) {
+  for (uint16_t y=0; y<sizey; y++) {
     for (uint16_t x=0; x<sizex; x++) {
       r = pgm_read_byte(&img[(y*sizex + x)*3 + 0]);
       g = pgm_read_byte(&img[(y*sizex + x)*3 + 1]);
@@ -157,7 +157,7 @@ void TeensyDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint
   drawPixel(x,y,color16);
 }
 
-void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
+void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint16_t y, char c)
 {
   int8_t xsize = 8,
     ysize = 0x07;
@@ -201,7 +201,7 @@ void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c)
   }
 }
 
-void TeensyDisplay::drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str)
+void TeensyDisplay::drawString(uint8_t mode, uint16_t x, uint16_t y, const char *str)
 {
   int8_t xsize = 8; // width of a char in this font                                                 
 
@@ -224,7 +224,7 @@ void TeensyDisplay::clrScr(uint8_t coloridx)
       color16 = loresPixelColors[coloridx];
     // This could be faster - make one line, then memcpy the line to the other
     // lines?
-    for (uint8_t y=0; y<TEENSYDISPLAY_HEIGHT; y++) {
+    for (uint16_t y=0; y<TEENSYDISPLAY_HEIGHT; y++) {
       for (uint16_t x=0; x<TEENSYDISPLAY_WIDTH; x++) {
 	dmaBuffer[y][x] = color16;
       }

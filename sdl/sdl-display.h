@@ -25,15 +25,15 @@ class SDLDisplay : public PhysicalDisplay {
 
   virtual void flush();
 
-  virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint8_t sizey, uint16_t wherex, uint8_t wherey);
+  virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint16_t sizey, uint16_t wherex, uint16_t wherey);
 
   virtual void drawPixel(uint16_t x, uint16_t y, uint16_t color);
   virtual void drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b);
 
   virtual void drawUIPixel(uint16_t x, uint16_t y, uint16_t color);
 
-  virtual void drawCharacter(uint8_t mode, uint16_t x, uint8_t y, char c);
-  virtual void drawString(uint8_t mode, uint16_t x, uint8_t y, const char *str);
+  virtual void drawCharacter(uint8_t mode, uint16_t x, uint16_t y, char c);
+  virtual void drawString(uint8_t mode, uint16_t x, uint16_t y, const char *str);
   virtual void clrScr(uint8_t coloridx);
 
   virtual void cachePixel(uint16_t x, uint16_t y, uint8_t color);
