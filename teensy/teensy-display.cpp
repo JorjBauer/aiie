@@ -17,7 +17,7 @@ extern const unsigned char interface_glyphs[256];
 #include "applevm.h"
 
 #include <SPI.h>
-#define _clock 75000000
+#define _clock 50000000
 
 
 #define PIN_RST 8
@@ -105,6 +105,7 @@ void TeensyDisplay::drawImageOfSizeAt(const uint8_t *img,
 {
   uint8_t r, g, b;
 
+  // FIXME this needs to scale with TEENSYDISPLAY_SCALE
   for (uint8_t y=0; y<sizey; y++) {
     for (uint16_t x=0; x<sizex; x++) {
       r = pgm_read_byte(&img[(y*sizex + x)*3 + 0]);
