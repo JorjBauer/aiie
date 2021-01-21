@@ -659,12 +659,14 @@ uint16_t BIOS::PaddlesScreenHandler(bool needsRedraw, bool performAction)
   static uint8_t lastPaddleX = g_paddles->paddle0();
   static uint8_t lastPaddleY = g_paddles->paddle1();
 
-  if (g_paddles->paddle0() != lastPaddleX) {
-    lastPaddleX = g_paddles->paddle0();
+  uint8_t paddle = g_paddles->paddle0();
+  if (paddle != lastPaddleX) {
+    lastPaddleX = paddle;
     localRedraw = true;
   }
-  if (g_paddles->paddle1() != lastPaddleY) {
-    lastPaddleY = g_paddles->paddle1();
+  paddle = g_paddles->paddle1();
+  if (paddle != lastPaddleY) {
+    lastPaddleY = paddle;
     localRedraw = true;
   }
   
@@ -675,7 +677,32 @@ uint16_t BIOS::PaddlesScreenHandler(bool needsRedraw, bool performAction)
     g_display->drawString(M_NORMAL, 0, 12, buf);
     sprintf(buf, "Paddle Y: %d    ", lastPaddleY);
     g_display->drawString(M_NORMAL, 0, 42, buf);
-    g_display->drawString(M_NORMAL, 0, 92, "Press return to exit");
+    g_display->drawString(M_NORMAL, 0, 132, "Press return to exit");
+
+    // Draw the target for the paddle position
+    for (uint16_t y=10; y<=110; y++) {
+      for (uint16_t x=160; x<=260; x++) {
+	g_display->drawUIPixel(x, y, 0x0000);
+	g_display->drawUIPixel(x, 10, 0xFFFF);
+	g_display->drawUIPixel(x, 110, 0xFFFF);
+      }
+      g_display->drawUIPixel(160, y, 0xFFFF);
+      g_display->drawUIPixel(260, y, 0xFFFF);
+    }
+
+    for (uint16_t y=57; y<=63; y++) {
+      g_display->drawUIPixel(207,y,0xFFFF);
+      g_display->drawUIPixel(213,y,0xFFFF);
+    }
+    for (uint16_t x=207; x<=213; x++) {
+      g_display->drawUIPixel(x,57,0xFFFF);
+      g_display->drawUIPixel(x,63,0xFFFF);
+    }
+
+    float drawX = ((float)lastPaddleX/255.0)*100.0;
+    float drawY = ((float)lastPaddleY/255.0)*100.0;
+    g_display->drawUIPixel(160+drawX, 10+drawY, 0xFFFF);
+    
     g_display->flush();
 
     localRedraw = false;

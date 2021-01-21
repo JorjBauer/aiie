@@ -189,8 +189,17 @@ bool SDLKeyboard::kbhit()
     if (event.type == SDL_QUIT) {
       exit(0);
     }
-    
-    if (event.type == SDL_KEYDOWN) {
+
+    if (event.type == SDL_MOUSEMOTION) {
+      // We are handling the SDL input loop, so need to pass this off to the paddles. :/
+      // FIXME: nasty rooting around in other objects and typecasting.
+      // FIXME: event.motion.state & SDL_BUTTON_LMASK, et al?
+      
+      ((SDLPaddles *)g_paddles)->gotMouseMovement(event.motion.x, event.motion.y);
+      ((SDLMouse *)g_mouse)->gotMouseEvent(event.motion.state, // button
+					   event.motion.xrel, event.motion.yrel);
+
+    } else if (event.type == SDL_KEYDOWN) {
       SDL_KeyboardEvent *key = &event.key;
       
       if ( (key->keysym.sym >= 'a' && key->keysym.sym <= 'z') ||
