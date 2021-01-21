@@ -57,7 +57,7 @@ SDLDisplay::SDLDisplay()
 			    SDL_WINDOWPOS_UNDEFINED,
 			    SDL_WINDOWPOS_UNDEFINED,
 			    SDLDISPLAY_WIDTH, SDLDISPLAY_HEIGHT,
-			    SDL_WINDOW_SHOWN);
+			    SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE);
 
   // SDL_RENDERER_SOFTWARE because, at least on my Mac, this has some
   // serious issues with hardware accelerated drawing (flashing and crashing).
@@ -65,6 +65,12 @@ SDLDisplay::SDLDisplay()
   SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255); // set to white
   SDL_RenderClear(renderer); // clear it to the selected color
   SDL_RenderPresent(renderer); // perform the render
+
+  buffer = SDL_CreateTexture(renderer,
+                           SDL_PIXELFORMAT_RGB888,
+                           SDL_TEXTUREACCESS_STREAMING, 
+                           SDLDISPLAY_WIDTH,
+                           SDLDISPLAY_HEIGHT);
 }
 
 SDLDisplay::~SDLDisplay()
@@ -102,56 +108,45 @@ void SDLDisplay::drawImageOfSizeAt(const uint8_t *img,
     for (uint16_t x=0; x<sizex; x++) {
       const uint8_t *p = &img[(y * sizex + x)*3];
       p = &img[(y * sizex + x)*3];
-      drawPixel((x+wherex)*SDLDISPLAY_SCALE, y+wherey, p[0], p[1], p[2]);
-      drawPixel((x+wherex)*SDLDISPLAY_SCALE+1, y+wherey, p[0], p[1], p[2]);
+
+      // FIXME this assumes scale == 2
+      
+      videoBuffer[(y+wherey)*SDLDISPLAY_SCALE][(x+wherex)*SDLDISPLAY_SCALE] = packColor32(p);
+      videoBuffer[(y+wherey)*SDLDISPLAY_SCALE][(x+wherex)*SDLDISPLAY_SCALE+1] = packColor32(p);
+      videoBuffer[(y+wherey)*SDLDISPLAY_SCALE+1][(x+wherex)*SDLDISPLAY_SCALE] = packColor32(p);
+      videoBuffer[(y+wherey)*SDLDISPLAY_SCALE+1][(x+wherex)*SDLDISPLAY_SCALE+1] = packColor32(p);
     }
   }
 }
 
 void SDLDisplay::blit()
 {
-  // Whole-screen blit
-  AiieRect r = { 0,0,191,279 };
-  blit(r);
+  uint32_t *pixels = NULL;
+  int pitch = 0;
+  SDL_LockTexture(buffer,
+		  NULL,      // NULL means the *whole texture* here.
+		  (void **)&pixels,
+		  &pitch);
+  // FIXME what if pitch isn't as expected? Should be width*4
+  
+  memcpy(pixels, videoBuffer, sizeof(videoBuffer));
+  
+  SDL_UnlockTexture(buffer);
+  SDL_RenderCopy(renderer, buffer, NULL, NULL);
+  SDL_RenderPresent(renderer);
 }
 
 // Blit the videoBuffer to the display device, in the rect given
 void SDLDisplay::blit(AiieRect r)
 {
-  // The dimensions here are the dimensions of the variable screen --
-  // not the border. We don't support updating the border *except* by
-  // drawing directly to the screen device...
-
-  for (uint16_t y=r.top*SDLDISPLAY_SCALE; y<r.bottom*SDLDISPLAY_SCALE; y++) {
-    for (uint16_t x=r.left*SDLDISPLAY_SCALE; x<r.right*SDLDISPLAY_SCALE; x++) {
-      uint32_t colorIdx = videoBuffer[y][x];
-
-      uint8_t r, g, b;
-      r = (colorIdx & 0xFF0000) >> 16;
-      g = (colorIdx & 0x00FF00) >>  8;
-      b = (colorIdx & 0x0000FF);
-
-      if (g_displayType == m_monochrome) {
-	//	float fv = 0.2125 * r + 0.7154 * g + 0.0721 * b;
-	//	r = b = 0;
-	//	g = fv;
-      }
-      else if (g_displayType == m_blackAndWhite) {
-	// Used to reduce to B&W in this driver, but now it's up in the apple display
-	//	float fv = 0.2125 * r + 0.7154 * g + 0.0721 * b;
-	//	r = g = b = fv;
-      }
-
-      SDL_SetRenderDrawColor(renderer, r, g, b, 255);
-      SDL_RenderDrawPoint(renderer, x+SCREENINSET_X, y+SCREENINSET_Y);
-    }
-  }
-
+  blit();
+  /*
   if (overlayMessage[0]) {
     drawString(M_SELECTDISABLED, 1, 240 - 16 - 12, overlayMessage);
   }
 
   SDL_RenderPresent(renderer);
+  */
 }
 
 inline void putpixel(SDL_Renderer *renderer, int x, int y, uint8_t r, uint8_t g, uint8_t b)
@@ -164,7 +159,7 @@ void SDLDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
 {
   for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
     for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      videoBuffer[y*SDLDISPLAY_SCALE+yoff][x*SDLDISPLAY_SCALE+xoff] = color16To32(color);
+      videoBuffer[y*SDLDISPLAY_SCALE+yoff+SCREENINSET_Y][x*SDLDISPLAY_SCALE+xoff+SCREENINSET_X] = color16To32(color);
     }
   }
 }
@@ -256,15 +251,13 @@ void SDLDisplay::clrScr(uint8_t coloridx)
   if (coloridx <= 16)
     rgbptr = loresPixelColors[coloridx];
 
+  uint32_t packedColor = packColor32(loresPixelColors[coloridx]);
+  
   for (uint16_t y=0; y<SDLDISPLAY_HEIGHT; y++) {
     for (uint16_t x=0; x<SDLDISPLAY_WIDTH; x++) {
-      videoBuffer[y][x] = packColor32(loresPixelColors[coloridx]);
+      videoBuffer[y][x] = packedColor;
     }
   }
-
-  SDL_SetRenderDrawColor(renderer, rgbptr[0], rgbptr[1], rgbptr[2], 255); // select a color
-  SDL_RenderClear(renderer); // clear it to the selected color
-  SDL_RenderPresent(renderer); // perform the render
 }
 
 // This was called with the expectation that it can draw every one of
@@ -278,7 +271,7 @@ void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
   // pixels, because we don't have enough physical screen resoultion.
   
   if (x&1) {
-    uint32_t origColor = videoBuffer[y][(x>>1)*SDLDISPLAY_SCALE];
+    uint32_t origColor = videoBuffer[y+SCREENINSET_Y][(x>>1)*SDLDISPLAY_SCALE+SCREENINSET_X];
     uint32_t newColor = packColor32(loresPixelColors[color]);
     if (g_displayType == m_blackAndWhite) {
       // There are four reasonable decisions here: if either pixel
@@ -306,7 +299,7 @@ void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
   x = (x * SDLDISPLAY_SCALE)/2;
   for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
     for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)][x+xoff] = packColor32(loresPixelColors[color]);
+      videoBuffer[y*SDLDISPLAY_SCALE+yoff+SCREENINSET_Y][x+xoff+SCREENINSET_X] = packColor32(loresPixelColors[color]);
     }
   }
 #endif
@@ -318,7 +311,7 @@ void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
 {
   for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
     for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)][x*SDLDISPLAY_SCALE+xoff] = packColor32(loresPixelColors[color]);
+      videoBuffer[y*SDLDISPLAY_SCALE+yoff+SCREENINSET_Y][x*SDLDISPLAY_SCALE+xoff+SCREENINSET_X] = packColor32(loresPixelColors[color]);
     }
   }
 }
@@ -327,7 +320,7 @@ void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint32_t packedCol
 {
   for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
     for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)][x*SDLDISPLAY_SCALE+xoff] = packedColor;
+      videoBuffer[y*SDLDISPLAY_SCALE+yoff+SCREENINSET_Y][x*SDLDISPLAY_SCALE+xoff+SCREENINSET_X] = packedColor;
     }
   }
 }
@@ -336,10 +329,23 @@ void SDLDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorB, 
 {
   for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
     for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)][x*SDLDISPLAY_SCALE+2*xoff] = packColor32(loresPixelColors[colorA]);
-      videoBuffer[(y*SDLDISPLAY_SCALE+yoff)][x*SDLDISPLAY_SCALE+1+2*xoff] = packColor32(loresPixelColors[colorB]);
+      videoBuffer[y*SDLDISPLAY_SCALE+yoff+SCREENINSET_Y][x*SDLDISPLAY_SCALE+2*xoff+SCREENINSET_X] = packColor32(loresPixelColors[colorA]);
+      videoBuffer[y*SDLDISPLAY_SCALE+yoff+SCREENINSET_Y][x*SDLDISPLAY_SCALE+1+2*xoff+SCREENINSET_X] = packColor32(loresPixelColors[colorB]);
     }
   }
 }
 
-
+void SDLDisplay::windowResized(uint32_t w, uint32_t h)
+{
+  // Preserve the aspect ratio (320/240 == 1.3333)
+  float aspectRatio = (float)w/(float)h;
+  if (aspectRatio != 320.0/240.0) {
+    if (aspectRatio > 320.0/240.0) {
+      h = ((1.f * 240.0) / 320.0) * w;
+    } else {
+      w = (320.0/240.0) * h;
+    }
+  }
+  
+  SDL_SetWindowSize(screen, w, h);
+}

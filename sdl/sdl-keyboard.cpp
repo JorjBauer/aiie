@@ -3,6 +3,7 @@
 #include "sdl-paddles.h"
 #include "sdl-mouse.h"
 #include "globals.h"
+#include "sdl-display.h"
 
 SDLKeyboard::SDLKeyboard(VMKeyboard *k) : PhysicalKeyboard(k)
 {
@@ -162,6 +163,15 @@ void SDLKeyboard::maintainKeyboard()
       ((SDLPaddles *)g_paddles)->gotMouseMovement(event.motion.x, event.motion.y);
       ((SDLMouse *)g_mouse)->gotMouseEvent(event.motion.state, // button
 					   event.motion.xrel, event.motion.yrel);
+      break;
+
+      // FIXME: this really doesn't belong here. The mouse kinda
+      // didn't belong here, but this REALLY is wrong.
+    case SDL_WINDOWEVENT:
+      if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
+	printf("Window was resized\n");
+	((SDLDisplay *)g_display)->windowResized(event.window.data1, event.window.data2);
+      }
       break;
 
     case SDL_QUIT:
