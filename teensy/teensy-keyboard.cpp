@@ -87,7 +87,7 @@ TeensyKeyboard::TeensyKeyboard(VMKeyboard *k) : PhysicalKeyboard(k)
   for (byte i=0; i<ROWS; i++) {
     pinMode(rowsPins[i], INPUT_PULLUP);
   }
-  keypad.setDebounceTime(10);
+  keypad.setDebounceTime(5);
   
   leftShiftPressed = false;
   rightShiftPressed = false;
