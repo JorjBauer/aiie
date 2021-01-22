@@ -59,3 +59,59 @@ bool WozSerializer::Deserialize(int8_t fd)
   return false;
 }
 
+bool WozSerializer::flush()
+{
+  // Flush the entire disk image if it's dirty. We could make this
+  // smarter later.
+  if (!trackDirty)
+    return true;
+
+  // The fd should still be open. If it's not, then we can't flush.
+  if (fd == -1)
+    return false;
+
+  bool ret = true;
+
+  switch (imageType) {
+  case T_WOZ:
+    ret = writeWozFile(fd, imageType);
+    break;
+  case T_DSK:
+  case T_PO:
+    ret = writeDskFile(fd, imageType);
+    break;
+  case T_NIB:
+    ret = writeNibFile(fd);
+    break;
+    default:
+      fprintf(stderr, "Error: unknown imageType; can't flush\n");
+      ret = false;
+      break;
+  }
+  //    fsync(fd); // FIXME should not be needed
+  trackDirty = false;
+
+  return true;
+}
+
+bool WozSerializer::writeNextWozBit(uint8_t datatrack, uint8_t bit)
+{
+  return Woz::writeNextWozBit(datatrack, bit);
+}
+
+bool WozSerializer::writeNextWozByte(uint8_t datatrack, uint8_t b)
+{
+  return Woz::writeNextWozByte(datatrack, b);
+}
+
+uint8_t WozSerializer::nextDiskBit(uint8_t datatrack)
+{
+  return Woz::nextDiskBit(datatrack);
+}
+
+uint8_t WozSerializer::nextDiskByte(uint8_t datatrack)
+{
+  return Woz::nextDiskByte(datatrack);
+}
+
+

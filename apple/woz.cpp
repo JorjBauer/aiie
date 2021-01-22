@@ -85,18 +85,18 @@ bool Woz::writeNextWozBit(uint8_t datatrack, uint8_t bit)
     return false;
   }
   
-  if (trackByteFromDataTrack != datatrack) {
+  //  if (trackByteFromDataTrack != datatrack) {
     // FIXME what if trackPointer is out of bounds for this track
     trackByte = tracks[datatrack].trackData[trackPointer];
     trackByteFromDataTrack = datatrack;
-  }
+    //  }
 
   if (bit)
     trackByte |= trackBitIdx;
   else
     trackByte &= ~trackBitIdx;
 
-  tracks[datatrack].trackData[trackPointer-1] = trackByte;
+  tracks[datatrack].trackData[trackPointer] = trackByte;
 
   advanceBitStream(datatrack);
   trackDirty = true;
@@ -1603,35 +1603,5 @@ uint8_t Woz::dataTrackNumberForQuarterTrack(uint16_t qt)
 
 bool Woz::flush()
 {
-  // Flush the entire disk image if it's dirty. We could make this
-  // smarter later.
-  if (!trackDirty)
-    return true;
-
-  // The fd should still be open. If it's not, then we can't flush.
-  if (fd == -1)
-    return false;
-
-  bool ret = true;
-  
-  switch (imageType) {
-  case T_WOZ:
-    ret = writeWozFile(fd, imageType);
-    break;
-  case T_DSK:
-  case T_PO:
-    ret = writeDskFile(fd, imageType);
-    break;
-  case T_NIB:
-    ret = writeNibFile(fd);
-    break;
-    default:
-      fprintf(stderr, "Error: unknown imageType; can't flush\n");
-      ret = false;
-      break;
-  }
-  //    fsync(fd); // FIXME should not be needed
-  trackDirty = false;
-  
-  return true;
+  return false;
 }

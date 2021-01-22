@@ -41,7 +41,11 @@ typedef struct _trackInfo {
   uint8_t *trackData;
 } trackInfo;
 
+class WozSerializer;
+
 class Woz {
+  friend class WozSerializer;
+  
  public:
   Woz(bool verbose, uint8_t dumpflags);
   ~Woz();
@@ -57,17 +61,23 @@ class Woz {
 
   uint8_t dataTrackNumberForQuarterTrack(uint16_t qt);
   
-  bool flush();
+  virtual bool flush();
 
   void debug();
   
-  //protected:
+protected:
   // Interface for AiiE
-  bool writeNextWozBit(uint8_t datatrack, uint8_t bit);
-  bool writeNextWozByte(uint8_t datatrack, uint8_t b);
-  uint8_t nextDiskBit(uint8_t datatrack);
-  uint8_t nextDiskByte(uint8_t datatrack);
-  bool skipByte(uint8_t datatrack);
+  virtual bool writeNextWozBit(uint8_t datatrack, uint8_t bit);
+  virtual bool writeNextWozByte(uint8_t datatrack, uint8_t b);
+  virtual uint8_t nextDiskBit(uint8_t datatrack);
+  virtual uint8_t nextDiskByte(uint8_t datatrack);
+
+  bool writeWozFile(const char *filename, uint8_t subtype);
+  bool writeWozFile(int fd, uint8_t subtype);
+  bool writeDskFile(const char *filename, uint8_t subtype);
+  bool writeDskFile(int fd, uint8_t subtype);
+  bool writeNibFile(const char *filename);
+  bool writeNibFile(int fd);
 
  private:
   void loadTrackByte(uint8_t datatrack);
@@ -80,13 +90,6 @@ class Woz {
   bool decodeWozTrackToNibFromDataTrack(uint8_t datatrack, nibSector sectorData[16]);
   bool decodeWozTrackToDsk(uint8_t phystrack, uint8_t subtype, uint8_t sectorData[256*16]);
 
-  bool writeWozFile(const char *filename, uint8_t subtype);
-  bool writeWozFile(int fd, uint8_t subtype);
-  bool writeDskFile(const char *filename, uint8_t subtype);
-  bool writeDskFile(int fd, uint8_t subtype);
-  bool writeNibFile(const char *filename);
-  bool writeNibFile(int fd);
-  
   bool writeWozTrack(int fd, uint8_t trackToWrite, uint8_t imageType);
   bool writeDskTrack(int fd, uint8_t trackToWrite, uint8_t imageType);
   bool writeNibTrack(int fd, uint8_t trackToWrite, uint8_t imageType);
