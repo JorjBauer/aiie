@@ -118,7 +118,7 @@ class Woz {
   uint8_t dumpflags;
 
   bool autoFlushTrackData;
-  int8_t dataTrackDirty; // -1 means "none"
+  bool trackDirty;
   
   uint8_t quarterTrackMap[40*4];
   diskInfo di;

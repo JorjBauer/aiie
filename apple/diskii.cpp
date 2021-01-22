@@ -133,7 +133,7 @@ bool DiskII::Deserialize(int8_t fd)
       deserializeString(fn);
       if (fn[0]) {
 	printf("Restoring disk image named '%s'\n", fn);
-	disk[i]->readFile((char *)fn, false, T_AUTO); // FIXME error checking    
+	disk[i]->readFile((char *)fn, true, T_AUTO); // FIXME error checking    
       } else {
 	// ERROR: there's a disk but we don't have the path to its image?
 	printf("Failed to read inserted disk name for disk %d\n", i);
@@ -485,8 +485,7 @@ void DiskII::insertDisk(int8_t driveNum, const char *filename, bool drawIt)
   ejectDisk(driveNum);
 
   disk[driveNum] = new WozSerializer();
-  // intentionally 'false' (see above call to readFile)
-  if (!disk[driveNum]->readFile(filename, false, T_AUTO)) {
+  if (!disk[driveNum]->readFile(filename, true, T_AUTO)) {
     delete disk[driveNum];
     disk[driveNum] = NULL;
     return;

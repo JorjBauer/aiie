@@ -45,7 +45,6 @@ Woz::Woz(bool verbose, uint8_t dumpflags)
   metaData = NULL;
   this->verbose = verbose;
   this->dumpflags = dumpflags;
-  dataTrackDirty = -1;
 
   memset(&quarterTrackMap, 255, sizeof(quarterTrackMap));
   memset(&di, 0, sizeof(diskInfo));
@@ -59,7 +58,7 @@ Woz::~Woz()
     close(fd);
     fd = -1;
   }
-
+  
   for (int i=0; i<160; i++) {
     if (tracks[i].trackData) {
       free(tracks[i].trackData);
@@ -80,25 +79,31 @@ bool Woz::writeNextWozBit(uint8_t datatrack, uint8_t bit)
     return true;
   }
 
-  // trackByte is undefined if trackBitIdx == 0x80; otherwise, it
-  // contains tracks[datatrack].trackData[trackPointer]. Make sure
-  // to keep this up to date b/c we might try to read the next bit.
+  if (!tracks[datatrack].trackData) {
+    fprintf(stderr, "ERROR: tried to writeNextWozBit to a data track that's not loaded, and we can't possibly tell which QT that should be\n");
+    return false;
+  }
+  
+  if (trackBitCounter >= tracks[datatrack].bitCount) {
+    printf("WRITE counter reset [%u > %u]\n", trackBitCounter, tracks[datatrack].bitCount);
+    trackPointer = 0;
+    trackBitIdx = 0x80;
+    trackBitCounter = 0;
+  }
+  
   if (trackBitIdx == 0x80) {
-    loadTrackByte(datatrack);
+    trackByte = tracks[datatrack].trackData[trackPointer++];
   }
 
-  // Modify trackByte based on the bit write
   if (bit)
     trackByte |= trackBitIdx;
   else
     trackByte &= ~trackBitIdx;
 
-  // Update the datatrack with the current trackByte
-  tracks[datatrack].trackData[lastReadPointer] = trackByte;
+  tracks[datatrack].trackData[trackPointer-1] = trackByte;
 
   advanceBitStream(datatrack);
-  
-  dataTrackDirty = datatrack;
+  trackDirty = true;
   
   return true;
 }
@@ -126,22 +131,6 @@ bool Woz::writeNextWozByte(uint8_t datatrack, uint8_t b)
   return true;
 }
 
-void Woz::loadTrackByte(uint8_t datatrack)
-{
-  // need another byte out of the track stream
-  if (tracks[datatrack].trackData) {
-    lastReadPointer = trackPointer;
-    trackByte = tracks[datatrack].trackData[trackPointer];
-  } else {
-    loadMissingTrackFromImage(datatrack);
-    if (tracks[datatrack].trackData) {
-      loadTrackByte(datatrack);
-      return;
-    }
-    trackPointer = 0;
-    trackLoopCounter++;
-  }
-}
 void Woz::advanceBitStream(uint8_t datatrack)
 {
   trackBitCounter++;
@@ -167,9 +156,24 @@ uint8_t Woz::getNextWozBit(uint8_t datatrack)
   if (datatrack >= 160) {
     return 0;
   }
+
+  if (!tracks[datatrack].trackData) {
+    fprintf(stderr, "ERROR: getNextWozBit was called without the track being cached, and it can't possibly know which QT to load it from\n");
+    return 0;
+  }
   
   if (trackBitIdx == 0x80) {
-    loadTrackByte(datatrack);
+    // need another byte out of the track stream
+    if (tracks[datatrack].trackData) {
+      trackByte = tracks[datatrack].trackData[trackPointer++];
+      if (trackPointer >= tracks[datatrack].bitCount / 8) {
+        trackPointer = 0;
+        trackLoopCounter++;
+      }
+    } else {
+      trackPointer = 0;
+      trackLoopCounter++;
+    }
   }
 
   uint8_t ret = (trackByte & trackBitIdx) ? 1 : 0;
@@ -194,22 +198,13 @@ uint8_t Woz::fakeBit()
   return ret;
 }
 
-bool Woz::skipByte(uint8_t datatrack)
-{
-  //   head_window = 0; // FIXME kludgy, but okay if we don't need just one bit after this
-  trackPointer++;
-  lastReadPointer=trackPointer;
-  trackBitIdx = 0x80;
-
-  if (trackPointer >= tracks[datatrack].bitCount / 8) {
-    trackPointer = 0;
-    trackLoopCounter++;
-  }
-  return true;
-}
-
 uint8_t Woz::nextDiskBit(uint8_t datatrack)
 {
+  if (!tracks[datatrack].trackData) {
+    fprintf(stderr, "ERROR: nextDiskBit was called without the track being cached, and it can't possibly know which QT to load it from\n");
+    return 0;
+  }
+
   static uint8_t head_window = 0;
   head_window <<= 1;
   head_window |= getNextWozBit(datatrack);
@@ -475,39 +470,6 @@ bool Woz::writeWozFile(int fdout, uint8_t subtype)
   return retval;
 }
 
-bool Woz::writeWozTrack(int fdout, uint8_t trackToWrite, uint8_t imageType)
-{
-  // FIXME: when we separate WOZ1 and WOZ2, return false here if it's WOZ1
-  // (since we're only writing WOZ2 images)
-  if (imageType != T_WOZ)
-    return false;
-
-  if (di.version != 2) {
-    fprintf(stderr, "Don't know how to write this version of WOZ file\n");
-    return false;
-  }
-
-  uint32_t count = tracks[trackToWrite].blockCount * 512;
-
-  // If we didn't read this from a WOZ image, we can't trust the
-  // tracks[x].startingBlock. Since we're writing to a WOZ2 image,
-  // we can just recalculate it as (STARTBLOCK + trackToWrite*13)
-  // instead of using tracks[trackToWrite].startingBlock.
-
-  if (lseek(fd, (STARTBLOCK + trackToWrite*13)*512, SEEK_SET) != (STARTBLOCK + trackToWrite*13)*512) {
-    perror("Failed to seek to start of block");
-    return false;
-  }
-
-  if (write(fd, tracks[trackToWrite].trackData, count) != count) {
-    perror("write");
-    return false;
-  }
-
-  return true;
-}
-
-
 bool Woz::writeDskFile(const char *filename, uint8_t subtype)
 {
   int fdout = open(filename, O_CREAT|O_TRUNC|O_WRONLY, S_IRUSR|S_IWUSR);
@@ -543,28 +505,6 @@ bool Woz::writeDskFile(int fdout, uint8_t subtype)
   return true;
 }
 
-// FIXME: should this be a physical track?
-bool Woz::writeDskTrack(int fdout, uint8_t trackToWrite, uint8_t imageType)
-{
-  if (imageType != T_DSK && imageType != T_PO) {
-    return false;
-  }
-  uint8_t sectorData[256*16];
-  if (lseek(fdout, 256*16*trackToWrite, SEEK_SET) != 256*16*trackToWrite) {
-    perror("lseek");
-    return false;
-  }
-  if (!decodeWozTrackToDsk(trackToWrite, imageType, sectorData)) {
-    return false;
-  }
-
-  if (write(fdout, sectorData, 256*16) != 256*16) {
-    return false;
-  }
-  
-  return true;
-}
-  
 bool Woz::writeNibFile(const char *filename)
 {
   int fdout = open(filename, O_CREAT|O_TRUNC|O_WRONLY, S_IRUSR|S_IWUSR);
@@ -596,25 +536,6 @@ bool Woz::writeNibFile(int fdout)
       exit(1);
     }
   }
-  return true;
-}
-
-// FIXME: should this be a physical track?
-bool Woz::writeNibTrack(int fdout, uint8_t trackToWrite, uint8_t imageType)
-{
-  if (imageType != T_NIB)
-    return false;
-  
-  if (lseek(fdout, NIBTRACKSIZE * trackToWrite, SEEK_SET) !=
-      NIBTRACKSIZE * trackToWrite)
-    return false;
-
-  nibSector nibData[16];
-  if (!decodeWozTrackToNib(trackToWrite, nibData))
-    return false;
-  if (write(fdout, nibData, NIBTRACKSIZE) != NIBTRACKSIZE)
-    return false;
-
   return true;
 }
 
@@ -712,6 +633,7 @@ bool Woz::loadMissingTrackFromImage(uint8_t datatrack)
     uint8_t phystrack = datatrack; // used for clarity of which kind of track we mean, below
     tracks[datatrack].trackData = (uint8_t *)calloc(NIBTRACKSIZE, 1);
     if (!tracks[datatrack].trackData) {
+      fprintf(stderr, "Failed to malloc track data\n");
       return false;
     }
 
@@ -771,6 +693,10 @@ bool Woz::readDskFile(const char *filename, bool preloadTracks, uint8_t subtype)
   retval = true;
 
  done:
+  if (preloadTracks && fd != -1) {
+    close(fd);
+    fd = -1;
+  }
   return retval;
 }
 
@@ -1143,8 +1069,10 @@ bool Woz::parseInfoChunk(uint32_t chunkSize)
 bool Woz::parseMetaChunk(uint32_t chunkSize)
 {
   metaData = (char *)calloc(chunkSize+1, 1);
-  if (!metaData)
+  if (!metaData) {
+      fprintf(stderr, "Failed to malloc metadata\n");
     return false;
+  }
 
   if (read(fd, metaData, chunkSize) != chunkSize)
     return false;
@@ -1680,36 +1608,6 @@ uint8_t Woz::dataTrackNumberForQuarterTrack(uint16_t qt)
 
 bool Woz::flush()
 {
-  // This has to flush just one track to the file. If it tried to do more,
-  // it would wind up trying to preload the tracks that aren't loaded; and
-  // that would notice that the current track is dirty, so it would call
-  // flush() again; and then we'd be looping infinitely.
-
-  // FIXME: this assumes we have an open fd, which means we didn't preload
-  // the whole image
-
-  bool ret = true;
-  if (dataTrackDirty != -1) {
-    // From the imageType, call the appropriate function to write a track
-    switch (imageType) {
-    case T_WOZ:
-      ret = writeWozTrack(fd, dataTrackDirty, imageType);
-      break;
-    case T_DSK:
-    case T_PO:
-      ret = writeDskTrack(fd, dataTrackDirty, imageType);
-      break;
-    case T_NIB:
-      ret = writeNibTrack(fd, dataTrackDirty, imageType);
-      break;
-    default:
-      fprintf(stderr, "Error: unknown imageType; can't flush\n");
-      ret = false;
-      break;
-    }
-    //    fsync(fd); // FIXME should not be needed
-  }
-
-  dataTrackDirty = -1;
-  return ret;
+  // FIXME: flush the disk image to file descriptor 'fd'
+  return false;
 }
