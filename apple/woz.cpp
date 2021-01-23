@@ -7,11 +7,14 @@
 // Block number we start packing data bits after (Woz 2.0 images)
 #define STARTBLOCK 3
 
+#if defined(AIIE) || defined(TEENSYDUINO)
+#define LAZYFD
+#include "fscompat.h"
+#endif
+
 #ifdef TEENSYDUINO
 // This junk is for my AiiE project. I need to abstract it out better.
-#include "fscompat.h"
 #define SKIPCHECKSUM
-#define LAZYFD
 #define malloc extmem_malloc
 #define free extmem_free
 #define calloc extmem_calloc
