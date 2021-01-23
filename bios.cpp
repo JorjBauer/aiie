@@ -752,6 +752,8 @@ uint16_t BIOS::SelectFileScreenHandler(bool needsRedraw, bool performAction)
       localRedraw = true;
     }
     else if (selectedMenuItem == BIOS_MAXFILES+1) {
+      // FIXME what if there are no files on the next page? We
+      // shouldn't show a blank page.
       if (fileCount == BIOS_MAXFILES) { // don't let them select
 					// 'Next' if there were no
 					// files in the list or if the
@@ -1185,7 +1187,7 @@ uint16_t BIOS::DrawDiskNames(uint8_t page, int8_t selection, const char *filter)
 			  name);
     vpos += LINEHEIGHT;
     
-    if (strlen(fileDirectory[i]) > 39) {
+    if (strlen(name) > 39) {
       // Break the string at 39 characters and start drawing the second line indented more
       char restOfString[BIOS_MAXPATH-39+1];
       strcpy(restOfString, (char *)&name[39]);
@@ -1200,8 +1202,9 @@ uint16_t BIOS::DrawDiskNames(uint8_t page, int8_t selection, const char *filter)
       vpos += LINEHEIGHT;
       
     }
-    if (i >= fileCount)
+    if (i+1 >= fileCount) {
       endsHere = true;
+    }
   }
 
   vpos += LINEHEIGHT/2;
