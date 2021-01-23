@@ -159,7 +159,7 @@ void SDLDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
 {
   for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
     for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      videoBuffer[y*SDLDISPLAY_SCALE+yoff+SCREENINSET_Y][x*SDLDISPLAY_SCALE+xoff+SCREENINSET_X] = color16To32(color);
+      videoBuffer[y*SDLDISPLAY_SCALE+yoff][x*SDLDISPLAY_SCALE+xoff] = color16To32(color);
     }
   }
 }
