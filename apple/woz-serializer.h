@@ -5,6 +5,8 @@
 class WozSerializer: public virtual Woz {
 public:
   WozSerializer();
+  virtual ~WozSerializer();
+  
   const char *diskName();
 
  public:

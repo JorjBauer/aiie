@@ -45,7 +45,7 @@ uint32_t nibblizeTrack(uint8_t outputBuffer[NIBTRACKSIZE], const uint8_t rawTrac
 		       uint8_t diskType, int8_t track);
 
 nibErr denibblizeTrack(const uint8_t input[NIBTRACKSIZE], uint8_t rawTrackBuffer[256*16],
-		       uint8_t diskType, int8_t track);
+		       uint8_t diskType);
 
 uint8_t de44(uint8_t nibs[2]);
 

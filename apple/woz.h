@@ -48,7 +48,7 @@ class Woz {
   
  public:
   Woz(bool verbose, uint8_t dumpflags);
-  ~Woz();
+  virtual ~Woz();
 
   bool readFile(const char *filename, bool preloadTracks, uint8_t forceType = T_AUTO);
   bool writeFile(const char *filename, uint8_t forceType = T_AUTO);

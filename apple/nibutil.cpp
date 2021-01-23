@@ -26,6 +26,7 @@ typedef struct _bitPtr {
 
 #define INCIDX(p) { p->bitIdx >>= 1; if (!p->bitIdx) {p->bitIdx = 0x80; p->idx++;} }
 
+// This is the DOS 3.3 RWTS Write Table (UTA2E, p. 9-26).
 const static uint8_t _trans[64] = {0x96, 0x97, 0x9a, 0x9b, 0x9d, 0x9e, 0x9f, 0xa6,
                                    0xa7, 0xab, 0xac, 0xad, 0xae, 0xaf, 0xb2, 0xb3,
                                    0xb4, 0xb5, 0xb6, 0xb7, 0xb9, 0xba, 0xbb, 0xbc,
@@ -35,8 +36,8 @@ const static uint8_t _trans[64] = {0x96, 0x97, 0x9a, 0x9b, 0x9d, 0x9e, 0x9f, 0xa
                                    0xed, 0xee, 0xef, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6,
                                    0xf7, 0xf9, 0xfa, 0xfb, 0xfc, 0xfd, 0xfe, 0xff};
 
-// This is the inverted DOS 3.3 RWTS Write Table (high bit                                                                                                   
-// stripped). Any "bad" value is stored as 0xFF.                                                                                                             
+// This is the inverted DOS 3.3 RWTS Write Table (high bit
+// stripped). Any "bad" value is stored as 0xFF.
 const static uint8_t _detrans[0x80] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
                                        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
                                        0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x00, 0x04,
@@ -78,6 +79,7 @@ static void _packBit(uint8_t *output, bitPtr *ptr, uint8_t isOn)
 
 static void _packGap(uint8_t *output, bitPtr *ptr)
 {
+  // A gap byte has two sync bits after it.
   for (int i=0; i<8; i++) 
     _packBit(output, ptr, 1);
   _packBit(output, ptr, 0);
@@ -275,7 +277,7 @@ static bool _decodeData(const uint8_t trackBuffer[343], uint8_t output[256])
 
 // trackBuffer is input NIB data; rawTrackBuffer is output DSK/PO data
 nibErr denibblizeTrack(const uint8_t input[NIBTRACKSIZE], uint8_t rawTrackBuffer[256*16],
-		       uint8_t diskType, int8_t track)
+		       uint8_t diskType)
 {
   // bitmask of the sectors that we've found while decoding. We should
   // find all 16.
@@ -283,12 +285,10 @@ nibErr denibblizeTrack(const uint8_t input[NIBTRACKSIZE], uint8_t rawTrackBuffer
 
   // loop through the data twice, so we make sure we read anything 
   // that crosses the end/start boundary
-  //  uint16_t startOfSector;
   for (uint16_t i=0; i<2*416*16; i++) {
     // Find the prolog
     if (input[i % NIBTRACKSIZE] != 0xD5)
       continue;
-    //    startOfSector = i;
     i++;
     if (input[i % NIBTRACKSIZE] != 0xAA)
       continue;
