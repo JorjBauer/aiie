@@ -113,6 +113,10 @@ uint8_t AppleKeyboard::translateKeyWithModifiers(uint8_t k)
 
 void AppleKeyboard::keyDepressed(uint8_t k)
 {
+  if (k >= 'A' && k <= 'Z') {
+    k = k - 'A' + 'a';
+  }
+  
   keysDown[k] = true;  
 
   // If it's not a virtual key, then set the anyKeyDown flag
@@ -142,6 +146,10 @@ void AppleKeyboard::keyDepressed(uint8_t k)
 
 void AppleKeyboard::keyReleased(uint8_t k)
 {
+  if (k >= 'A' && k <= 'Z') {
+    k = k - 'A' + 'a';
+  }
+  
   keysDown[k] = false;  
 
   // Special handling: apple keys
