@@ -1,49 +1,78 @@
-SainSmart 3.2" SSD1289 touch screen: $17.59
+Updated for v9:
+===============
 
-https://www.amazon.com/SainSmart-3-2-Inch-SSD1289-Arduino-Raspberry/dp/B008FWSG3S
+* One Aiie v9 PCB
 
-63 6mmx6mm momentary pushbuttons: $2.23 (for 100)
+* 3.2" 320x240 ILI9341 SPI display
+  https://www.amazon.com/gp/product/B07KPD4DHD
 
-https://www.amazon.com/Yonger-6x6x4-5mm-Momentary-Tactile-Button/dp/B01L95LP8K
+* Teensy 4.1 with at least (1) 8MB PSRAM added
+  https://www.pjrc.com/store/teensy41.html
 
-Joystick: $6.99
+* 18650 battery & charger
+  https://www.amazon.com/gp/product/B0129F9BXK
 
-https://www.amazon.com/KY-023-Joystick-Sensor-Module-Arduino/dp/B01FDGUC58
+* (3) 10k ohm resistor, 1/4 watt
+  Mouser p/n 603-MFR-25FBF52-10K, $0.10 ea
 
-on/off switch (SPDT 3mm): $4.33 - check its current rating though
+* (3) 3.3k ohm resistor, 1/4 watt
+  Mouser p/n 603-MFR-25FBF52-3K3, $0.10 ea
 
-https://www.amazon.com/Uxcell-a12013100ux0116-Position-Vertical-Switch/dp/B007QAJUUS
+* 0.1uF disc capacitor
+  Mouser p/n 594-K104M15X7RF53H5, $0.13 ea
 
-... or via sparkfun, $0.75? - .2A @ 30vDC; should we get a beefier switch?
+* (63) 6mmx6mm momentary pushbutton switches
+  Mouser p/n 179-TS026643BK260LCR, $0.092 ea
 
-https://www.sparkfun.com/products/9609
+* CR2032 battery holder
+  Mouser p/n 534-101, $2.99
+  
+* CR2032 battery
 
-battery holder: $4.35 (for 10)
+* 3-pin header for printer port (optional)
 
-https://www.amazon.com/yueton-Battery-Storage-Holder-Single/dp/B013DUOJV4
+* (4) M2.5 screws (for mounting the display)
+  Mouser p/n 534-29301, $0.43 ea
 
-batteries & charger: $13.99
+* MicroSD card (I'm using a 16GB card, smallest that seems reasonable in 2020)
 
-https://www.amazon.com/EBL-lithium-Rechargeable-Batteries-3000mAh/dp/B0129F9BXK
+* 3.5mm headphone jack
+  Mouser p/n 490-SJ1-3524N, $0.88
 
-standoffs, black, 25mm x m3; $9.72 / 100
+* USB A Female jack
+  Mouser p/n 523-UE27-AC54-100, $0.74
 
-https://smile.amazon.com/M3x25mm-Female-Thread-Standoff-Spacer/dp/B015K4AT6K
+* 3.3v linear regulator
+  Mouser p/n 511-LD1117V33, $0.77
 
-PCBs (both)
+* 2n3904 PNP transistor
+  Mouser p/n 833-2N3904-AP, $0.34
 
-printer/serial port?
+* nts2101p P-channel MOSFET
+  Mouser p/n nts2101pt1g
+    substitute: Mouser p/n 771-BSH202215, $0.40
 
-wifi?
+* 5v boost regulator
+  https://www.amazon.com/KOOBOOK-Step-up-Voltage-Converter-Module/dp/B07TV9TGYD
 
-wiring for touch screen?
+* More headers, to attach the display as you like
 
-voltage divider for battery sensor: resistors + cap
+* Even more headers, to attach the ESP-01 as you like
 
-header for the LCD PCB
-standoffs for the LCD PCB
-M3 screws
+* ESP8266 ESP-01 (optional, for *future* ethernet support)
 
-25mm M3 male/female brass standoffs: $7.01 / 20 ($9.52 / 100)
+* Parallax 27800 Joystick, 2-Axis, 1.64" x 1.2" x 1.1"
+  Mouser p/n 619-27800, $7.95
 
-https://smile.amazon.com/M3x25mm-Female-Thread-Standoff-Spacer/dp/B015K4AT6K/ref=sr_1_2?ie=UTF8&qid=1491143911&sr=8-2&keywords=pcb+standoff+25mm
+* Brass M2.5 standoffs 16mm tall, 2pk (need 4 standoffs total)
+  https://www.adafruit.com/product/2337
+
+* (2) SPDT through-hole switch
+  Mouser p/n 642-MMS1208, $1.09 ea
+
+* speaker
+  Mouser p/n AST-03032MR-R, $3.25
+
+* 18650 battery holder
+  Any with wire leads will do - I used this 2-pack:
+    https://www.amazon.com/gp/product/B00FGX8NVO
