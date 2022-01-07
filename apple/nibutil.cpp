@@ -19,11 +19,6 @@
 // In 6-and-2 encoding, there are 86 (0x56) 6-bit values
 #define SIXBIT_SPAN 0x56
 
-typedef struct _bitPtr {
-  uint16_t idx;
-  uint8_t bitIdx;
-} bitPtr;
-
 #define INCIDX(p) { p->bitIdx >>= 1; if (!p->bitIdx) {p->bitIdx = 0x80; p->idx++;} }
 
 // This is the DOS 3.3 RWTS Write Table (UTA2E, p. 9-26).
@@ -94,7 +89,7 @@ static void _packByte(uint8_t *output, bitPtr *ptr, uint8_t v)
 }
 
 // Take 256 bytes of input and turn it in to 343 bytes of nibblized output
-static void _encodeData(uint8_t *outputBuffer, bitPtr *ptr, const uint8_t input[256])
+void _encode62Data(uint8_t outputBuffer[343], const uint8_t input[256])
 {
   int ptr2 = 0;
   int ptr6 = 0x56;
@@ -126,17 +121,17 @@ static void _encodeData(uint8_t *outputBuffer, bitPtr *ptr, const uint8_t input[
   }
   // mask out the "extra" 2-bit data above. Note that the Apple decoders
   // don't care about the extra bits, so taking these back out isn't 
-  // operationally important.
+  // operationally important. Just don't overflow _trans[]...
   nibbles[0x54] &= 0x0F;
   nibbles[0x55] &= 0x0F;
 
   int lastv = 0;
   for (int idx = 0; idx < 0x156; idx++) {
     int val = nibbles[idx];
-    _packByte(outputBuffer, ptr, _trans[lastv ^ val]);
+    outputBuffer[idx] = _trans[lastv^val];
     lastv = val;
   }
-  _packByte(outputBuffer, ptr, _trans[lastv]);
+  outputBuffer[342] = _trans[lastv];
 }
 
 static uint8_t _whichBit(uint8_t bitIdx)
@@ -209,7 +204,12 @@ uint32_t nibblizeTrack(uint8_t outputBuffer[NIBTRACKSIZE], const uint8_t rawTrac
     _packByte(outputBuffer, &ptr, 0xAD);
     
     uint8_t physicalSector = (diskType == T_PO ? deProdosPhys[sector] : dephys[sector]);
-    _encodeData(outputBuffer, &ptr, &rawTrackBuffer[physicalSector * 256]);
+
+    uint8_t nibData[343];
+    _encode62Data(nibData, &rawTrackBuffer[physicalSector * 256]);
+    for (int i=0; i<343; i++) {
+      _packByte(outputBuffer, &ptr, nibData[i]);
+    }
 
     _packByte(outputBuffer, &ptr, 0xDE); // data epilog
     _packByte(outputBuffer, &ptr, 0xAA);
@@ -229,7 +229,7 @@ uint32_t nibblizeTrack(uint8_t outputBuffer[NIBTRACKSIZE], const uint8_t rawTrac
 //
 // Return true if we've successfully consumed 343 bytes from
 // trackBuf.
-static bool _decodeData(const uint8_t trackBuffer[343], uint8_t output[256])
+bool _decode62Data(const uint8_t trackBuffer[343], uint8_t output[256])
 {
   static uint8_t workbuf[342];
 
@@ -346,7 +346,7 @@ nibErr denibblizeTrack(const uint8_t input[NIBTRACKSIZE], uint8_t rawTrackBuffer
     for (int j=0; j<343; j++) {
       nibData[j] = input[(i+j)%NIBTRACKSIZE];
     }
-    if (!_decodeData(nibData, output)) {
+    if (!_decode62Data(nibData, output)) {
       return errorBadData;
     }
     i += 343;
@@ -391,3 +391,18 @@ nibErr denibblizeTrack(const uint8_t input[NIBTRACKSIZE], uint8_t rawTrackBuffer
   return errorNone;
 }
 
+nibErr nibblizeSector(uint8_t dataIn[256], uint8_t dataOut[343])
+{
+  _encode62Data(dataOut, dataIn);
+
+  return errorNone;
+}
+
+nibErr denibblizeSector(nibSector input, uint8_t dataOut[256])
+{
+  if (_decode62Data((uint8_t *)(input.data62), dataOut)) {
+    return errorNone;
+  }
+
+  return errorBadData;
+}

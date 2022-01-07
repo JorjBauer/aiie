@@ -14,6 +14,6 @@
 #define close(filedes) g_filemanager->closeFile(filedes)
 #define write(filedes,buf,nbyte) g_filemanager->write(filedes,buf,nbyte)
 #define read(filedes,buf,nbyte) g_filemanager->read(filedes,buf,nbyte)
-#define lseek(filedes,offset,whence) g_filemanager->lseek(filedes,offset,whence)
+#define lseek(filedes,offset,whence) (int)g_filemanager->lseek(filedes,(int)offset,(int)whence)
 
 #include "iocompat.h"

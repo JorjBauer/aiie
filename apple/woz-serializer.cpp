@@ -7,7 +7,7 @@
 #include "iocompat.h"
 #endif
 
-#define WOZMAGIC 0xD5
+#define WOZMAGIC 0xAA
 
 WozSerializer::WozSerializer() : Woz(false,0)
 {
@@ -29,16 +29,25 @@ bool WozSerializer::Serialize(int8_t fd)
 {
   // If we're being asked to serialize, make sure we've flushed any data first
   flush();
-
+  /*
   serializeMagic(WOZMAGIC);
+
+  imageType 8
+    autoFlushTrackData bool
+    diskinfo ??? can this be regen'd?
+    trackInfo tracks[160] -- has a dirty flag in it :/
+  
   serialize32(trackPointer);
   serialize32(trackBitCounter);
-  serialize32(lastReadPointer);
   serialize8(trackByte);
+    trackByteFromDataTrack 8
   serialize8(trackBitIdx);
   serialize8(trackLoopCounter);
-  serializeMagic(WOZMAGIC);
+
+  metadata randData randPtr
   
+  serializeMagic(WOZMAGIC);
+  */
   return true;
 
  err:
@@ -48,6 +57,7 @@ bool WozSerializer::Serialize(int8_t fd)
 bool WozSerializer::Deserialize(int8_t fd)
 {
   // Before deserializing, the caller has to re-load the right disk image!
+  /*
   deserializeMagic(WOZMAGIC);
   deserialize32(trackPointer);
   deserialize32(trackBitCounter);
@@ -55,8 +65,16 @@ bool WozSerializer::Deserialize(int8_t fd)
   deserialize8(trackByte);
   deserialize8(trackBitIdx);
   deserialize8(trackLoopCounter);
-  deserializeMagic(WOZMAGIC);
+
+...
+  have to serialize/deserialize all of tracks[*] now
+    and the dirty flag is in there
+      tracks[datatrack].dirty = true;
+...
+
   
+  deserializeMagic(WOZMAGIC);
+  */
   return true;
 
  err:
@@ -67,8 +85,15 @@ bool WozSerializer::flush()
 {
   // Flush the entire disk image if it's dirty. We could make this
   // smarter later.
-  if (!trackDirty)
+  // FIXME hard-coded number of tracks?
+  bool trackDirty = false;
+  for (int i=0; i<160; i++) {
+    if (tracks[i].dirty)
+      trackDirty = true;
+  }
+  if (!trackDirty) {
     return true;
+  }
 
   // The fd should still be open. If it's not, then we can't flush.
   if (fd == -1)
@@ -92,8 +117,7 @@ bool WozSerializer::flush()
       ret = false;
       break;
   }
-  //    fsync(fd); // FIXME should not be needed
-  trackDirty = false;
+  g_filemanager->flush();
 
   return true;
 }

@@ -14,6 +14,7 @@
 
 #ifdef TEENSYDUINO
 // This junk is for my AiiE project. I need to abstract it out better.
+#include "iocompat.h"
 #define SKIPCHECKSUM
 #define malloc extmem_malloc
 #define free extmem_free
@@ -33,10 +34,10 @@
 #define END_SECTION(fd) {                   \
   long endpos = lseek(fd, 0, SEEK_CUR);	    \
   lseek(fd, curpos-4, SEEK_SET);            \
-  uint32_t chunksize = endpos - curpos;     \
+  uint32_t chunksize = endpos - curpos;                                 \
   if (!write32(fd, chunksize))               \
     return false;                           \
-  lseek(fd, 0, SEEK_END);                   \
+  lseek(fd, endpos, SEEK_SET);                   \
   }
 
 Woz::Woz(bool verbose, uint8_t dumpflags)
@@ -95,7 +96,7 @@ bool Woz::writeNextWozBit(uint8_t datatrack, uint8_t bit)
     trackByte = tracks[datatrack].trackData[trackPointer];
     trackByteFromDataTrack = datatrack;
   }
-  
+
   if (bit)
     trackByte |= trackBitIdx;
   else
@@ -104,7 +105,7 @@ bool Woz::writeNextWozBit(uint8_t datatrack, uint8_t bit)
   tracks[datatrack].trackData[trackPointer] = trackByte;
 
   advanceBitStream(datatrack);
-  trackDirty = true;
+  tracks[datatrack].dirty = true;
   
   return true;
 }
@@ -137,6 +138,7 @@ uint8_t Woz::getNextWozBit(uint8_t datatrack)
   if (datatrack >= 160) {
     if (datatrack != 255) {
       fprintf(stderr, "datatrack %d out of range\n", datatrack);
+      exit(1);
     }
     return 0;
   }
@@ -217,6 +219,10 @@ uint8_t Woz::nextDiskBit(uint8_t datatrack)
     return 0;
   }
 
+  /*
+
+FIXME: this needs evaluation. We want the fake bit work, but can't do it at the expense of being 1 bit behind -- b/c that would mean switching tracks drops a bit; and seek-and-write would leave an excess bit in place too...
+
   static uint8_t head_window = 0;
   head_window <<= 1;
   head_window |= getNextWozBit(datatrack);
@@ -224,7 +230,10 @@ uint8_t Woz::nextDiskBit(uint8_t datatrack)
     return (head_window & 0x02) >> 1;
   } else {
     return fakeBit();
-  }
+    }*/
+
+  // Until the above is figured out, we're gonna just return what's on the datastream
+  return getNextWozBit(datatrack);
 }
 
 uint8_t Woz::nextDiskByte(uint8_t datatrack)
@@ -363,6 +372,7 @@ bool Woz::writeWozFile(const char *filename, uint8_t subtype)
 
   bool retval = writeWozFile(fdout, subtype);
   close(fdout);
+
   return retval;
 }
 
@@ -472,6 +482,11 @@ bool Woz::writeWozFile(int fdout, uint8_t subtype)
   }
 #endif
   
+  for (int i=0; i<160; i++) {
+    tracks[i].dirty = false;
+  }
+
+  
   retval = true;
 
  done:
@@ -514,6 +529,10 @@ bool Woz::writeDskFile(int fdout, uint8_t subtype)
     }
   }
 
+  for (int i=0; i<160; i++) {
+    tracks[i].dirty = false;
+  }
+
   return true;
 }
 
@@ -547,6 +566,10 @@ bool Woz::writeNibFile(int fdout)
       fprintf(stderr, "Failed[1] to write track %d; aborting\n", phystrack);
       exit(1);
     }
+  }
+
+  for (int i=0; i<160; i++) {
+    tracks[i].dirty = false;
   }
 
   return true;
@@ -589,15 +612,9 @@ bool Woz::loadMissingTrackFromImage(uint8_t datatrack)
   // that might be malloc'd and purge them if we're
   // autoFlushTrackData==true (trying to limit memory use)
   if (autoFlushTrackData == true) {
-    
-    if (trackDirty) {
-      printf("Hackily writing /tmp/auto.woz\n");
-      trackDirty = false;
-      writeFile("/tmp/auto.woz"/*, T_WOZ2*/); // FIXME: debugging
-    }
-    
     for (int i=0; i<160; i++) {
-      if (tracks[i].trackData) {
+      // Don't flush any tracks that are dirty
+      if (tracks[i].trackData && !tracks[i].dirty) {
         free(tracks[i].trackData);
         tracks[i].trackData = NULL;
       }
@@ -843,7 +860,7 @@ bool Woz::readWozFile(const char *filename, bool preloadTracks)
     case 0x4F464E49: // 'INFO'
       if (verbose) {
 	printf("Reading INFO chunk starting at byte 0x%llX\n",
-	       lseek(fd, 0, SEEK_CUR));
+	       (unsigned long long)lseek(fd, 0, SEEK_CUR));
       }
       isOk = parseInfoChunk(chunkDataSize);
       haveData |= cINFO;
@@ -851,7 +868,7 @@ bool Woz::readWozFile(const char *filename, bool preloadTracks)
     case 0x50414D54: // 'TMAP'
       if (verbose) {
 	printf("Reading TMAP chunk starting at byte 0x%llX\n",
-	       lseek(fd, 0, SEEK_CUR));
+	       (unsigned long long)lseek(fd, 0, SEEK_CUR));
       }
       isOk = parseTMAPChunk(chunkDataSize);
       haveData |= cTMAP;
@@ -859,7 +876,7 @@ bool Woz::readWozFile(const char *filename, bool preloadTracks)
     case 0x534B5254: // 'TRKS'
       if (verbose) {
 	printf("Reading TRKS chunk starting at byte 0x%llX\n",
-	       lseek(fd, 0, SEEK_CUR));
+	       (unsigned long long) lseek(fd, 0, SEEK_CUR));
       }
       isOk = parseTRKSChunk(chunkDataSize);
       haveData |= cTRKS;
@@ -867,7 +884,7 @@ bool Woz::readWozFile(const char *filename, bool preloadTracks)
     case 0x4154454D: // 'META'
       if (verbose) {
 	printf("Reading META chunk starting at byte 0x%llX\n",
-	       lseek(fd, 0, SEEK_CUR));
+	       (unsigned long long) lseek(fd, 0, SEEK_CUR));
       }	  
       isOk = parseMetaChunk(chunkDataSize);
       break;
@@ -1163,6 +1180,135 @@ bool Woz::readWozDataTrack(uint8_t datatrack)
   return true;
 }
 
+#if 0
+static void dumpNibSector(nibSector *ns)
+{
+  printf("gap1: ");
+  for (int i=0; i<48; i++) {
+    printf("%.2X ", ns->gap1[i]);
+  }
+  printf("\nsectorProlog: ");
+  for (int i=0; i<3; i++) {
+    printf("%.2X ", ns->sectorProlog[i]);
+  }
+  printf("\n  volume44: %.2X %.2X == %.2X\n", ns->volume44[0], ns->volume44[1], de44(ns->volume44));
+  printf("  sector44: %.2X %.2X == %.2X\n", ns->sector44[0], ns->sector44[1], de44(ns->sector44));
+  printf("  checksum44: %.2X %.2X == %.2X\n", ns->checksum44[0], ns->checksum44[1], de44(ns->checksum44));
+  printf("sectorEpilog: ");
+  for (int i=0; i<3; i++) {
+    printf("%.2X ", ns->sectorEpilog[i]);
+  }
+  printf("\n");
+
+  printf("gap2: ");
+  for (int i=0; i<5; i++) {
+    printf("%.2X ", ns->gap2[i]);
+  }
+  printf("\ndataProlog: ");
+  for (int i=0; i<3; i++) {
+    printf("%.2X ", ns->dataProlog[i]);
+  }
+  printf("\n  data62:");
+  for (int i=0; i<342; i+=16) {
+    printf("\n    ");
+    for (int j=0; (j<16) && (j+i < 342); j++) {
+      printf("%.2X ", ns->data62[i+j]);
+    }
+  }
+  printf("\n  checksum: %.2X", ns->checksum);
+  printf("\ndataEpilog: ");
+  for (int i=0; i<3; i++) {
+    printf("%.2X ", ns->dataEpilog[i]);
+  }
+  printf("\n\n");
+}
+#endif
+
+
+// This writes to the given *physical* sector -- the caller is responsible for translating
+// to a logical sector number
+bool Woz::writeNibSectorDataToDataTrack(uint8_t dataTrack, uint8_t sector, uint8_t nibData[343])
+{
+  // Find the spot on the track that has the right sector
+  if (!tracks[dataTrack].trackData) {
+    // Load the cached track for this phys Nib track.
+    if (!loadMissingTrackFromImage(dataTrack)) {
+      fprintf(stderr, "Failed to read track %d\n", dataTrack);
+      return false;
+    }
+  }
+  
+  // find the data header
+  // write this nibblized data on top of whatever was there before
+  // ensure the epilog is correct
+  nibSector sectorData;
+  memset(sectorData.gap1, 0xFF, sizeof(sectorData.gap1));
+  memset(sectorData.gap2, 0xFF, sizeof(sectorData.gap2));
+  
+  // Allow two loops through the track data looking for the sector prolog
+  uint32_t endCount = tracks[dataTrack].blockCount*512*2;
+  if (di.version == 1) endCount = 2*6646;
+  
+  uint32_t ptr = 0;
+  while (ptr < endCount) {
+    sectorData.sectorProlog[0] = sectorData.sectorProlog[1];
+    sectorData.sectorProlog[1] = sectorData.sectorProlog[2];
+    sectorData.sectorProlog[2] = nextDiskByte(dataTrack);
+    ptr++;
+
+    if (sectorData.sectorProlog[0] == 0xd5 &&
+	sectorData.sectorProlog[1] == 0xaa &&
+	sectorData.sectorProlog[2] == 0x96) {
+      // Found *a* sector header. See if it's ours.
+      sectorData.volume44[0] = nextDiskByte(dataTrack);
+      sectorData.volume44[1] = nextDiskByte(dataTrack);
+      sectorData.track44[0] = nextDiskByte(dataTrack);
+      sectorData.track44[1] = nextDiskByte(dataTrack);
+      sectorData.sector44[0] = nextDiskByte(dataTrack);
+      sectorData.sector44[1] = nextDiskByte(dataTrack);
+      sectorData.checksum44[0] = nextDiskByte(dataTrack);
+      sectorData.checksum44[1] = nextDiskByte(dataTrack);
+      sectorData.sectorEpilog[0] = nextDiskByte(dataTrack);
+      sectorData.sectorEpilog[1] = nextDiskByte(dataTrack);
+      sectorData.sectorEpilog[2] = nextDiskByte(dataTrack);
+      
+      if (sectorData.sectorEpilog[0] == 0xde &&
+	  sectorData.sectorEpilog[1] == 0xaa &&
+	  sectorData.sectorEpilog[2] == 0xeb) {
+	// Header is integral. See if it's our sector:
+	uint8_t sectorNum = de44(sectorData.sector44);
+	if (sectorNum != sector) {
+	  continue;
+	}
+        
+	// It's our sector - find the data chunk and write it
+	while (ptr < tracks[dataTrack].blockCount*512*2) {
+	  sectorData.dataProlog[0] = sectorData.dataProlog[1];
+	  sectorData.dataProlog[1] = sectorData.dataProlog[2];
+	  sectorData.dataProlog[2] = nextDiskByte(dataTrack);
+	  ptr++;
+
+	  if (sectorData.dataProlog[0] == 0xd5 &&
+	      sectorData.dataProlog[1] == 0xaa &&
+	      sectorData.dataProlog[2] == 0xad) {
+            // That's the data prolog, so next comes our data payload:
+            // 342 bytes of payload, 1 byte of checksum.
+	    for (int i=0; i<343; i++) {
+              writeNextWozByte(dataTrack, nibData[i]);
+            }
+            writeNextWozByte(dataTrack, 0xDE);
+            writeNextWozByte(dataTrack, 0xAA);
+            writeNextWozByte(dataTrack, 0xEB);
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  // If we get here, we failed to write it
+  return false;
+}
 
 bool Woz::readNibSectorDataFromDataTrack(uint8_t dataTrack, uint8_t sector, nibSector *sectorData)
 {
@@ -1354,14 +1500,7 @@ bool Woz::writeTRKSChunk(uint8_t version, int fdout)
 	perror("error writing");
 	return false;
       }
-#if 0      
-      uint8_t c = 0;
-      while (writeSize < tracks[i].blockCount * 512) {
-	if (write(fdout, &c, 1) != 1)
-	  return false;
-	writeSize++;
-      }
-#endif
+      tracks[i].dirty = false;
     }
   }
   return true;
@@ -1379,6 +1518,51 @@ bool Woz::decodeWozTrackToNibFromDataTrack(uint8_t dataTrack, nibSector sectorDa
   return true;
 }
 
+// The caller is responsible for translating between the physical sector numbers and the logical
+// sector numbers. This only takes in to account the physical sector numbers (whatever is
+// represented in the sector's header).
+bool Woz::decodeWozTrackSector(uint8_t phystrack, uint8_t sector, uint8_t dataOut[256])
+{
+  uint8_t dataTrack = quarterTrackMap[phystrack*4];
+  nibSector nibData;
+  if (!readNibSectorDataFromDataTrack(dataTrack, sector, &nibData)) {
+    fprintf(stderr, "Failed to readNibSectorDataFromDataTrack for track %d sector %d\n", phystrack, sector);
+    return false;
+  }
+  
+#if 0
+  printf("Track %d physector %d nib dump:\n", phystrack, sector);
+  dumpNibSector(&nibData);
+#endif
+  if (denibblizeSector(nibData, dataOut) != errorNone) {
+    fprintf(stderr, "failed to denib sector\n");
+    return false;
+  }
+  return true;
+}
+
+// The caller is responsible for translating between the physical sector numbers and the logical
+// sector numbers. This only takes in to account the physical sector numbers (whatever is
+// represented in the sector's header).
+bool Woz::encodeWozTrackSector(uint8_t phystrack, uint8_t sector, uint8_t dataIn[256])
+{
+  uint8_t dataTrack = quarterTrackMap[phystrack*4];
+  uint8_t dataOut[343];
+
+  if (nibblizeSector(dataIn, dataOut) != errorNone) {
+    fprintf(stderr, "Failed to nibblizeSector for track %d sector %d\n", phystrack, sector);
+    return false;
+  }
+
+  if (!writeNibSectorDataToDataTrack(dataTrack, sector, dataOut)) {
+    fprintf(stderr, "Failed to writeNibSectorDataToDataTrack for track %d sector %d\n", phystrack, sector);
+    return false;
+  }
+
+  return true;
+}
+
+
 bool Woz::decodeWozTrackToDsk(uint8_t phystrack, uint8_t subtype, uint8_t sectorData[256*16])
 {
   // Figure out which datatrack we need for the given physical track
@@ -1389,7 +1573,13 @@ bool Woz::decodeWozTrackToDsk(uint8_t phystrack, uint8_t subtype, uint8_t sector
     fprintf(stderr, "failed to decode Woz\n");
     return false;
   }
-
+#if 0  
+  for (int s=0; s<16; s++) {
+    printf("Track read dumping nib sector %d:\n", s);
+    dumpNibSector(&nibData[s]);
+  }
+#endif
+  
   if (denibblizeTrack((const uint8_t *)nibData, sectorData, subtype) != errorNone) {
     fprintf(stderr, "failed to denib track\n");
     return false;
@@ -1637,12 +1827,6 @@ uint8_t Woz::dataTrackNumberForQuarterTrack(uint16_t qt)
 
 bool Woz::flush()
 {
-#if 0
-  if (trackDirty) {
-    printf("Hackily writing /tmp/auto.woz\n");
-    trackDirty = false;
-    return writeFile(2, "/tmp/auto.woz"); // FIXME: debugging
-  }
+  // *** FIXME - should flush() write the image out if it's dirty?
   return true;
-#endif
 }

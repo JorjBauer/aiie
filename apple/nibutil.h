@@ -41,6 +41,14 @@ enum nibErr {
   errorBadData        = 2
 };
 
+typedef struct _bitPtr {
+  uint16_t idx;
+  uint8_t bitIdx;
+} bitPtr;
+
+  bool _decode62Data(const uint8_t trackBuffer[343], uint8_t output[256]);
+  void _encode62Data(uint8_t *outputBuffer, const uint8_t input[256]);
+
 uint32_t nibblizeTrack(uint8_t outputBuffer[NIBTRACKSIZE], const uint8_t rawTrackBuffer[256*16],
 		       uint8_t diskType, int8_t track);
 
@@ -48,6 +56,9 @@ nibErr denibblizeTrack(const uint8_t input[NIBTRACKSIZE], uint8_t rawTrackBuffer
 		       uint8_t diskType);
 
 uint8_t de44(uint8_t nibs[2]);
+
+nibErr nibblizeSector(uint8_t dataIn[256], uint8_t dataOut[343]);
+nibErr denibblizeSector(nibSector input, uint8_t dataOut[256]);
 
 #ifdef __cplusplus
 };
