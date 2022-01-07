@@ -4,7 +4,7 @@ Updated for v9:
 * One Aiie v9 PCB
 
 * 3.2" 320x240 ILI9341 SPI display
-  https://www.amazon.com/gp/product/B07KPD4DHD
+  https://www.amazon.com/gp/product/B07KPD4DHD  $26.49
 
 * Teensy 4.1 with at least (1) 8MB PSRAM added
   https://www.pjrc.com/store/teensy41.html
@@ -60,12 +60,16 @@ Updated for v9:
 * Even more headers, to attach the ESP-01 as you like
 
 * ESP8266 ESP-01 (optional, for *future* ethernet support)
+  You only need one, but it's difficult to find a reliable source for just one.
+  This is a 4-pack:
+    https://www.amazon.com/MakerFocus-Wireless-Transceiver-DC3-0-3-6V-Compatible/dp/B01EA3UJJ4
+    $12.99
 
 * Parallax 27800 Joystick, 2-Axis, 1.64" x 1.2" x 1.1"
   Mouser p/n 619-27800, $7.95
 
 * Brass M2.5 standoffs 16mm tall, 2pk (need 4 standoffs total)
-  https://www.adafruit.com/product/2337
+  https://www.adafruit.com/product/2337 $1.25
 
 * (2) SPDT through-hole switch
   Mouser p/n 642-MMS1208, $1.09 ea
@@ -76,3 +80,5 @@ Updated for v9:
 * 18650 battery holder
   Any with wire leads will do - I used this 2-pack:
     https://www.amazon.com/gp/product/B00FGX8NVO
+  Nothing wrong with this 8-pack (aside from "now I have 8 but needed 1"):
+    https://www.amazon.com/dp/B08H8S84C5 $6.99
