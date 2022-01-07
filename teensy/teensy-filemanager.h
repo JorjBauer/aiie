@@ -27,7 +27,9 @@ class TeensyFileManager : public FileManager {
   virtual int write(int8_t fd, const void *buf, int nbyte);
   virtual int read(int8_t fd, void *buf, int nbyte);
   virtual int lseek(int8_t fd, int offset, int whence);
-  
+
+  virtual void flush();
+
  private:
   bool _prepCache(int8_t fd);
 

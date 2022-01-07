@@ -290,3 +290,8 @@ int NixFileManager::lseek(int8_t fd, int offset, int whence)
   exit(1); // this is an error condition we need to find and fix if it happens
   return -1;
 };
+
+void NixFileManager::flush()
+{
+  // No files are kept open, so there's nothing to flush
+}

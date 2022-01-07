@@ -141,7 +141,9 @@ class FileManager {
   virtual int write(int8_t fd, const void *buf, int nbyte) = 0;
   virtual int read(int8_t fd, void *buf, int nbyte) = 0;
   virtual int lseek(int8_t fd, int offset, int whence) = 0;
-  
+
+  virtual void flush() = 0;
+
  protected:
   volatile unsigned long fileSeekPositions[MAXFILES];
   char cachedNames[MAXFILES][MAXPATH];

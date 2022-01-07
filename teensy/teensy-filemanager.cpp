@@ -300,3 +300,12 @@ int TeensyFileManager::lseek(int8_t fd, int offset, int whence)
   return -1;
 };
 
+void TeensyFileManager::flush()
+{
+  if (cacheFd == -1)
+    return;
+  
+  cacheFile.close();
+  cacheFd = -1;
+}
+

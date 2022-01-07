@@ -26,6 +26,7 @@ class NixFileManager : public FileManager {
   virtual int read(int8_t fd, void *buf, int nbyte);
   virtual int lseek(int8_t fd, int offset, int whence);
 
+  virtual void flush();
  private:
   int8_t numCached;
   
