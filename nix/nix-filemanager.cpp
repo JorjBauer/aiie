@@ -205,7 +205,6 @@ int NixFileManager::write(int8_t fd, const void *buf, int nbyte)
   }
 
   uint32_t pos = fileSeekPositions[fd];
-
   // open, seek, write, close.
   ssize_t rv = 0;
   int ffd = ::open(cachedNames[fd], O_WRONLY|O_CREAT, 0644);
@@ -279,6 +278,15 @@ int NixFileManager::lseek(int8_t fd, int offset, int whence)
       return -1;
     return offset;
   }
-  // Other cases not supported yet                                            
+  if (whence == SEEK_END) {
+    if (offset==0) {
+      seekToEnd(fd);
+      return fileSeekPositions[fd];
+    }
+    // Otherwise we don't handle this yet - seeking beyond the current end
+  }
+  // Other cases not supported yet
+  printf("FAILED lseek -- type %d offset %d\n", whence, offset);
+  exit(1); // this is an error condition we need to find and fix if it happens
   return -1;
 };

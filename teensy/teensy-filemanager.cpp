@@ -290,7 +290,13 @@ int TeensyFileManager::lseek(int8_t fd, int offset, int whence)
       return -1;
     return offset;
   }
-  // Other cases not supported yet                                                                                                      
+  if (whence == SEEK_END && offset==0) {
+    seekToEnd(fd);
+    return fileSeekPositions[fd];
+  }
+
+  // Other cases not supported yet
+  Serial.println("ERROR: lseek called in an unsupported form");
   return -1;
 };
 
