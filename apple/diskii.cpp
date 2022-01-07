@@ -26,8 +26,9 @@
 // how many CPU cycles do we wait to spin down the disk drive? 1023000 == 1 second
 #define SPINDOWNDELAY (1023000)
 
-// 10 second delay before flushing
-#define FLUSHDELAY (1023000 * 10)
+// 3 second delay before flushing. 10 seconds is too long. 3 is
+// arbitrarily shorter...
+#define FLUSHDELAY (1023000 * 3)
 
 #define SPINFOREVER -2
 #define NOTSPINNING -1
