@@ -103,6 +103,61 @@ TeensyKeyboard::~TeensyKeyboard()
 {
 }
 
+// apply modifiers to keycode and return result
+uint8_t TeensyKeyboard::modifyKeycode(uint8_t key)
+{
+  if (key == ' ' || key == PK_DEL || key == PK_ESC || key == PK_RET || key == PK_TAB) {
+    return key;
+  }
+
+  if (key >= 'a' &&
+      key <= 'z') {
+    if (ctrlPressed) {
+      return key - 'a' + 1;
+    }
+    if (leftShiftPressed || rightShiftPressed || capsLock) {
+      return key - 'a' + 'A';
+    }
+    return key;
+  }
+
+  // FIXME: can we control-shift?
+  if (key >= ',' && key <= ';') {
+    if (leftShiftPressed || rightShiftPressed) {
+      return shiftedNumber[key - ','];
+    }
+    return key;
+  }
+
+  if (leftShiftPressed || rightShiftPressed) {
+    uint8_t ret = 0;
+    switch (key) {
+    case '=':
+      ret = '+';
+      break;
+    case '[':
+      ret = '{';
+      break;
+    case ']':
+      ret = '}';
+      break;
+    case '\\':
+      ret = '|';
+      break;
+    case '\'':
+      ret = '"';
+      break;
+    case '`':
+      ret = '~';
+      break;
+    }
+    if (ret) {
+      return ret;
+    }
+  }
+  return key;
+}
+
 void TeensyKeyboard::pressedKey(uint8_t key)
 {
   numPressed++;
@@ -133,65 +188,7 @@ void TeensyKeyboard::pressedKey(uint8_t key)
     return;
   }
 
-  if (key == ' ' || key == PK_DEL || key == PK_ESC || key == PK_RET || key == PK_TAB) {
-    addEvent(key, true);
-    return;
-  }
-
-  if (key >= 'a' &&
-      key <= 'z') {
-    if (ctrlPressed) {
-      addEvent(key - 'a' + 1, true);
-      return;
-    }
-    if (leftShiftPressed || rightShiftPressed || capsLock) {
-      addEvent(key - 'a' + 'A', true);
-      return;
-    }
-    addEvent(key, true);
-    return;
-  }
-
-  // FIXME: can we control-shift?
-  if (key >= ',' && key <= ';') {
-    if (leftShiftPressed || rightShiftPressed) {
-      addEvent(shiftedNumber[key - ','], true);
-      return;
-    }
-    addEvent(key, true);
-    return;
-  }
-
-  if (leftShiftPressed || rightShiftPressed) {
-    uint8_t ret = 0;
-    switch (key) {
-    case '=':
-      ret = '+';
-      break;
-    case '[':
-      ret = '{';
-      break;
-    case ']':
-      ret = '}';
-      break;
-    case '\\':
-      ret = '|';
-      break;
-    case '\'':
-      ret = '"';
-      break;
-    case '`':
-      ret = '~';
-      break;
-    }
-    if (ret) {
-      addEvent(ret, true);
-      return;
-    }
-  }
-
-  // Everything else falls through.
-  addEvent(key, true);
+  addEvent(modifyKeycode(key), true);
 }
 
 void TeensyKeyboard::releasedKey(uint8_t key)
@@ -218,7 +215,7 @@ void TeensyKeyboard::releasedKey(uint8_t key)
       break;
     }
   }
-  addEvent(key, false);
+  addEvent(modifyKeycode(key), false);
 }
 
 bool TeensyKeyboard::kbhit()

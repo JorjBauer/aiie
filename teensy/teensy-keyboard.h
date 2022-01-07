@@ -25,6 +25,8 @@ private:
   bool addEvent(uint8_t kc, bool pressed);
   bool popEvent(uint8_t *kc, bool *pressed);
 
+  uint8_t modifyKeycode(uint8_t key);
+
  private:
   bool leftShiftPressed;
   bool rightShiftPressed;
