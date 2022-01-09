@@ -29,25 +29,23 @@ bool WozSerializer::Serialize(int8_t fd)
 {
   // If we're being asked to serialize, make sure we've flushed any data first
   flush();
-  /*
+  
   serializeMagic(WOZMAGIC);
-
-  imageType 8
-    autoFlushTrackData bool
-    diskinfo ??? can this be regen'd?
-    trackInfo tracks[160] -- has a dirty flag in it :/
+  // The disk image and its cache will be reloaded completely, so no
+  // need to serialize tracks[] or diskinfo or imageType or metadata
+  //
+  // autoFlushTrackData is a configuration option, does not need
   
   serialize32(trackPointer);
   serialize32(trackBitCounter);
   serialize8(trackByte);
-    trackByteFromDataTrack 8
+  serialize8(trackByteFromDataTrack);
   serialize8(trackBitIdx);
   serialize8(trackLoopCounter);
-
-  metadata randData randPtr
-  
+  serialize8(randData);
+  serialize8(randPtr);
   serializeMagic(WOZMAGIC);
-  */
+
   return true;
 
  err:
@@ -57,24 +55,19 @@ bool WozSerializer::Serialize(int8_t fd)
 bool WozSerializer::Deserialize(int8_t fd)
 {
   // Before deserializing, the caller has to re-load the right disk image!
-  /*
   deserializeMagic(WOZMAGIC);
+
   deserialize32(trackPointer);
   deserialize32(trackBitCounter);
-  deserialize32(lastReadPointer);
   deserialize8(trackByte);
+  deserialize8(trackByteFromDataTrack);
   deserialize8(trackBitIdx);
   deserialize8(trackLoopCounter);
-
-...
-  have to serialize/deserialize all of tracks[*] now
-    and the dirty flag is in there
-      tracks[datatrack].dirty = true;
-...
-
+  deserialize8(randData);
+  deserialize8(randPtr);
   
   deserializeMagic(WOZMAGIC);
-  */
+
   return true;
 
  err:
