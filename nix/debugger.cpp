@@ -102,6 +102,29 @@ bool getAddress(const char *buf, unsigned int *addrOut)
   return false;
 }
 
+bool getTwoAddresses(const char *buf, unsigned int *addrOut1, unsigned int *addrOut2)
+{
+  unsigned int val, val2;
+  if (sscanf(buf, " 0x%X 0x%X", &val, &val2) == 2 ||
+      sscanf(buf, " 0x%x 0x%X", &val, &val2) == 2
+      ) {
+    *addrOut1 = val;
+    *addrOut2 = val2;
+    return true;
+  } else if (sscanf(buf, " $%X $%X", &val, &val2) == 2 ||
+	     sscanf(buf, " $%x $%X", &val, &val2) == 2
+	     ) {
+    *addrOut1 = val;
+    *addrOut2 = val2;
+    return true;
+  } else if (sscanf(buf, " %d %d", &val, &val2) == 2) {
+    *addrOut1 = val;
+    *addrOut2 = val2;
+    return true;
+  }
+  return false;
+}
+
 #define GETCH { if ((read(cd,&b,1)) == -1) { close(cd); cd=-1; return; } }
 
 #define GETLN {   int ptr=0;   while (((read(cd,&b,1)) != -1) && ptr < sizeof(buf) && b != 10 && b != 13) {   if (b) {buf[ptr++] = b;}   }   buf[ptr]=0; }
@@ -170,6 +193,7 @@ void Debugger::step()
 	     b != 'b' && // set breakpoint
 	     b != 'd' && // show disassembly
 	     b != 'L' && // load memory (lines)
+             b != 'D' && // dump memory
 	     b != 'h' && // show history
 	     b != '*'    // show memory (byte)
 	     );
@@ -274,6 +298,31 @@ void Debugger::step()
 	    printf("\n");
 	  }
 	}
+      }
+      goto doover;
+
+    case 'D': // Dump memory. Use "D 0x<address> 0x<length>\n"
+      {
+        unsigned int val2;
+        GETLN;
+        if (getTwoAddresses(buf, &val, &val2)) {
+          sprintf(buf, "Memory dump at 0x%X, length 0x%X:\r\n", val, val2);
+          write(cd, buf, strlen(buf));
+          for (uint32_t i=val; i<val+val2; i+=16) {
+            sprintf(buf, "$%.4X  ", i);
+            write(cd, buf, strlen(buf));
+            for (uint8_t j=0; j<16 && (i+j)<(val+val2); j++) {
+              uint8_t v = g_vm->getMMU()->read(i+j);
+              sprintf(buf, "%.2X ", v);
+            write(cd, buf, strlen(buf));
+            }
+            sprintf(buf, "\r\n");
+            write(cd, buf, strlen(buf));
+          }
+        } else {
+          sprintf(buf, "Syntax error\12\15");
+          write(cd, buf, strlen(buf));
+        }
       }
       goto doover;
       
