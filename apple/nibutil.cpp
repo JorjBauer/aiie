@@ -91,43 +91,38 @@ static void _packByte(uint8_t *output, bitPtr *ptr, uint8_t v)
 // Take 256 bytes of input and turn it in to 343 bytes of nibblized output
 void _encode62Data(uint8_t outputBuffer[343], const uint8_t input[256])
 {
-  int ptr2 = 0;
-  int ptr6 = 0x56;
-  static int nibbles[0x156];
-
-  memset(nibbles, 0, sizeof(nibbles));
+  memset(outputBuffer, 0, 342);
 
   int idx2 = 0x55;
   for (int idx6 = 0x101; idx6 >= 0; idx6--) {
     int val6 = input[idx6 & 0xFF];
-    int val2 = nibbles[ptr2 + idx2];
+    int val2 = outputBuffer[idx2];
 
     val2 = (val2 << 1) | (val6 & 1);
     val6 >>= 1;
     val2 = (val2 << 1) | (val6 & 1);
     val6 >>= 1;
 
-    // There are 2 "extra" bytes of 2-bit data that we add in here.
-    if (ptr6 + idx6 < 0x156) {
-      nibbles[ptr6 + idx6] = val6;
-    }
-    if (ptr2 + idx2 < 0x156) {
-      nibbles[ptr2 + idx2] = val2;
+    outputBuffer[idx2] = val2;
+    if (idx6 < 0x100) {
+      outputBuffer[0x56 + idx6] = val6;
     }
 
     if (--idx2 < 0) {
       idx2 = 0x55;
     }
   }
-  // mask out the "extra" 2-bit data above. Note that the Apple decoders
-  // don't care about the extra bits, so taking these back out isn't 
-  // operationally important. Just don't overflow _trans[]...
-  nibbles[0x54] &= 0x0F;
-  nibbles[0x55] &= 0x0F;
+
+  // mask out the "extra" 2-nyb data from above. Note that the Apple
+  // decoders don't care about the extra bits, so taking these back
+  // out isn't operationally important. Just don't overflow
+  // _trans[]...
+  outputBuffer[0x54] &= 0x0F;
+  outputBuffer[0x55] &= 0x0F;
 
   int lastv = 0;
   for (int idx = 0; idx < 0x156; idx++) {
-    int val = nibbles[idx];
+    int val = outputBuffer[idx];
     outputBuffer[idx] = _trans[lastv^val];
     lastv = val;
   }
