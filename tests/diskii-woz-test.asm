@@ -22,8 +22,35 @@
     .endrep
 .endmacro
 
+.struct iob_t
+        type    .byte           ; table type (always $01)
+        slot    .byte           ; slot (<<4)
+        drive   .byte           ; drive (1/2)
+        volume  .byte           ; volume ($00 = all)
+        track   .byte
+        sector  .byte
+        dct     .word           ; low/hi pointer to a DCT
+        data    .word           ; low/hi pointer to sector data
+        unused  .word
+        bytes   .word           ; # bytes to read/write ($00 == 256)
+        command .byte           ; 0=seek, 1=read, 2=write, 4=fmt
+        retval  .byte           ; return code
+        retvol  .byte           ; return volume
+        retslot .byte           ; return slot
+        retdrive .byte          ; return drive
+.endstruct        
+        
 a_cr	= $0d		; Carriage return.
 
+RWTS_GETIOB = $03E3             ; low returned in Y, high A ($B7E8 is the normal IOB)
+RWTS        = $03D9             ; needs IOB address in Y/A
+DOS33_IOB   = $B7E8
+IOB = DOS33_IOB
+DOS33_SECBUF = $B4BB            ; $B4BB-B5BA
+        
+RWTS_WRTDIR = $B037             ; hidden routine in DOS to call RWTS (cf. AAL Vol2, iss 8)
+RWTS_WRTCMD = $B041             ;   ... which wants to call write by default and we modify it to do something else
+        
 F8ROM_YXHEX = $F940        
 F8ROM_AXHEX = $F941
 F8ROM_XHEX  = $F944              ; print X register in hex -- kills X,A
@@ -50,30 +77,30 @@ DISK_MODEW  = $C08F
         
 
         ;; Zero-page addresses used
-        ;;    00/01: storage pointer for loops in nybble code
-        ;;    02/03: second storage pointer for loops in nybble code
-        ;;    04/05: lookup table indexer for the _trans table
-        ;;    FA/FB: DST pointer for memset
-        ;;    FC/FD: pointer to sector buffer
-        ;;    FF: scratch, used when erasing a track
-ZP_STORPTR = $00
-ZP_STOR2   = $02
-ZP_TRANSP  = $04
-DST        = $FA
-ZP_SECTP   = $FC
-ZP_SCRATCH = $FF
-
+        ;; Totally free and clear: 6,7,8,9; eb,ec,ed,ee,ef;fa,fb,fc,fd
+ZP_STORPTR = $06                ;06,07
+ZP_STOR2   = $08                ;08,09
+ZP_SCRATCH = $eb                ;just eb
+ZP_TRANSP  = $ec                ;ec,ed
+DST        = $ee                ;ee,ef
+ZP_SECTP   = $fa                ;fa,fb
+ZP_PRINT   = $fc                ;fc, fd
+        
 .segment "CODE"
 START
         JMP Entry
 
 Entry
+        PHP                     ;save interrupt state
+        SEI                     ;disable interrupts
+        
         JSR     F8ROM_INIT
         JSR     F8ROM_HOME
-        LDY     #>STARTMSG
-        LDA     #<STARTMSG
         JSR     Prtmsg
+        ASC "Insert a blank floppy in s6d1 and press a key..."
+	.byte   $8D, $00
 
+        
         JSR     F8ROM_RDKEY     ; wait for a keypress
 
         ;; set up pointers to SECDATA and TRANS62
@@ -101,106 +128,213 @@ Entry
         STA     CNT+1
         JSR     memset
 
-        
-        ;;  Seek to track 0
-
-        ;;  Fill track 0 with as many FF bytes as we think fit. Per
-        ;; https://retrocomputing.stackexchange.com/questions/503/absolute-maximum-number-of-nibbles-on-an-apple-ii-floppy-disk-track
-        ;; track 0 can't reasonably fit more than about 8300 nybbles, so
-        ;; we will write 8400 nybbles to be sure to have cleared any possible
-        ;; track (track 0 is the physically largest, on the outside of
-        ;; the disk; so track 35 will be multiply covered easily).
-
         ;; Turn on motor for slot 6, drive 1
         LDX     #$60            ; slot 6
         LDA     DISKON,X
         LDA     DRIVEA,X
         ;; and seek out to track 0
         JSR     RecalibrateTrack 
-
+        
         ;; Wait for it to come to speed
         JSR     WaitMotor
 
-        ;; Fill the track with 0xFF sync bytes (ensuring we've wiped the track)
-        JSR     EraseTrack
-
-        ;; Write out a track of nybblized sectors to Track 0 for physical 
-        ;; sectors 0 through 15. The data in each is algorithmic, same as
-        ;; the wozzle test disk pattern test #7 -- 256 incrementing bytes
-        ;; starting at (sector + track).
-
-        ;; Precompute one track of nybblized data at NYBDATA for track 0 (A)
+        ;; write 40 tracks of data
         LDA     #$00
-        JSR     MakeTrackData
-
-        ;; Write it to the track
-        JSR     WriteTrack
-
+@writeAnotherTrack
+        JSR     WriteOneTrack   ; takes track number in A and preserves it
+        CLC
+        ADC     #1
+        CMP     #35
+        BNE     @writeAnotherTrack
+        
+        ;; Turn off motor for slot 6, drive 1 and let RWTS turn it back on
+        LDX     #$60            ; slot 6
+        LDA     DISKOFF,X
+        
+@rwtstest
         ;; using RWTS, validate the sector contents of each sector on the track
+        ;; 
+        ;; call RWTS to perform the read
 
-        ;; ...
+        ;; Reset the current track
+        JSR     RecalibrateTrack
+
+        ;; Let RWTS think we're changing slots, so it doesn't use any cached
+        ;; data about the head position
+        LDA     #$70
+        STA     DOS33_IOB+iob_t::retslot
+
+        LDA     #01
+        STA     RWTS_WRTCMD     ; set read command
+
+        ;; Pick track/sector to read
+        LDA     #$00
+        STA     $B397           ; track
+        LDA     #$00
+        STA     $B398           ; sector
+@readAnotherSector
+        LDA     $B397
+        JSR     F8ROM_AHEX
+        LDA     $B398
+        JSR     F8ROM_AHEX
+        JSR     Prtmsg
+        ASC " :Reading track/sector"
+        .byte   $00
+        
+        JSR     RWTS_WRTDIR
+        
+        ;;  check for an error (detail is in IOB + $0D)
+        BCC     @noErrors
+        JMP     rwtsTestsFailed
+@noErrors        
+        ;; Generate the expected block of data so we can validate the sector
+        LDA     $B397
+        STA     TARGETTRK
+        LDA     $B398
+        STA     TARGETSEC
+        JSR     MakeSectorData
+
+        ;; compare SECDATA against the RWTS sector buffer at DOS33_SECBUF
+        LDA     TARGETSEC
+        JSR     F8ROM_AHEX
+        JSR     Prtmsg
+	ASC " : validate sector contents"
+        .byte   $00
+        
+        JSR     Seccmp
+        BCC     @cmpok
+        JMP     FailedSectorCompare
+@cmpok
+
+        ;; *** Something is wrong with the IOB+iob::sector approach -- if I hard code addresses for track/sector this works, but if I use the :: struct mechanism is doesn't
+        ;; *** ... and the T/S offsets don't match the IOB header, so I'm not
+        ;; *** sure why storing them at these addresses works - need more
+        ;; *** RWTS info
+        ;; *** https://www.txbobsc.com/aal/1982/aal8205.html#a6
+        ;; Read the next sector
+        INC     $B398
+        LDA     $B398
+        CMP     #$10
+        BEQ     @nextTrack
+        JMP     @readAnotherSector
+@nextTrack        
+        LDA     #$00
+        STA     $B398
+        INC     $B397
+        LDA     $B397           ;track
+        CMP     #$23
+        BEQ     @doneReadTest
+        JMP     @readAnotherSector
+@doneReadTest
 
         ;; Find sector # 6 (arbitrarily chosen) and replace its data
         ;; with 256 bytes of 0xFF (nybbles 0xFF 0x96 0x96 0x96 ... )
 
         ;; ...
 
-        ;; using RWTS, validate the sector contents of all 16 sectors
+        ;; using RWTS, validate the sector contents of all 16 sectors again
 
         ;; ...
-
-        ;; Turn off motor for slot 6, drive 1
-        LDX     #$60            ; slot 6
-        LDA     DISKOFF,X
-
+        
 TestsDone
-        LDY     #>ENDMSG        ; All done, tell the user
-        LDA     #<ENDMSG
         JSR     Prtmsg
+      	ASC "Test complete, no errors found."
+        .byte   $00
+        
+Exit
+        PLP                     ;restore interrupts
 
+        LDA     #$00
+        STA     $48             ; RWTS: needs to be cleared after calls
+        
+        ;;  for debugging, show where the sector and nybble data are
         LDA     #>SECDATA
         JSR     F8ROM_AHEX
         LDA     #<SECDATA
         JSR     F8ROM_AHEX
-        LDY     #>SECDATAMSG
-        LDA     #<SECDATAMSG
         JSR     Prtmsg
+      	ASC " : sector data buffer"
+        .byte   $00
         
         LDA     #>NYBDATA
         JSR     F8ROM_AHEX
         LDA     #<NYBDATA
         JSR     F8ROM_AHEX
-        LDY     #>NYBDATAMSG
-        LDA     #<NYBDATAMSG
         JSR     Prtmsg
+        ASC " : nybble data buffer"
+        .byte   $00
+
+        ;; Fix DOS where we butchered it
+        LDA     #02
+        STA     RWTS_WRTCMD     ; reset command to original value ("write")
         
-Exit        
+        ;; Turn off motor for slot 6, drive 1 before exiting
+        LDX     #$60            ; slot 6
+        LDA     DISKOFF,X
+        
         JMP     WRVEC           ; done; warm-start for the user
 
-WriteProtected
-        LDY     #>WPMSG
-        LDA     #<WPMSG
+rwtsTestsFailed
+        LDA     IOB+iob_t::retval     ; get return code from our IOB
+        JSR     F8ROM_AHEX      ; print it
         JSR     Prtmsg
-        JMP     WRVEC
+        ASC " : error reported during RWTS... stopping"
+        .byte   $00
+        JMP     Exit
+        
+WriteProtected
+        JSR     Prtmsg
+        ASC "Disk is write protected; aborting"
+	.byte   $00
+        JMP     Exit
+
+FailedSectorCompare
+        JSR     Prtmsg
+        ASC "Sector comparison failed"
+        .byte   $00
+        JMP     Exit
         
 ;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
         ;; Start of subroutines
 ;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-        ;; Prtmsg: message address is in Y (high) and A (low)
-        ;; Prints until it finds a 00 byte; then emits a CR
-        
-Prtmsg  STA $42 ;Store the msg loc.
-        STY $43
+        ;; Prtmsg: display text on screen, using inline
+        ;;  null-terminated strings. Trashes A,X,Y, ZP_PRINT, ZP_PRINT+1.
+        ;;  Adds a newline at the end of the string. Strings may be
+        ;;  arbitrarily long. Expects the string to have the high bit
+        ;;  set where necessary; passes the characters directly to COUT.
 
-        LDY #$00 ;Print the message.
-@Loop   LDA ($42),Y
-        BEQ @Done
-        JSR F8ROM_COUT
+Prtmsg
+        PLA
+        STA     ZP_PRINT
+        PLA
+        STA     ZP_PRINT+1
+        LDY     #$00
+@LoopA
         INY
-        JMP @Loop
-@Done
-        JSR F8ROM_CROUT
+        BNE     @noinc
+        INC     $FD
+@noinc
+        TYA
+        PHA
+        LDA     (ZP_PRINT),Y
+        BEQ     @done
+        JSR     F8ROM_COUT
+        PLA
+        TAY
+        JMP     @LoopA
+@done
+        PLA
+        CLC
+        TYA
+        ADC     ZP_PRINT
+        TAX
+        LDA     ZP_PRINT+1
+        ADC     #$00
+        PHA
+        TXA
+        PHA
+        JSR     F8ROM_CROUT
         RTS
 
         ;; WaitMotor: delay to wait for a drive to come up to speed
@@ -302,10 +436,6 @@ EraseTrack
         ;; FIXME: need to be sure WriteTrack does not span pages or the timing
         ;;  will be broken
 WriteTrack
-        LDY     #>WRITEMSG
-        LDA     #<WRITEMSG
-        JSR     Prtmsg
-        
         LDA     #>NYBDATA       ; set up ZP_STORPTR to the start of NYBDATA
         STA     ZP_STORPTR+1
         LDA     #<NYBDATA
@@ -375,10 +505,7 @@ WriteTrack
         ;; track (A), and store it at NYBDATA ($2000).
 MakeTrackData
         STA     TARGETTRK
-        ASL
-        ASL
-        ASL
-        ASL
+        LDA     #0
         STA     TARGETSEC
         LDA     #16
         STA     SECCOUNT        ; we want to write 16 sectors of nyb'd data
@@ -409,11 +536,13 @@ MakeTrackData
         ;; Increments ZP_STORPTR as it goes
         ;; trashes Y/A
 MakeSectorData
+        LDA     TARGETTRK
+        JSR     F8ROM_AHEX
         LDA     TARGETSEC
         JSR     F8ROM_AHEX
-        LDY     #>SECTORMSG
-        LDA     #<SECTORMSG
         JSR     Prtmsg
+	ASC " : generate sector data"
+        .byte   $00
         
         LDY     #16             ; write 16 sync bytes
         LDA     #$FF
@@ -497,10 +626,6 @@ MakeSectorData
         INC     ZP_STORPTR+1
         
 @SectorDataTime
-        LDY     #>SECTORMSG2
-        LDA     #<SECTORMSG2
-        JSR     Prtmsg
-
         LDY     #00
         
         ;; Now for the fun bit - 343 bytes of data! Prep a 256 byte sector
@@ -578,10 +703,6 @@ Encode6and2
         STY     ZP_STOR2+1
 
         ;; Clear output buffer 0x157 bytes
-        LDY     #>SECTORMSG3
-        LDA     #<SECTORMSG3
-        JSR     Prtmsg
-        
         LDY     #$00
         LDA     #$00
         STA     CKSUM           ; convenient place to clear the checksum for later
@@ -597,10 +718,6 @@ Encode6and2
         STA     (ZP_STOR2),Y
         JMP     @ClearNext
 @ClearDone
-        LDY     #>SECTORMSG4
-        LDA     #<SECTORMSG4
-        JSR     Prtmsg
-
         ;; Work through the 256 bytes of data to construct the 6and2 data,
         ;; with ZP_SECTP as the input and ZP_STORPTR as the output
         ;; 
@@ -698,10 +815,6 @@ Encode6and2
         ;; and compute the checksum
         ;; Checksum is initialized to 0 above
         ;; for (int idx6=0; idx6<0x156; idx6++)
-        LDY     #>SECTORMSG5
-        LDA     #<SECTORMSG5
-        JSR     Prtmsg
-
         LDA     #$00
         STA     IDX6+1
         STA     IDX6
@@ -797,45 +910,91 @@ memset
 	BCS	@a
 @fin
 	RTS
+
+        ;; Seccmp: compare SECDATA and DOS33_SECBUF (256 bytes)
+        ;; return with carry clear if compare is ok; set if differences are
+        ;; found
+Seccmp
+        LDA     #>SECDATA
+        STA     ZP_STORPTR+1
+        LDA     #<SECDATA
+        STA     ZP_STORPTR
+        LDA     #>DOS33_SECBUF
+        STA     ZP_STOR2+1
+        LDA     #<DOS33_SECBUF
+        STA     ZP_STOR2
+
+        LDY     #$FF
+@next
+        /*
+        TYA                     ;debug message - save Y before & restore after
+        PHA
+        JSR     F8ROM_AHEX      ;byte number
+        LDA     (ZP_STORPTR),Y
+        JSR     F8ROM_AHEX
+        LDA     (ZP_STOR2),Y
+        JSR     F8ROM_AHEX
+        JSR     Prtmsg
+        ASC " : byte cmp"
+        .byte   $00
+        PLA
+        TAY
+        */
+        
+        LDA     (ZP_STORPTR),Y
+        SEC
+        SBC     (ZP_STOR2),Y
+        BNE     @doneError
+
+        TYA
+        BEQ     @done           ;if Y==0 we're done
+        DEY
+        JMP     @next
+        
+@done
+        CLC                     ;no error
+        RTS
+@doneError
+        SEC                     ;error
+        RTS
+
+WriteOneTrack
+        ;;  Fill track with as many FF bytes as we think fit. Per
+        ;; https://retrocomputing.stackexchange.com/questions/503/absolute-maximum-number-of-nibbles-on-an-apple-ii-floppy-disk-track
+        ;; track 0 can't reasonably fit more than about 8300 nybbles, so
+        ;; we will write 8400 nybbles to be sure to have cleared any possible
+        ;; track (track 0 is the physically largest, on the outside of
+        ;; the disk; so track 35 will be multiply covered easily).
+
+        PHA                     ; save A on the way in
+        STA     TARGETTRK
+        
+        ;; postion the head for the traget track
+        ASL                     ; multiply by 2
+        STA     DSTHALFTRK
+        JSR     MoveTrack
+
+        ;; Fill the track with 0xFF sync bytes (ensuring we've wiped the track)
+        JSR     EraseTrack
+
+        ;; Write out a track of nybblized sectors to Track 0 for physical 
+        ;; sectors 0 through 15. The data in each is algorithmic, same as
+        ;; the wozzle test disk pattern test #7 -- 256 incrementing bytes
+        ;; starting at (sector + track).
+
+        ;; Precompute one track of nybblized data at NYBDATA for the given track
+        LDA     TARGETTRK
+        JSR     MakeTrackData
+
+        ;; Write it to the track
+        JSR     WriteTrack
+        PLA                     ; restore A on the way out
+        RTS
+        
 ;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
         ;; Start of data segment
 ;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-STARTMSG
-        ASC "Insert a blank floppy in s6d1 and press a key..."
-        .byte   $8D, $00
 
-SECTORMSG
-        ASC " : Making this sector of data..."
-        .byte $00
-SECTORMSG2
-        ASC "Building sector data chunk..."
-        .byte $00
-SECTORMSG3
-        ASC "Clearing output buffer..."
-        .byte $00
-SECTORMSG4
-        ASC "Constructing 6-and-2 data..."
-        .byte $00
-SECTORMSG5
-        ASC "Building checksum..."
-        .byte $00
-ENDMSG
-        ASC "Test complete, no errors found."
-        .byte   $00
-SECDATAMSG
-        ASC " : sector data buffer"
-        .byte   $00
-NYBDATAMSG
-        ASC " : nybble data buffer"
-        .byte   $00
-
-WPMSG
-        ASC "Disk is write protected; aborting"
-        .byte   $00
-WRITEMSG
-        ASC "Writing fresh track..."
-        .byte   $00
-        
 ;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
         ;; variable space
         ;;
@@ -878,10 +1037,18 @@ CNT
         .byte $00, $00
 VALUE
         .byte $00
+
+/*IOB
+        .tag iob_t*/
         
 ;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;       
-        ;; Block data area
+        ;; Block (read-only) data area
 ;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+DCT
+        .byte $00               ; decide type ($00 = DiskII)
+        .byte $01               ; phases per track ($01 for DiskII)
+        .byte $EF, $D8          ; motor on time count ($EFD8 for DiskII)
+        
 .align  256
 
         ;; 6-and-2 DOS3.3 translation table (here so it doesn't
