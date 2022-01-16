@@ -32,6 +32,7 @@ uint8_t SDLPaddles::paddle1()
 
 void SDLPaddles::gotMouseMovement(uint16_t x, uint16_t y)
 {
-  p0 = ((float)x / (float)SDLDISPLAY_WIDTH) * (float) 255.0;
-  p1 = ((float)y / (float)SDLDISPLAY_HEIGHT) * (float) 255.0;
+  // ***
+  p0 = ((float)x / (float)800) * (float) 255.0;
+  p1 = ((float)y / (float)480) * (float) 255.0;
 }

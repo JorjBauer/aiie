@@ -8,12 +8,6 @@
 
 #include "physicaldisplay.h"
 
-// scale can be 1,2,4. '1' is half-width at the highest resolution
-// (80-col mode). '2' is full width. '4' is double full width.
-#define SDLDISPLAY_SCALE 2
-#define SDLDISPLAY_WIDTH (320*SDLDISPLAY_SCALE)
-#define SDLDISPLAY_HEIGHT (240*SDLDISPLAY_SCALE)
-
 class SDLDisplay : public PhysicalDisplay {
  public:
   SDLDisplay();
@@ -44,7 +38,7 @@ class SDLDisplay : public PhysicalDisplay {
   void windowResized(uint32_t w, uint32_t h);
 
  private:
-  uint32_t videoBuffer[SDLDISPLAY_HEIGHT][SDLDISPLAY_WIDTH];
+  uint32_t videoBuffer[480][800];// ***
 
   SDL_Window *screen;
   SDL_Renderer *renderer;

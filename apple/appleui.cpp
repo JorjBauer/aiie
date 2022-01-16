@@ -54,6 +54,8 @@ void AppleUI::drawPercentageUIElement(uint8_t element, uint8_t percent)
 
 void AppleUI::drawBatteryStatus(uint8_t percent)
 {
+  return; // *** FIXME: image and positioning not updated for new aspect ratio
+  
   uint16_t xoff = 301;
   uint16_t yoff = 222;
 
@@ -108,18 +110,18 @@ void AppleUI::blit()
 
   if (redrawDriveLatches) {
     redrawDriveLatches = false;
-    uint16_t xoff = 55;
-    uint8_t yoff = 216;
+    uint16_t xoff = 140;
+    uint16_t yoff = 418;
     uint16_t xsize;
     uint8_t ysize;
     const uint8_t *img;
 
-    xsize = 43;
-    ysize = 20;
+    xsize = LATCH_WIDTH;
+    ysize = LATCH_HEIGHT;
     img = driveInserted[0] ? driveLatchOpen : driveLatch;
     g_display->drawImageOfSizeAt(img, xsize, ysize, xoff, yoff);
 
-    xoff += 134;
+    xoff += LATCH_XSPACING;
     img = driveInserted[1] ? driveLatchOpen : driveLatch;
     g_display->drawImageOfSizeAt(img, xsize, ysize, xoff, yoff);
   }
@@ -127,15 +129,16 @@ void AppleUI::blit()
   if (redrawDriveActivity) {
     redrawDriveActivity = false;
 
-    uint16_t xoff = 125;
-    uint8_t yoff = 213;
+    // FIXME assumes the 2 drives are next to each other (same yoff)
+    uint16_t xoff = LED0_XPOS;
+    uint8_t yoff = LED0_YPOS;
 
-    for (int x=0; x<6; x++) {
-      g_display->drawUIPixel(x + xoff, yoff, driveActivity[0] ? 0xFA00 : 0x0000);
-      g_display->drawUIPixel(x + xoff, yoff + 1, driveActivity[0] ? 0xFA00 : 0x0000);
-
-      g_display->drawUIPixel(x + xoff + 135, yoff, driveActivity[1] ? 0xFA00 : 0x0000);
-      g_display->drawUIPixel(x + xoff + 135, yoff + 1, driveActivity[1] ? 0xFA00 : 0x0000);
+    for (int y=0; y<LED_HEIGHT; y++) {
+      for (int x=0; x<LED_WIDTH; x++) {
+        g_display->drawUIPixel(x + xoff, y + yoff, driveActivity[0] ? 0xFA00 : 0x0000);
+        
+        g_display->drawUIPixel(x + xoff + (LED1_XPOS-LED0_XPOS), y + yoff, driveActivity[1] ? 0xFA00 : 0x0000);
+      }
     }
   }
 

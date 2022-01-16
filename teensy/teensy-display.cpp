@@ -27,8 +27,8 @@ extern const unsigned char interface_glyphs[256];
 #define PIN_MISO 1
 #define PIN_SCK 27
 
-#define SCREENINSET_X (18*TEENSYDISPLAY_SCALE)
-#define SCREENINSET_Y (13*TEENSYDISPLAY_SCALE)
+#define SCREENINSET_X (120)
+#define SCREENINSET_Y (10)
 
 // RGB map of each of the lowres colors
 const uint16_t loresPixelColors[16] = { 0x0000, // 0 black
@@ -51,7 +51,7 @@ const uint16_t loresPixelColors[16] = { 0x0000, // 0 black
 
 // This definition can't live in the class header because of the
 // DMAMEM adornment
-DMAMEM uint16_t dmaBuffer[TEENSYDISPLAY_HEIGHT][TEENSYDISPLAY_WIDTH];
+DMAMEM uint16_t dmaBuffer[480][800];
 
 #define RGBto565(r,g,b) ((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
 #define _565toR(c) ( ((c) & 0xF800) >> 8 )
@@ -59,8 +59,7 @@ DMAMEM uint16_t dmaBuffer[TEENSYDISPLAY_HEIGHT][TEENSYDISPLAY_WIDTH];
 #define _565toB(c) ( ((c) & 0x001F) << 3 )
 #define luminanceFromRGB(r,g,b) ( ((r)*0.2126) + ((g)*0.7152) + ((b)*0.0722) )
 
-
-ILI9341_t3n tft = ILI9341_t3n(PIN_CS, PIN_DC, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
+RA8875 tft = RA8875(PIN_CS, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
 
 DMAChannel dmatx;
 DMASetting dmaSetting;

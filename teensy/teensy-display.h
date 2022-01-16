@@ -2,15 +2,11 @@
 #define __TEENSY_DISPLAY_H
 
 #include <Arduino.h>
-#include <ILI9341_t3n.h>
+#include <RA8875.h>
 
 #include "physicaldisplay.h"
 
 class BIOS;
-
-#define TEENSYDISPLAY_SCALE 1
-#define TEENSYDISPLAY_WIDTH (320*TEENSYDISPLAY_SCALE)
-#define TEENSYDISPLAY_HEIGHT (240*TEENSYDISPLAY_SCALE)
 
 class TeensyDisplay : public PhysicalDisplay {
   friend class BIOS;

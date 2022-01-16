@@ -15,8 +15,9 @@ extern const unsigned char lcase_glyphs[256];
 extern const unsigned char mousetext_glyphs[256];
 extern const unsigned char interface_glyphs[256];
 
-#define SCREENINSET_X (18*SDLDISPLAY_SCALE)
-#define SCREENINSET_Y (13*SDLDISPLAY_SCALE)
+// ***
+#define SCREENINSET_X (120)
+#define SCREENINSET_Y (10)
 
 // RGB map of each of the lowres colors
 const uint8_t loresPixelColors[16][3] = { { 0, 0, 0 }, // black
@@ -56,7 +57,7 @@ SDLDisplay::SDLDisplay()
   screen = SDL_CreateWindow("Aiie!",
 			    SDL_WINDOWPOS_UNDEFINED,
 			    SDL_WINDOWPOS_UNDEFINED,
-			    SDLDISPLAY_WIDTH, SDLDISPLAY_HEIGHT,
+			    800, 480,
 			    SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE);
 
   // SDL_RENDERER_SOFTWARE because, at least on my Mac, this has some
@@ -66,11 +67,12 @@ SDLDisplay::SDLDisplay()
   SDL_RenderClear(renderer); // clear it to the selected color
   SDL_RenderPresent(renderer); // perform the render
 
+  // ***
   buffer = SDL_CreateTexture(renderer,
                            SDL_PIXELFORMAT_RGB888,
                            SDL_TEXTUREACCESS_STREAMING, 
-                           SDLDISPLAY_WIDTH,
-                           SDLDISPLAY_HEIGHT);
+                           800,
+                           480);
 }
 
 SDLDisplay::~SDLDisplay()
@@ -97,24 +99,15 @@ void SDLDisplay::redraw()
   }
 }
 
-// drawImageOfSizeAt will horizontally scale out the image b/c the
-// images themselves aren't aware of the double resolution. This is an
-// inconsistency that probably should be addressed. FIXME?
 void SDLDisplay::drawImageOfSizeAt(const uint8_t *img,
 				   uint16_t sizex, uint16_t sizey,
 				   uint16_t wherex, uint16_t wherey)
 {
   for (uint16_t y=0; y<sizey; y++) {
+    const uint8_t *p = &img[(y * sizex)*3];
     for (uint16_t x=0; x<sizex; x++) {
-      const uint8_t *p = &img[(y * sizex + x)*3];
-      p = &img[(y * sizex + x)*3];
-
-      // FIXME this assumes scale == 2
-      
-      videoBuffer[(y+wherey)*SDLDISPLAY_SCALE][(x+wherex)*SDLDISPLAY_SCALE] = packColor32(p);
-      videoBuffer[(y+wherey)*SDLDISPLAY_SCALE][(x+wherex)*SDLDISPLAY_SCALE+1] = packColor32(p);
-      videoBuffer[(y+wherey)*SDLDISPLAY_SCALE+1][(x+wherex)*SDLDISPLAY_SCALE] = packColor32(p);
-      videoBuffer[(y+wherey)*SDLDISPLAY_SCALE+1][(x+wherex)*SDLDISPLAY_SCALE+1] = packColor32(p);
+      videoBuffer[(y+wherey)][(x+wherex)] = packColor32(p);
+      p += 3;
     }
   }
 }
@@ -157,11 +150,10 @@ inline void putpixel(SDL_Renderer *renderer, int x, int y, uint8_t r, uint8_t g,
 
 void SDLDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
 {
-  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
-    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      videoBuffer[y*SDLDISPLAY_SCALE+yoff][x*SDLDISPLAY_SCALE+xoff] = color16To32(color);
-    }
-  }
+  // ***
+  if (x >= 800 || y >= 480) return; // make sure it's onscreen
+  
+  videoBuffer[y][x] = color16To32(color);
 }
 
 void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
@@ -172,20 +164,26 @@ void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
     b = (color & 0x1F) << 3;
 
   // Pixel-doubling vertically and horizontally, based on scale
-  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
-    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      putpixel(renderer, x+xoff, yoff+y*SDLDISPLAY_SCALE, r, g, b);
-    }
+  //    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
+  //      putpixel(renderer, x+xoff, yoff+y*SDLDISPLAY_SCALE, r, g, b);
+  //    }
+  //  }
+  for (int yoff=0; yoff<2; yoff++) {
+    putpixel(renderer, x, (y*2)+yoff, r, g, b);
   }
 }
 
 void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b)
 {
   // Pixel-doubling horizontally and vertically, based on scale
-  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
-    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      putpixel(renderer, x+xoff, yoff+y*SDLDISPLAY_SCALE, r, g, b);
-    }
+  // ***
+  //  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
+  //    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
+  //      putpixel(renderer, x+xoff, yoff+y*SDLDISPLAY_SCALE, r, g, b);
+  //    }
+  //  }
+  for (int yoff=0; yoff<2; yoff++) {
+    putpixel(renderer, x, (y*2)+yoff, r, g, b);
   }
 }
 
@@ -193,7 +191,7 @@ void SDLDisplay::drawCharacter(uint8_t mode, uint16_t x, uint16_t y, char c)
 {
   int8_t xsize = 8,
     ysize = 0x07;
-  
+
   uint16_t offPixel, onPixel;
   switch (mode) {
   case M_NORMAL:
@@ -219,15 +217,22 @@ void SDLDisplay::drawCharacter(uint8_t mode, uint16_t x, uint16_t y, char c)
     break;
   }
 
-
-  // This does not scale when drawing, because drawPixel scales.
+  // scale up the font
   const unsigned char *ch = asciiToAppleGlyph(c);
   for (int8_t y_off = 0; y_off <= ysize; y_off++) {
     for (int8_t x_off = 0; x_off <= xsize; x_off++) {
       if (*ch & (1 << (x_off))) {
-	drawUIPixel(x + x_off, y + y_off, onPixel);
+        for (int8_t ys=0; ys<2; ys++) {
+          for (int8_t xs=0; xs<2; xs++) {
+            drawUIPixel((x + x_off)*2+xs, (y+y_off)*2 + ys, onPixel);
+          }
+        }
       } else {
-	drawUIPixel(x + x_off, y + y_off, offPixel);
+        for (int8_t ys=0; ys<2; ys++) {
+          for (int8_t xs=0; xs<2; xs++) {
+            drawUIPixel((x + x_off)*2+xs, (y+y_off)*2 + ys, offPixel);
+          }
+        }
       }
     }
     ch++;
@@ -240,8 +245,7 @@ void SDLDisplay::drawString(uint8_t mode, uint16_t x, uint16_t y, const char *st
   
   for (int8_t i=0; i<strlen(str); i++) {
     drawCharacter(mode, x, y, str[i]);
-    x += xsize; // fixme: any inter-char spacing?
-    if (x >= 320) break; // FIXME constant - and pre-scaling, b/c that's in drawCharacter
+    x += xsize;
   }
 }
 
@@ -253,97 +257,62 @@ void SDLDisplay::clrScr(uint8_t coloridx)
 
   uint32_t packedColor = packColor32(loresPixelColors[coloridx]);
   
-  for (uint16_t y=0; y<SDLDISPLAY_HEIGHT; y++) {
-    for (uint16_t x=0; x<SDLDISPLAY_WIDTH; x++) {
+  for (uint16_t y=0; y<480; y++) {
+    for (uint16_t x=0; x<800; x++) {
       videoBuffer[y][x] = packedColor;
     }
   }
 }
 
-// This was called with the expectation that it can draw every one of
-// the 560x192 pixels that could be addressed. If TEENSYDISPLAY_SCALE
-// is 1, then we have half of that horizontal resolution - so we need
-// to be creative and blend neighboring pixels together.
 void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 {
-#if SDLDISPLAY_SCALE == 1
-  // This is the case where we need to blend together neighboring
-  // pixels, because we don't have enough physical screen resoultion.
-  
-  if (x&1) {
-    uint32_t origColor = videoBuffer[y+SCREENINSET_Y][(x>>1)*SDLDISPLAY_SCALE+SCREENINSET_X];
-    uint32_t newColor = packColor32(loresPixelColors[color]);
-    if (g_displayType == m_blackAndWhite) {
-      // There are four reasonable decisions here: if either pixel
-      // *was* on, then it's on; if both pixels *were* on, then it's
-      // on; and if the blended value of the two pixels were on, then
-      // it's on; or if the blended value of the two is above some
-      // certain overall brightness, then it's on. This is the last of
-      // those - where the brightness cutoff is defined in the bios as
-      // g_luminanceCutoff.
-      uint32_t blendedColor = blendPackedColor(origColor, newColor);
-      uint32_t luminance = luminanceFromRGB(unpackRed(blendedColor),
-					    unpackGreen(blendedColor),
-					    unpackBlue(blendedColor));
-      cacheDoubleWidePixel(x>>1,y,(uint32_t)((luminance >= g_luminanceCutoff) ? 0xFFFFFF : 0x000000));
-    } else {
-      cacheDoubleWidePixel(x>>1,y,(uint32_t)blendPackedColor(origColor, newColor));
-    }
-    // Else if it's black, we leave whatever was in the other pixel.
-  } else {
-    // The even pixels always draw.
-    cacheDoubleWidePixel(x>>1,y,color);
+  // ***
+  for (int yoff=0; yoff<2; yoff++) {
+    videoBuffer[(y*2)+SCREENINSET_Y+yoff][x+SCREENINSET_X] = packColor32(loresPixelColors[color]);
   }
-#else
-  // we have enough resolution to show all the pixels, so just do it
-  x = (x * SDLDISPLAY_SCALE)/2;
-  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
-    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      videoBuffer[y*SDLDISPLAY_SCALE+yoff+SCREENINSET_Y][x+xoff+SCREENINSET_X] = packColor32(loresPixelColors[color]);
-    }
-  }
-#endif
-  
 }
 
 // "DoubleWide" means "please double the X because I'm in low-res width mode"
 void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
 {
-  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
-    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      videoBuffer[y*SDLDISPLAY_SCALE+yoff+SCREENINSET_Y][x*SDLDISPLAY_SCALE+xoff+SCREENINSET_X] = packColor32(loresPixelColors[color]);
+  // ***
+  for (int yoff=0; yoff<2; yoff++) {
+    for (int xoff=0; xoff<2; xoff++) {
+      videoBuffer[(y*2)+SCREENINSET_Y+yoff][(x*2)+SCREENINSET_X+xoff] = packColor32(loresPixelColors[color]);
     }
   }
 }
 
 void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint32_t packedColor)
 {
-  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
-    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      videoBuffer[y*SDLDISPLAY_SCALE+yoff+SCREENINSET_Y][x*SDLDISPLAY_SCALE+xoff+SCREENINSET_X] = packedColor;
+  // ***
+  for (int yoff=0; yoff<2; yoff++) {
+    for (int xoff=0; xoff<2; xoff++) {
+      videoBuffer[(y*2)+SCREENINSET_Y+yoff][(x*2)+SCREENINSET_X+xoff] = packedColor;
     }
   }
 }
 
 void SDLDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorB, uint8_t colorA)
 {
-  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
-    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-      videoBuffer[y*SDLDISPLAY_SCALE+yoff+SCREENINSET_Y][x*SDLDISPLAY_SCALE+2*xoff+SCREENINSET_X] = packColor32(loresPixelColors[colorA]);
-      videoBuffer[y*SDLDISPLAY_SCALE+yoff+SCREENINSET_Y][x*SDLDISPLAY_SCALE+1+2*xoff+SCREENINSET_X] = packColor32(loresPixelColors[colorB]);
+  // ***
+  for (int yoff=0; yoff<2; yoff++) {
+    for (int xoff=0; xoff<2; xoff++) {
+      videoBuffer[(y*2)+SCREENINSET_Y+yoff][(x*2)+SCREENINSET_X+xoff] = packColor32(loresPixelColors[colorA]);
+      videoBuffer[(y*2)+SCREENINSET_Y+yoff][(x+1)*2+SCREENINSET_X+xoff] = packColor32(loresPixelColors[colorB]);
     }
   }
 }
 
 void SDLDisplay::windowResized(uint32_t w, uint32_t h)
 {
-  // Preserve the aspect ratio (320/240 == 1.3333)
+  // Preserve the aspect ratio
   float aspectRatio = (float)w/(float)h;
-  if (aspectRatio != 320.0/240.0) {
-    if (aspectRatio > 320.0/240.0) {
-      h = ((1.f * 240.0) / 320.0) * w;
+  if (aspectRatio != 800.0/480.0) {
+    if (aspectRatio > 800.0/480.0) {
+      h = ((1.f * 480.0) / 800.0) * w;
     } else {
-      w = (320.0/240.0) * h;
+      w = (800.0/480.0) * h;
     }
   }
   
