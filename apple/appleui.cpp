@@ -110,34 +110,23 @@ void AppleUI::blit()
 
   if (redrawDriveLatches) {
     redrawDriveLatches = false;
-    uint16_t xoff = 140;
-    uint16_t yoff = 418;
-    uint16_t xsize;
-    uint8_t ysize;
     const uint8_t *img;
 
-    xsize = LATCH_WIDTH;
-    ysize = LATCH_HEIGHT;
-    img = driveInserted[0] ? driveLatchOpen : driveLatch;
-    g_display->drawImageOfSizeAt(img, xsize, ysize, xoff, yoff);
+    img = driveInserted[0] ? drive1LatchOpen : drive1LatchClosed;
+    g_display->drawImageOfSizeAt(img, LATCH_WIDTH, LATCH_HEIGHT, LATCH_X, LATCH1_Y);
 
-    xoff += LATCH_XSPACING;
-    img = driveInserted[1] ? driveLatchOpen : driveLatch;
-    g_display->drawImageOfSizeAt(img, xsize, ysize, xoff, yoff);
+    img = driveInserted[1] ? drive2LatchOpen : drive2LatchClosed;
+    g_display->drawImageOfSizeAt(img, LATCH_WIDTH, LATCH_HEIGHT, LATCH_X, LATCH2_Y);
   }
 
   if (redrawDriveActivity) {
     redrawDriveActivity = false;
 
-    // FIXME assumes the 2 drives are next to each other (same yoff)
-    uint16_t xoff = LED0_XPOS;
-    uint8_t yoff = LED0_YPOS;
-
     for (int y=0; y<LED_HEIGHT; y++) {
       for (int x=0; x<LED_WIDTH; x++) {
-        g_display->drawUIPixel(x + xoff, y + yoff, driveActivity[0] ? 0xFA00 : 0x0000);
+        g_display->drawUIPixel(x + LED_X, y + LED1_Y, driveActivity[0] ? 0xFA00 : 0x0000);
         
-        g_display->drawUIPixel(x + xoff + (LED1_XPOS-LED0_XPOS), y + yoff, driveActivity[1] ? 0xFA00 : 0x0000);
+        g_display->drawUIPixel(x + LED_X, y + LED2_Y, driveActivity[1] ? 0xFA00 : 0x0000);
       }
     }
   }

@@ -15,10 +15,6 @@ extern const unsigned char lcase_glyphs[256];
 extern const unsigned char mousetext_glyphs[256];
 extern const unsigned char interface_glyphs[256];
 
-// ***
-#define SCREENINSET_X (120)
-#define SCREENINSET_Y (10)
-
 // RGB map of each of the lowres colors
 const uint8_t loresPixelColors[16][3] = { { 0, 0, 0 }, // black
 					  { 0xAC, 0x12, 0x4C }, // magenta
