@@ -81,12 +81,12 @@ protected:
     _pspi->beginTransaction(SPISettings(_clock, MSBFIRST, SPI_MODE3));
     /* _spi_tcr_current = _pimxrt_spi->TCR; -- do we need this? related to the _dc line... */
     //    DIRECT_WRITE_LOW(_csport, _cspinmask);
-    digitalWrite(_rst, LOW);
+    digitalWrite(_cs, LOW);
   }
 
   void _endSend() __attribute__((always_inline)) {
     //    DIRECT_WRITE_HIGH(_csport, _cspinmask);
-    digitalWrite(_rst, HIGH);
+    digitalWrite(_cs, HIGH);
     _pspi->endTransaction();
   }
 
