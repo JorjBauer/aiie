@@ -1,5 +1,4 @@
 #include "noslotclock.h"
-#include "applemmu.h" // for FLOATING
 
 #define initSequence 0x5CA33AC55CA33AC5LL
 

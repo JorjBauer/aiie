@@ -22,8 +22,6 @@
 #include <errno.h>
 #endif
 
-#include "applemmu.h" // for FLOATING
-
 #include "serialize.h"
 
 #include "globals.h"

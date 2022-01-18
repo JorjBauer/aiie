@@ -2,7 +2,8 @@
 #define __TEENSY_DISPLAY_H
 
 #include <Arduino.h>
-#include <RA8875.h>
+#include <SPI.h>
+#include "RA8875_t4.h"
 
 #include "physicaldisplay.h"
 

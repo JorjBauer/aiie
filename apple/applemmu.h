@@ -7,11 +7,11 @@
 #include "mmu.h"
 #include "noslotclock.h"
 
-// when we read a nondeterministic result, we return FLOATING. Maybe
-// some day we can come back here and figure out how to return what
-// the Apple would have.
+// when we read a nondeterministic result, we return
+// _FLOATINGBUS. Maybe some day we can come back here and figure out
+// how to return what the Apple would have.
 
-#define FLOATING 0
+#define _FLOATINGBUS 0
 
 // Switches activated by various memory locations
 enum {

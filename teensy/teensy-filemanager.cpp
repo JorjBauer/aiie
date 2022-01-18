@@ -115,8 +115,6 @@ int16_t TeensyFileManager::readDir(const char *where, const char *suffix, char *
   while (e.openNext(&outerDir, O_RDONLY)) {
 
     // Skip MAC fork files
-    // FIXME: strncpy
-    strcpy(outputFN, e.name()); // and we need maxlen-1 for trailing '/' on directories
     e.getName(outputFN, maxlen-1); // -1 for trailing '/' on directories
 
     if (outputFN[0] == '.') {
@@ -240,7 +238,7 @@ int TeensyFileManager::write(int8_t fd, const void *buf, int nbyte)
   uint32_t pos = fileSeekPositions[fd];
 
   if (!cacheFile.seek(pos)) {
-    printf("can't seek to %d\n", pos);
+    printf("can't seek to %d\n", (int)pos);
     return -1;
   }
 

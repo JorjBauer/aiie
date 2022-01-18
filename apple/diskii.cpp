@@ -12,7 +12,7 @@
 #include <time.h>
 #endif
 
-#include "applemmu.h" // for FLOATING
+#include "applemmu.h" // for _FLOATINGBUS
 
 #include "globals.h"
 #include "appleui.h"
@@ -273,7 +273,7 @@ uint8_t DiskII::readSwitches(uint8_t s)
 
   // Any even address read returns the readWriteLatch (UTA2E Table 9.1,
   // p. 9-12, note 2)
-  return (s & 1) ? FLOATING : readWriteLatch;
+  return (s & 1) ? _FLOATINGBUS : readWriteLatch;
 }
 
 void DiskII::writeSwitches(uint8_t s, uint8_t v)

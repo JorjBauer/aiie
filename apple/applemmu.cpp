@@ -470,7 +470,7 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
 	  return slots[i]->readSwitches(address & ~(0xC080 | (i<<4)));
 	}
 	else
-	  return FLOATING;
+	  return _FLOATINGBUS;
       }
     }
   }
@@ -505,7 +505,7 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
     // by even read access
     preWriteFlag = (address & 0x01);
 
-    return FLOATING;
+    return _FLOATINGBUS;
 
   case 0xC00C: // CLR80VID disable 80-col video mode
     if (switches & S_80COL) {
@@ -575,32 +575,32 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
 		       // loop b/c the speaker might need attention
 		       // immediately
 #endif
-    return FLOATING;
+    return _FLOATINGBUS;
 
   case 0xC050: // CLRTEXT
     if (switches & S_TEXT) {
       switches &= ~S_TEXT;
       resetDisplay();
     }
-    return FLOATING;
+    return _FLOATINGBUS;
   case 0xC051: // SETTEXT
     if (!(switches & S_TEXT)) {
       switches |= S_TEXT;
       resetDisplay();
     }
-    return FLOATING;
+    return _FLOATINGBUS;
   case 0xC052: // CLRMIXED
     if (switches & S_MIXED) {
       switches &= ~S_MIXED;
       resetDisplay();
     }
-    return FLOATING;
+    return _FLOATINGBUS;
   case 0xC053: // SETMIXED
     if (!(switches & S_MIXED)) {
       switches |= S_MIXED;
       resetDisplay();
     }
-    return FLOATING;
+    return _FLOATINGBUS;
 
   case 0xC054: // PAGE1
     if (switches & S_PAGE2) {
@@ -611,7 +611,7 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
 	updateMemoryPages();
       }
     }
-    return FLOATING;
+    return _FLOATINGBUS;
 
   case 0xC055: // PAGE2
     if (!(switches & S_PAGE2)) {
@@ -622,34 +622,34 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
 	updateMemoryPages();
       }
     }
-    return FLOATING;
+    return _FLOATINGBUS;
 
   case 0xC056: // CLRHIRES
     if (switches & S_HIRES) {
       switches &= ~S_HIRES;
       resetDisplay();
     }
-    return FLOATING;
+    return _FLOATINGBUS;
   case 0xC057: // SETHIRES
     if (!(switches & S_HIRES)) {
       switches |= S_HIRES;
       resetDisplay();
     }
-    return FLOATING;
+    return _FLOATINGBUS;
 
   case 0xC05E: // DHIRES ON
     if (!(switches & S_DHIRES)) {
       switches |= S_DHIRES;
       resetDisplay();
     }
-    return FLOATING;
+    return _FLOATINGBUS;
 
   case 0xC05F: // DHIRES OFF
     if (switches & S_DHIRES) {
       switches &= ~S_DHIRES;
       resetDisplay();
     }
-    return FLOATING;
+    return _FLOATINGBUS;
 
     // paddles
     /* Fall through for apple keys; they're just RAM in this model 
@@ -665,7 +665,7 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
     g_ram.writeByte((writePages[0xC0] << 8) | 0x64, 0xFF);
     g_ram.writeByte((writePages[0xC0] << 8) | 0x65, 0xFF);
     g_paddles->startReading();
-    return FLOATING;
+    return _FLOATINGBUS;
   }
 
   if (address >= 0xc000 && address <= 0xc00f) {

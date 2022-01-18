@@ -1,5 +1,4 @@
 #include <ctype.h> // isgraph
-#include <DMAChannel.h>
 
 #include "teensy-display.h"
 #include "iocompat.h"
@@ -16,8 +15,12 @@ extern const unsigned char interface_glyphs[256];
 #include "globals.h"
 #include "applevm.h"
 
+#ifndef RA8875_HEIGHT
+#define RA8875_HEIGHT 480
+#endif
+
 #include <SPI.h>
-#define _clock 50000000
+//#define _clock 50000000
 
 
 #define PIN_RST 8
@@ -49,32 +52,20 @@ const uint16_t loresPixelColors[16] = { 0x0000, // 0 black
 					 0xFFFF  // 15 white
 };
 
-// This definition can't live in the class header because of the
-// DMAMEM adornment
-DMAMEM uint16_t dmaBuffer[480][800];
-
 #define RGBto565(r,g,b) ((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
 #define _565toR(c) ( ((c) & 0xF800) >> 8 )
 #define _565toG(c) ( ((c) & 0x07E0) >> 3 )
 #define _565toB(c) ( ((c) & 0x001F) << 3 )
 #define luminanceFromRGB(r,g,b) ( ((r)*0.2126) + ((g)*0.7152) + ((b)*0.0722) )
 
-RA8875 tft = RA8875(PIN_CS, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
-
-DMAChannel dmatx;
-DMASetting dmaSetting;
-
+RA8875_t4 tft = RA8875_t4(PIN_CS, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
 
 TeensyDisplay::TeensyDisplay()
 {
-  memset(dmaBuffer, 0x80, sizeof(dmaBuffer));
-
-  tft.begin(_clock);
-  tft.setRotation(3);
-  tft.setFrameBuffer((uint16_t *)dmaBuffer);
-  tft.useFrameBuffer(true);
-  tft.fillScreen(ILI9341_BLACK);
-
+  //  tft.begin(Adafruit_800x480);
+  tft.begin();
+  tft.fillWindow();
+  
   driveIndicator[0] = driveIndicator[1] = false;
   driveIndicatorDirty = true;
 }
@@ -85,7 +76,7 @@ TeensyDisplay::~TeensyDisplay()
 
 void TeensyDisplay::flush()
 {
-  // Nothing to flush, b/c the DMA driver is regularly flushing everything
+  // Nothing to flush, b/c there's no DMA in this driver and we draw it all in real-time. (Eww.)
 }
 
 void TeensyDisplay::redraw()
@@ -104,29 +95,24 @@ void TeensyDisplay::drawImageOfSizeAt(const uint8_t *img,
 {
   uint8_t r, g, b;
 
-  // FIXME this needs to scale with TEENSYDISPLAY_SCALE
   for (uint16_t y=0; y<sizey; y++) {
     for (uint16_t x=0; x<sizex; x++) {
       r = pgm_read_byte(&img[(y*sizex + x)*3 + 0]);
       g = pgm_read_byte(&img[(y*sizex + x)*3 + 1]);
       b = pgm_read_byte(&img[(y*sizex + x)*3 + 2]);
-      dmaBuffer[y+wherey][x+wherex] = RGBto565(r,g,b);
+      tft.drawPixel(x+wherex, y+wherey, RGBto565(r,g,b));
     }
   }
 }
 
 void TeensyDisplay::blit()
 {
-  // Start DMA transfers if they aren't running
-  if (!tft.asyncUpdateActive())
-    tft.updateScreenAsync(true);
-  
   // draw overlay, if any, occasionally
   {
     static uint32_t nextMessageTime = 0;
     if (millis() >= nextMessageTime) {
       if (overlayMessage[0]) {
-	drawString(M_SELECTDISABLED, 1, TEENSYDISPLAY_HEIGHT - (16 + 12)*TEENSYDISPLAY_SCALE, overlayMessage);
+	drawString(M_SELECTDISABLED, 1, RA8875_HEIGHT - (16 + 12), overlayMessage);
       }
       nextMessageTime = millis() + 10; // DEBUGGING FIXME make 1000 again
     }
@@ -135,13 +121,11 @@ void TeensyDisplay::blit()
 
 void TeensyDisplay::blit(AiieRect r)
 {
-  // Nothing to do here, since we're regularly blitting the whole screen via DMA
 }
 
 void TeensyDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
 {
-  // These pixels are just cached in the buffer; they're not drawn directly.
-  dmaBuffer[y][x] = color;
+  tft.drawPixel(x, y, color);
 }
 
 void TeensyDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
@@ -214,20 +198,14 @@ void TeensyDisplay::drawString(uint8_t mode, uint16_t x, uint16_t y, const char 
 void TeensyDisplay::clrScr(uint8_t coloridx)
 {
   if (coloridx == c_black) {
-    memset(dmaBuffer, 0x00, sizeof(dmaBuffer));
+    tft.fillWindow();
   } else if (coloridx == c_white) {
-    memset(dmaBuffer, 0xFF, sizeof(dmaBuffer));
+    tft.fillWindow();
   } else {
     uint16_t color16 = loresPixelColors[c_black];
     if (coloridx < 16)
       color16 = loresPixelColors[coloridx];
-    // This could be faster - make one line, then memcpy the line to the other
-    // lines?
-    for (uint16_t y=0; y<TEENSYDISPLAY_HEIGHT; y++) {
-      for (uint16_t x=0; x<TEENSYDISPLAY_WIDTH; x++) {
-	dmaBuffer[y][x] = color16;
-      }
-    }
+    tft.fillWindow();
   }
 }
 
@@ -255,56 +233,19 @@ inline uint16_t blendColors(uint16_t a, uint16_t b)
 
 }
 
-// This was called with the expectation that it can draw every one of
-// the 560x192 pixels that could be addressed. If TEENSYDISPLAY_SCALE
-// is 1, then we have half of that horizontal resolution - so we need
-// to be creative and blend neighboring pixels together.
 void TeensyDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 {
-#if TEENSYDISPLAY_SCALE == 1
-  // This is the case where we need to blend together neighboring
-  // pixels, because we don't have enough physical screen resoultion.
-  if (x&1) {
-    uint16_t origColor = dmaBuffer[y+SCREENINSET_Y][(x>>1)*TEENSYDISPLAY_SCALE+SCREENINSET_X];
-    uint16_t newColor = (uint16_t) loresPixelColors[color];
-    if (g_displayType == m_blackAndWhite) {
-      // There are four reasonable decisions here: if either pixel
-      // *was* on, then it's on; if both pixels *were* on, then it's
-      // on; and if the blended value of the two pixels were on, then
-      // it's on; or if the blended value of the two is above some
-      // certain overall brightness, then it's on. This is the last of
-      // those - where the brightness cutoff is defined in the bios as
-      // g_luminanceCutoff.
-      uint16_t blendedColor = blendColors(origColor, newColor);
-      uint16_t luminance = luminanceFromRGB(_565toR(blendedColor),
-					    _565toG(blendedColor),
-					    _565toB(blendedColor));
-      cacheDoubleWidePixel(x>>1,y,(uint16_t)((luminance >= g_luminanceCutoff) ? 0xFFFF : 0x0000));
-    } else {
-      cacheDoubleWidePixel(x>>1,y,color);
-      // Else if it's black, we leave whatever was in the other pixel.
-    }
-  } else {
-    // The even pixels always draw.
-    cacheDoubleWidePixel(x>>1,y,color);
+  for (int yoff=0; yoff<2; yoff++) {
+    tft.drawPixel(x+SCREENINSET_X, (y*2)+SCREENINSET_Y+yoff, color);
   }
-#else
-  // we have enough resolution to show all the pixels, so just do it
-  x = (x * TEENSYDISPLAY_SCALE)/2;
-  for (int yoff=0; yoff<TEENSYDISPLAY_SCALE; yoff++) {
-    for (int xoff=0; xoff<TEENSYDISPLAY_SCALE; xoff++) {
-      dmaBuffer[y*TEENSYDISPLAY_SCALE+yoff+SCREENINSET_Y][x+xoff+SCREENINSET_X] = color;
-    }
-  }
-#endif
 }
 
 
 void TeensyDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint16_t color16)
 {
-  for (int yoff=0; yoff<TEENSYDISPLAY_SCALE; yoff++) {
-    for (int xoff=0; xoff<TEENSYDISPLAY_SCALE; xoff++) {
-      dmaBuffer[(y*TEENSYDISPLAY_SCALE+yoff+SCREENINSET_Y)][x*TEENSYDISPLAY_SCALE+xoff+SCREENINSET_X] = color16;
+  for (int yoff=0; yoff<2; yoff++) {
+    for (int xoff=0; xoff<2; xoff++) {
+      tft.drawPixel((x*2)+SCREENINSET_X+xoff, (y*2)+SCREENINSET_Y+yoff, color16);
     }
   }
 }
@@ -315,10 +256,10 @@ void TeensyDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
 {
   uint16_t color16;
   color16 = loresPixelColors[(( color & 0x0F )     )];
-  
-  for (int yoff=0; yoff<TEENSYDISPLAY_SCALE; yoff++) {
-    for (int xoff=0; xoff<TEENSYDISPLAY_SCALE; xoff++) {
-      dmaBuffer[(y*TEENSYDISPLAY_SCALE+yoff+SCREENINSET_Y)][x*TEENSYDISPLAY_SCALE+xoff+SCREENINSET_X] = color16;
+
+  for (int yoff=0; yoff<2; yoff++) {
+    for (int xoff=0; xoff<2; xoff++) {
+      tft.drawPixel((x*2)+SCREENINSET_X+xoff, (y*2)+SCREENINSET_Y+yoff, color16);
     }
   }
 }
@@ -329,10 +270,10 @@ void TeensyDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
 void TeensyDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y, 
 					   uint8_t colorA, uint8_t colorB)
 {
-  for (int yoff=0; yoff<TEENSYDISPLAY_SCALE; yoff++) {
-    for (int xoff=0; xoff<TEENSYDISPLAY_SCALE; xoff++) {
-      dmaBuffer[(y*TEENSYDISPLAY_SCALE+yoff+SCREENINSET_Y)][x*TEENSYDISPLAY_SCALE+2*xoff+SCREENINSET_X] = loresPixelColors[colorA];
-      dmaBuffer[(y*TEENSYDISPLAY_SCALE+yoff+SCREENINSET_Y)][x*TEENSYDISPLAY_SCALE+1+2*xoff+SCREENINSET_X] = loresPixelColors[colorB];
+  for (int yoff=0; yoff<2; yoff++) {
+    for (int xoff=0; xoff<2; xoff++) {
+      tft.drawPixel((x*2)+SCREENINSET_X+xoff, (y*2)+SCREENINSET_Y+yoff, colorA);
+      tft.drawPixel((x+1)*2+SCREENINSET_X+xoff, (y*2)+SCREENINSET_Y+yoff, colorB);
     }
   }
 }
@@ -342,10 +283,8 @@ inline double logfn(double x)
   // At a value of x=255, log(base 1.022)(x) is 254.636.
   return log(x)/log(1.022);
 }
-  
-
 
 uint32_t TeensyDisplay::frameCount()
 {
-  return tft.frameCount();
+  return 0;
 }
