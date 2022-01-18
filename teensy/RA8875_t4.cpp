@@ -163,8 +163,10 @@ void RA8875_t4::_initializeTFT()
   delay(1);
   fillWindow(); // defaults to black
 
-  _writeRegister(RA8875_GPIOX, true); // turn on backlight
-
+  // turn on backlight
+  _writeRegister(RA8875_P1CR, (RA8875_PxCR_ENABLE | (RA8875_PWM_CLK_DIV1024 & 0xF)));
+  _writeRegister(RA8875_P1DCR, 255); // brightness
+  
   // set graphics mode & default memory write order/behavior
   _writeRegister(RA8875_MWCR0, 0x00);
 
