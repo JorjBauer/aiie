@@ -51,6 +51,7 @@ private:
   uint8_t _readData(bool stat);
   uint8_t _readRegister(const uint8_t reg);
 
+  void _waitBusy(uint8_t res);
   
   boolean _waitPoll(uint8_t regname, uint8_t waitflag, uint8_t timeout);
   
@@ -81,12 +82,12 @@ protected:
     _pspi->beginTransaction(SPISettings(_clock, MSBFIRST, SPI_MODE3));
     /* _spi_tcr_current = _pimxrt_spi->TCR; -- do we need this? related to the _dc line... */
     //    DIRECT_WRITE_LOW(_csport, _cspinmask);
-    digitalWrite(_cs, LOW);
+    digitalWriteFast(_cs, LOW);
   }
 
   void _endSend() __attribute__((always_inline)) {
     //    DIRECT_WRITE_HIGH(_csport, _cspinmask);
-    digitalWrite(_cs, HIGH);
+    digitalWriteFast(_cs, HIGH);
     _pspi->endTransaction();
   }
 

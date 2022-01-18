@@ -54,9 +54,8 @@ void RA8875_t4::begin(uint32_t spi_clock, uint32_t spi_clock_read)
   _cspinmask = digitalPinToBitMask(_cs);
   pinMode(_cs, OUTPUT);
   //  DIRECT_WRITE_HIGH(_csport, _cspinmask);
-  digitalWrite(_cs, HIGH);
+  digitalWriteFast(_cs, HIGH);
 
-  
   /*
   pending_rx_count = 0; // Make sure it is zero if we we do a second begin...                                                                              
   _spi_tcr_current = _pimxrt_spi->TCR; // get the current TCR value                                                                                    
@@ -86,7 +85,7 @@ void RA8875_t4::begin(uint32_t spi_clock, uint32_t spi_clock_read)
 
 void RA8875_t4::_initializeTFT()
 {
-  // toggle RST low to reset                                                                                                                           
+  // toggle RST low to reset
   if (_rst < 255) {
     pinMode(_rst, OUTPUT);
     digitalWrite(_rst, HIGH);
@@ -103,7 +102,7 @@ void RA8875_t4::_initializeTFT()
     _writeData(RA8875_PWRR_NORMAL);
     delay(200);
   }
-
+  
   // Set the sysclock
   _writeRegister(RA8875_PLLC1, 0x07); // same as default value: %0000 0111 == pre /=1; input /=7
   delay(1);
@@ -149,9 +148,52 @@ void RA8875_t4::_initializeTFT()
   delay(1);
 
   _clock = _spi_clock; // speed up to full speed now
+
+  delay(1);
+  // clear memory
+  uint8_t temp;
+  temp = _readRegister(RA8875_MCLR);
+  temp |= (1<<7);
+  _writeData(temp);
+  _waitBusy(0x80);
+
+  delay(1);
+  // turn on the display
+  _writeRegister(RA8875_PWRR, RA8875_PWRR_NORMAL | RA8875_PWRR_DISPON);
+  delay(1);
+  fillWindow(); // defaults to black
+
+  _writeRegister(RA8875_GPIOX, true); // turn on backlight
+
+  // set graphics mode & default memory write order/behavior
+  _writeRegister(RA8875_MWCR0, 0x00);
+
+  // *** rotation?
   
-  // Set up the gpio
-  _writeRegister(RA8875_GPIOX, true);
+  // Not sure we have to do this a second time, but set active window...
+  _writeRegister(RA8875_HSAW0, 0x00); // horizontal start point of active window
+  _writeRegister(RA8875_HSAW0+1, 0x00);
+  _writeRegister(RA8875_HEAW0, (RA8875_WIDTH-1) & 0xFF);
+  _writeRegister(RA8875_HEAW0+1, (RA8875_WIDTH-1) >> 8); // horizontal end point of active window
+  _writeRegister(RA8875_VSAW0, 0x00); // vertical start point of active window
+  _writeRegister(RA8875_VSAW0+1, 0x00);
+  _writeRegister(RA8875_VEAW0, (RA8875_HEIGHT-1) & 0xFF); // vertical end point of active window
+  _writeRegister(RA8875_VEAW0+1, (RA8875_HEIGHT-1) >> 8);
+  
+  // set foreground color
+  _writeRegister(RA8875_FGCR0, 0);
+  _writeRegister(RA8875_FGCR0+1, 0);
+  _writeRegister(RA8875_FGCR0+2, 0);
+  // set background color
+  _writeRegister(RA8875_BGCR0, 0);
+  _writeRegister(RA8875_BGCR0+1, 0);
+  _writeRegister(RA8875_BGCR0+2, 0);
+
+//  _writeRegister(RA8875_FNCR1, 0); // probably not necessary since we're not using built-in fonts
+//  setCursor(0,0);
+  
+  _writeRegister(RA8875_GPIOX, true); // turn on backlight
+
 }
 
 void RA8875_t4::setFrameBuffer(uint16_t *frame_buffer)
@@ -170,6 +212,21 @@ bool RA8875_t4::updateScreenAsync(bool update_cont)
 
 void RA8875_t4::fillWindow(uint16_t color)
 {
+  int x0=0, y0=0;
+  int x1=RA8875_WIDTH-1,y1=RA8875_HEIGHT-1;
+  //X0                                                                    
+  _writeRegister(RA8875_DLHSR0,    x0 & 0xFF);
+  _writeRegister(RA8875_DLHSR0 + 1,x0 >> 8);
+  //Y0                                                                    
+  _writeRegister(RA8875_DLVSR0,    y0 & 0xFF);
+  _writeRegister(RA8875_DLVSR0 + 1,y0 >> 8);
+  //X1                                                                    
+  _writeRegister(RA8875_DLHER0,    x1 & 0xFF);
+  _writeRegister(RA8875_DLHER0 + 1,x1 >> 8);
+  //Y1                                                                    
+  _writeRegister(RA8875_DLVER0,    y1 & 0xFF);
+  _writeRegister(RA8875_DLVER0 + 1,y1 >> 8);
+  
   // Set the color
   _writeRegister(RA8875_FGCR0,((color & 0xF800) >> 11)); // 5 bits red
   _writeRegister(RA8875_FGCR0+1,((color & 0x07E0) >> 5)); // 6 bits green
@@ -264,4 +321,15 @@ boolean RA8875_t4::_waitPoll(uint8_t regname, uint8_t waitflag, uint8_t timeout)
     }
   }
   /* NOTREACHED */
+}
+
+void RA8875_t4::_waitBusy(uint8_t res)
+{
+  uint8_t temp;
+  unsigned long start = millis();//M.Sandercock
+  do {
+    if (res == 0x01) writeCommand(RA8875_DMACR);//dma
+    temp = _readData(true);
+    if ((millis() - start) > 10) return;
+  } while ((temp & res) == res);
 }
