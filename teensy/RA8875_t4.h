@@ -38,6 +38,10 @@ class RA8875_t4 {
   void drawPixel(int16_t x, int16_t y, uint16_t color);
   uint32_t frameCount();
 
+  uint8_t color16To8bpp(uint16_t color) __attribute__((always_inline)) {
+    return ((color & 0xe000) >> 8) | ((color & 0x700) >> 6) | ((color & 0x18) >> 3);
+  }
+  
 private:
   void _initializeTFT();
 
