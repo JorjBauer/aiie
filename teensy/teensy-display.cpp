@@ -15,13 +15,14 @@ extern const unsigned char interface_glyphs[256];
 #include "globals.h"
 #include "applevm.h"
 
+#include "images.h"
+
 #ifndef RA8875_HEIGHT
 #define RA8875_HEIGHT 480
 #endif
 
 #include <SPI.h>
-//#define _clock 50000000
-
+#define _clock 20000000u // FIXME bring this up - it's under the default now
 
 #define PIN_RST 8
 #define PIN_DC 9
@@ -29,9 +30,6 @@ extern const unsigned char interface_glyphs[256];
 #define PIN_MOSI 26
 #define PIN_MISO 1
 #define PIN_SCK 27
-
-#define SCREENINSET_X (120)
-#define SCREENINSET_Y (10)
 
 // RGB map of each of the lowres colors
 const uint16_t loresPixelColors[16] = { 0x0000, // 0 black
@@ -63,7 +61,7 @@ RA8875_t4 tft = RA8875_t4(PIN_CS, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
 TeensyDisplay::TeensyDisplay()
 {
   //  tft.begin(Adafruit_800x480);
-  tft.begin();
+  tft.begin(_clock);
   tft.fillWindow();
   
   driveIndicator[0] = driveIndicator[1] = false;

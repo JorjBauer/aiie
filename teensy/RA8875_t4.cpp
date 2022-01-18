@@ -112,7 +112,7 @@ void RA8875_t4::_initializeTFT()
   delay(1);
 
   // colorspace
-  _writeRegister(RA8875_SYSR, 0x0C); // 65k
+  _writeRegister(RA8875_SYSR, 0x00); // 8-bit (0x0C == 16-bit)
 
   _writeRegister(RA8875_HDWR, 0x63); // LCD horizontal display width == (v+1)*8
   _writeRegister(RA8875_HNDFTR, 0x00); // Horizontal non-display period fine tuning
@@ -242,6 +242,11 @@ void RA8875_t4::fillWindow(uint16_t color)
   _waitPoll(RA8875_DCR, RA8875_DCR_LINESQUTRI_STATUS, _RA8875_WAITPOLL_TIMEOUT_DCR_LINESQUTRI_STATUS);
 }
 
+// *** Remove this and convert to native 8-bit? Or make it inline?
+uint8_t _color16To8bpp(uint16_t color) {
+  return ((color & 0xe000) >> 8) | ((color & 0x700) >> 6) | ((color & 0x18) >> 3);
+}
+  
 void RA8875_t4::drawPixel(int16_t x, int16_t y, uint16_t color)
 {
   // FIXME: bounds checking
@@ -255,7 +260,8 @@ void RA8875_t4::drawPixel(int16_t x, int16_t y, uint16_t color)
 
   // Send pixel data
   writeCommand(RA8875_MRWC); // write to wherever MWCR1 says (which we expect to be default graphics layer)
-  writeData16(color);
+  //  writeData16(color);
+  _writeData(_color16To8bpp(color));
 }
 
 uint32_t RA8875_t4::frameCount()
