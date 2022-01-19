@@ -1,8 +1,28 @@
 #include "RA8875_t4.h"
 #include "RA8875_registers.h"
 
+// Discussion about DMA channels: http://forum.pjrc.com/threads/25778-Could-there-be-something-like-an-ISR-template-function/page3
+// And these libraries use it:
+// https://github.com/PaulStoffregen/Audio                                      
+// https://github.com/PaulStoffregen/OctoWS2811                                 
+// https://github.com/pedvide/ADC                                               
+// https://github.com/duff2013/SerialEvent                                      
+// https://github.com/pixelmatix/SmartMatrix                                    
+// https://github.com/crteensy/DmaSpi <-- DmaSpi has adopted this scheme        
+
+
+#define COUNT_PIXELS_WRITE (RA8875_WIDTH * RA8875_HEIGHT)
+// at 8bpp, each pixel is 1 byte
+#define PIXELSIZE 1
+
+#define TCR_MASK  (LPSPI_TCR_PCS(3) | LPSPI_TCR_FRAMESZ(31) | LPSPI_TCR_CONT | LPSPI_TCR_RXMSK )
+
+static  RA8875_t4 *_dmaActiveDisplay[3];
+
 RA8875_t4::RA8875_t4(const uint8_t cs_pin, const uint8_t rst_pin, const uint8_t mosi_pin, const uint8_t sck_pin, const uint8_t miso_pin)
 {
+  pinMode(13, OUTPUT);
+  digitalWrite(13, HIGH);
   _mosi = mosi_pin;
   _miso = miso_pin;
   _cs = cs_pin;
@@ -11,6 +31,14 @@ RA8875_t4::RA8875_t4(const uint8_t cs_pin, const uint8_t rst_pin, const uint8_t 
   _interruptStates = 0b00000000;
 
   _pspi = NULL;
+  _pfbtft = NULL;
+  _dma_state = 0;
+  pending_rx_count = 0;
+  _frame_complete_callback = NULL;
+  _frame_callback_on_HalfDone = false;
+  _dma_frame_count = 0;
+  _dma_sub_frame_count = 0;
+  _dmaActiveDisplay[0] = _dmaActiveDisplay[1] = _dmaActiveDisplay[2] = NULL;
 }
 
 RA8875_t4::~RA8875_t4()
@@ -56,29 +84,10 @@ void RA8875_t4::begin(uint32_t spi_clock, uint32_t spi_clock_read)
   //  DIRECT_WRITE_HIGH(_csport, _cspinmask);
   digitalWriteFast(_cs, HIGH);
 
-  /*
-  pending_rx_count = 0; // Make sure it is zero if we we do a second begin...                                                                              
-  _spi_tcr_current = _pimxrt_spi->TCR; // get the current TCR value                                                                                    
+  pending_rx_count = 0; // Make sure it is zero if we we do a second begin...
+  _spi_tcr_current = _pimxrt_spi->TCR; // get the current TCR value
   
-  // TODO:  Need to setup DC to actually work.                                                                                                         
-  if (_pspi->pinIsChipSelect(_dc)) {
-    uint8_t dc_cs_index = _pspi->setCS(_dc);
-    _dcport = 0;
-    _dcpinmask = 0;
-    // will depend on which PCS but first get this to work...                                                                                    
-    dc_cs_index--;  // convert to 0 based                                                                                                        
-    _tcr_dc_assert = LPSPI_TCR_PCS(dc_cs_index);
-    _tcr_dc_not_assert = LPSPI_TCR_PCS(3);
-  } else {
-    _dcport = portOutputRegister(_dc);
-    _dcpinmask = digitalPinToBitMask(_dc);
-    pinMode(_dc, OUTPUT);
-    DIRECT_WRITE_HIGH(_dcport, _dcpinmask);
-    _tcr_dc_assert = LPSPI_TCR_PCS(0);
-    _tcr_dc_not_assert = LPSPI_TCR_PCS(1);
-  }
-  maybeUpdateTCR(_tcr_dc_not_assert | LPSPI_TCR_FRAMESZ(7));
-  */
+  maybeUpdateTCR(LPSPI_TCR_FRAMESZ(7));
   
   _initializeTFT();
 }
@@ -198,8 +207,10 @@ void RA8875_t4::_initializeTFT()
 
 }
 
-void RA8875_t4::setFrameBuffer(uint16_t *frame_buffer)
+void RA8875_t4::setFrameBuffer(uint8_t *frame_buffer)
 {
+  _pfbtft = frame_buffer;
+  _dma_state &= ~RA8875_DMA_INIT;
 }
 
 bool RA8875_t4::asyncUpdateActive()
@@ -207,9 +218,112 @@ bool RA8875_t4::asyncUpdateActive()
   return false;
 }
 
+void RA8875_t4::initDMASettings()
+{
+  if (_dma_state & RA8875_DMA_INIT)
+    return;
+
+  Serial.println("Initializing DMA");
+  
+  uint8_t dmaTXevent = _spi_hardware->tx_dma_channel;
+  if (_dma_state & RA8875_DMA_EVER_INIT) {
+    _dmasettings[0].sourceBuffer(_pfbtft, COUNT_PIXELS_WRITE * PIXELSIZE);
+    // FIXME: I don't know if arm_dcache_flush is sufficient to break the cache? cf https://github-wiki-see.page/m/TeensyUser/doc/wiki/Memory-Mapping
+    // The ILI9341 code uses 3 buffers and "copies the data" - but _pfbtft is malloc'd a 2* the size of the pixels (+32, presumably for alignment?) - and it's 16-bit, so 2* pixels is just the data itself.
+    // So how is it that dmasettings[0] -> _pfbtft, and
+    // dmasettings[1] -> _pfbtft[middle] and
+    // dmasettings[2] -> _pfbtft[end] yet [1] and [2] also refer to the full buffer size? That would mean
+    // _pfbtft is malloc'd to double the size it needs and there's some floating copying going on?
+    // I see no memcpy() calls... and in "first time we init" it looks diferent too, so I'm very confused
+    _dmasettings[1].sourceBuffer(&_pfbtft[COUNT_PIXELS_WRITE], COUNT_PIXELS_WRITE*PIXELSIZE);
+    _dmasettings[2].sourceBuffer(&_pfbtft[COUNT_PIXELS_WRITE*2], COUNT_PIXELS_WRITE*PIXELSIZE);
+    if (_frame_callback_on_HalfDone) _dmasettings[1].interruptAtHalf();
+    else _dmasettings[1].TCD->CSR &= ~DMA_TCD_CSR_INTHALF;
+  } else {
+    _dmasettings[0].sourceBuffer(_pfbtft, COUNT_PIXELS_WRITE * PIXELSIZE);
+    _dmasettings[0].destination(_pimxrt_spi->TDR);
+    _dmasettings[0].TCD->ATTR_DST = 1;
+    _dmasettings[0].replaceSettingsOnCompletion(_dmasettings[1]);
+    
+    _dmasettings[1].sourceBuffer(&_pfbtft[COUNT_PIXELS_WRITE], COUNT_PIXELS_WRITE*PIXELSIZE);
+    _dmasettings[1].destination(_pimxrt_spi->TDR);
+    _dmasettings[1].TCD->ATTR_DST = 1;
+    if (_frame_callback_on_HalfDone) _dmasettings[1].interruptAtHalf();
+    else _dmasettings[1].TCD->CSR &= ~DMA_TCD_CSR_INTHALF;
+    _dmasettings[1].replaceSettingsOnCompletion(_dmasettings[2]);
+
+    _dmasettings[2].sourceBuffer(&_pfbtft[COUNT_PIXELS_WRITE*2], COUNT_PIXELS_WRITE*PIXELSIZE);
+    _dmasettings[2].destination(_pimxrt_spi->TDR);
+    _dmasettings[2].TCD->ATTR_DST = 1;
+    _dmasettings[2].replaceSettingsOnCompletion(_dmasettings[0]);
+    _dmasettings[2].interruptAtCompletion();
+
+    _dmatx = _dmasettings[0];
+    _dmatx.begin(true);
+    _dmatx.triggerAtHardwareEvent(dmaTXevent);
+    if (_spi_num == 0) _dmatx.attachInterrupt(dmaInterrupt);
+    else if (_spi_num == 1) _dmatx.attachInterrupt(dmaInterrupt1);
+    else _dmatx.attachInterrupt(dmaInterrupt2);
+    Serial.print("DMA is set up on SPI ");
+    Serial.println(_spi_num);
+    _dma_state = RA8875_DMA_INIT | RA8875_DMA_EVER_INIT;
+  }
+}
+
 bool RA8875_t4::updateScreenAsync(bool update_cont)
 {
-  return false;
+  if (!_pfbtft) return false;
+
+  initDMASettings();
+  if (_dma_state & RA8875_DMA_ACTIVE)
+    return false;
+
+  Serial.println("-");
+  // Half of main ram has a 32k cache. This tells it to flush the cache if necessary.
+  if ((uint32_t)_pfbtft >= 0x20200000u) arm_dcache_flush(_pfbtft, RA8875_WIDTH*RA8875_HEIGHT);
+  
+  _dmasettings[2].TCD->CSR &= ~(DMA_TCD_CSR_DREQ);
+  _startSend();
+
+  // Don't need to reset the window b/c we never change it; but set the X/Y cursor back to the origin
+  _writeRegister(RA8875_CURV0, 0);
+  _writeRegister(RA8875_CURV0+1, 0);
+  _writeRegister(RA8875_CURH0, 0);
+  _writeRegister(RA8875_CURH0+1, 0);
+
+  // And start a ram write command
+  writeCommand(RA8875_MRWC);
+
+  _spi_fcr_save = _pimxrt_spi->FCR; // FIFO Control Register
+  _pimxrt_spi->FCR=0; // turn off FIFO watermarks
+ 
+  // Set transmit command register: disable RX ("mask out RX"), enable
+  // TX from FIFO (b/c it's not masked out), and 8-bit data transfers
+  // (7+1).
+  maybeUpdateTCR(LPSPI_TCR_FRAMESZ(7) | LPSPI_TCR_RXMSK /*| LPSPI_TCR_CONT*/);
+  // Set up the DMA Enable Register to enable transmit DMA (and not receive DMA)
+  _pimxrt_spi->DER = LPSPI_DER_TDDE;
+  // Clear the status register %0011 1111 0000 0000 == set DMF, REF,
+  //   TEF, TCF, FCF, WCF; clear MBF, RDF, TDF.  MBF: busy flag; DMF:
+  //   data match; REF: rec error flag; TEF: xmit error flag; TCF:
+  //   xmit complete flag; FCF: frame complete flag; WCF: word
+  //   complete flag; RDF: rec data flag; TDF: xmit data flag
+  _pimxrt_spi->SR = 0x3f00;       // clear out all of the other status... 
+  _dmatx.triggerAtHardwareEvent( _spi_hardware->tx_dma_channel );
+  _dmatx = _dmasettings[0];
+  _dmatx.begin(false);
+  _dmatx.enable();
+  _dma_frame_count = 0;
+  _dmaActiveDisplay[_spi_num]  = this;
+  if (update_cont) {
+    _dma_state |= RA8875_DMA_CONT;
+  } else {
+    _dmasettings[2].disableOnCompletion();
+    _dma_state &= ~RA8875_DMA_CONT;
+  }
+  _dma_state |= RA8875_DMA_ACTIVE;
+
+  return true;
 }
 
 void RA8875_t4::fillWindow(uint16_t color)
@@ -295,10 +409,12 @@ void RA8875_t4::_writeData(uint8_t data)
 
 uint8_t RA8875_t4::_readData(bool stat)
 {
+  // FIXME do we need to slow down for reads?
   _startSend();
   _pspi->transfer(stat ? RA8875_CMDREAD : RA8875_DATAREAD);
-  _pspi->transfer(0x00);
+  uint8_t x = _pspi->transfer(0x00);
   _endSend();
+  return x;
 }
 
 void RA8875_t4::_writeRegister(const uint8_t reg, uint8_t val)
@@ -340,4 +456,69 @@ void RA8875_t4::_waitBusy(uint8_t res)
     temp = _readData(true);
     if ((millis() - start) > 10) return;
   } while ((temp & res) == res);
+}
+
+void RA8875_t4::maybeUpdateTCR(uint32_t requested_tcr_state)
+{
+  if ((_spi_tcr_current & TCR_MASK) != requested_tcr_state) {
+    // PCS is the peripheral chip select used for the transfer
+    _spi_tcr_current = (_spi_tcr_current & ~TCR_MASK) | requested_tcr_state ;
+    // only output when Transfer queue is empty.            
+    while ((_pimxrt_spi->FSR & 0x1f) )      ;
+    _pimxrt_spi->TCR = _spi_tcr_current;    // update the TCR
+  }
+}
+
+void RA8875_t4::dmaInterrupt(void) {
+  if (_dmaActiveDisplay[0]) {
+    _dmaActiveDisplay[0]->process_dma_interrupt();
+  }
+}
+
+void RA8875_t4::dmaInterrupt1(void) {
+  // FIXME this isn't being called
+  digitalWrite(13, LOW);
+  if (_dmaActiveDisplay[1]) {
+    _dmaActiveDisplay[1]->process_dma_interrupt();
+  }
+}
+
+void RA8875_t4::dmaInterrupt2(void) {
+  if (_dmaActiveDisplay[2]) {
+    _dmaActiveDisplay[2]->process_dma_interrupt();
+  }
+}
+
+void RA8875_t4::process_dma_interrupt(void) {
+  _dmatx.clearInterrupt();
+  if (_frame_callback_on_HalfDone && (_dmatx.TCD->SADDR > _dmasettings[1].TCD->SADDR)) {
+    _dma_sub_frame_count = 1; // set as partial frame.
+    if (_frame_complete_callback) (*_frame_complete_callback)();
+  } else {
+    _dma_frame_count++;
+    _dma_sub_frame_count = 0; // this is a full frame
+    if ((_dma_state & RA8875_DMA_CONT) == 0) {
+      // Single refresh, or the user canceled, so release the CS pin
+      while (_pimxrt_spi->FSR & 0x1f) ; // wait until transfer is done
+      while (_pimxrt_spi->SR & LPSPI_SR_MBF) ; // ... what's the MBF?
+      _dmatx.clearComplete();
+      _pimxrt_spi->FCR = LPSPI_FCR_TXWATER(15);
+      _pimxrt_spi->DER = 0; // turn off tx and rx DMA
+      _pimxrt_spi->CR = LPSPI_CR_MEN | LPSPI_CR_RRF | LPSPI_CR_RTF; // ??
+      _pimxrt_spi->SR = 0x3f00;
+      maybeUpdateTCR(LPSPI_TCR_FRAMESZ(7));
+      _endSend();
+      _dma_state &= ~RA8875_DMA_ACTIVE;
+      _dmaActiveDisplay[_spi_num] = 0;
+    } else {
+      if (_frame_complete_callback) (*_frame_complete_callback)();
+      else {
+        // Try to flush memory
+        if ((uint32_t)_pfbtft >= 0x20200000u) arm_dcache_flush(_pfbtft, RA8875_WIDTH*RA8875_HEIGHT);
+      }
+    }
+    // make sure the code is synchronized - memory access must be
+    // complete before we continue
+    asm("dsb");
+  }
 }

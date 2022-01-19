@@ -30,7 +30,7 @@ class RA8875_t4 {
 
   void fillWindow(uint16_t color = 0x0000);
   
-  void setFrameBuffer(uint16_t *frame_buffer);
+  void setFrameBuffer(uint8_t *frame_buffer);
   
   bool asyncUpdateActive();
   bool updateScreenAsync(bool update_cont = false);
@@ -44,6 +44,7 @@ class RA8875_t4 {
   
 private:
   void _initializeTFT();
+  void initDMASettings();
 
   // These are the old style RA8875 calls -- replace them ***
   void writeCommand(const uint8_t d);
@@ -58,6 +59,13 @@ private:
   void _waitBusy(uint8_t res);
   
   boolean _waitPoll(uint8_t regname, uint8_t waitflag, uint8_t timeout);
+
+  void maybeUpdateTCR(uint32_t requested_tcr_state);
+
+  static void dmaInterrupt(void);
+  static void dmaInterrupt1(void);
+  static void dmaInterrupt2(void);
+  void process_dma_interrupt(void);
   
  protected:
   uint8_t _cs, _miso, _mosi, _sck, _rst;
@@ -73,6 +81,23 @@ private:
   volatile uint32_t *_csport;
   uint32_t _cspinmask;
 
+  // DMA stuff
+  DMASetting              _dmasettings[3];
+  DMAChannel              _dmatx;
+  volatile    uint32_t _dma_pixel_index = 0;
+  uint16_t _dma_buffer_size;
+  uint16_t _dma_cnt_sub_frames_per_frame;
+  uint32_t _spi_fcr_save;
+  uint8_t *_pfbtft;
+  volatile uint8_t _dma_state;
+  uint8_t pending_rx_count;
+  uint32_t _spi_tcr_current;
+  volatile uint32_t _dma_frame_count;
+  volatile uint16_t _dma_sub_frame_count;
+
+  void (*_frame_complete_callback)();
+  bool _frame_callback_on_HalfDone;
+  
 protected:
   void DIRECT_WRITE_LOW(volatile uint32_t * base, uint32_t mask)  __attribute__((always_inline)) {
     *(base+34) = mask;
@@ -84,7 +109,7 @@ protected:
   /* These are old-style function names, but with new-style contents */
   void _startSend() __attribute__((always_inline)) {
     _pspi->beginTransaction(SPISettings(_clock, MSBFIRST, SPI_MODE3));
-    /* _spi_tcr_current = _pimxrt_spi->TCR; -- do we need this? related to the _dc line... */
+    _spi_tcr_current = _pimxrt_spi->TCR;
     //    DIRECT_WRITE_LOW(_csport, _cspinmask);
     digitalWriteFast(_cs, LOW);
   }
