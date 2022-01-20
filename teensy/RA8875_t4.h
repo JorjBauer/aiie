@@ -1,8 +1,6 @@
 #ifndef _RA8875_T4_H
 #define _RA8875_T4_H
 
-#define SCREEN_DMA_NUM_SETTINGS 3
-
 #include <Arduino.h>
 #include <SPI.h>
 #include <DMAChannel.h>

@@ -410,32 +410,8 @@ bool RA8875_t4::updateScreenAsync(bool update_cont)
 
 void RA8875_t4::fillWindow(uint16_t color)
 {
-  int x0=0, y0=0;
-  int x1=RA8875_WIDTH-1,y1=RA8875_HEIGHT-1;
-  //X0                                                                    
-  _writeRegister(RA8875_DLHSR0,    x0 & 0xFF);
-  _writeRegister(RA8875_DLHSR0 + 1,x0 >> 8);
-  //Y0                                                                    
-  _writeRegister(RA8875_DLVSR0,    y0 & 0xFF);
-  _writeRegister(RA8875_DLVSR0 + 1,y0 >> 8);
-  //X1                                                                    
-  _writeRegister(RA8875_DLHER0,    x1 & 0xFF);
-  _writeRegister(RA8875_DLHER0 + 1,x1 >> 8);
-  //Y1                                                                    
-  _writeRegister(RA8875_DLVER0,    y1 & 0xFF);
-  _writeRegister(RA8875_DLVER0 + 1,y1 >> 8);
-  
-  // Set the color
-  _writeRegister(RA8875_FGCR0,_565toR(color) >> 2); // 5 bits red -> 3 bits red
-  _writeRegister(RA8875_FGCR0+1,_565toG(color) >> 3); // 6 bits green -> 3 bits green
-  _writeRegister(RA8875_FGCR0+2,_565toB(color) >> 3); // 5 bits blue -> 2 bits blue
-
-  // Send fill
-  writeCommand(RA8875_DCR); // draw control register
-  _writeData(0xB0); // %1011 0000 == start draw; stop circle; fill shape; draw square; draw square (yes two different bits for draw square)
-
-  // Wait for completion (when DCR_LINESQUTRI_STATUS bit it set in read result, before TIMEOUT happens)
-  _waitPoll(RA8875_DCR, RA8875_DCR_LINESQUTRI_STATUS, _RA8875_WAITPOLL_TIMEOUT_DCR_LINESQUTRI_STATUS);
+  // FIXME: reduce color & fill appropriately
+  memset(_pfbtft, RA8875_WIDTH*RA8875_HEIGHT, 0);
 }
 
 // *** Remove this and convert to native 8-bit? Or make it inline?
@@ -446,18 +422,7 @@ uint8_t _color16To8bpp(uint16_t color) {
 void RA8875_t4::drawPixel(int16_t x, int16_t y, uint16_t color)
 {
   // FIXME: bounds checking
-
-  // Set Y
-  _writeRegister(RA8875_CURV0, y & 0xFF); // cursor vertical location
-  _writeRegister(RA8875_CURV0+1, y >> 8);
-  // Set X
-  _writeRegister(RA8875_CURH0, x & 0xFF); // cursor horiz location
-  _writeRegister(RA8875_CURH0+1, (x >> 8));
-
-  // Send pixel data
-  writeCommand(RA8875_MRWC); // write to wherever MWCR1 says (which we expect to be default graphics layer)
-  //  writeData16(color);
-  _writeData(_color16To8bpp(color));
+  _pfbtft[y*RA8875_WIDTH+x] = _color16To8bpp(color);
 }
 
 uint32_t RA8875_t4::frameCount()
