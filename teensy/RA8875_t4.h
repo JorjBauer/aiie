@@ -49,6 +49,7 @@ private:
   // These are the old style RA8875 calls -- replace them ***
   void writeCommand(const uint8_t d);
   void writeData16(uint16_t data);
+  void waitTransmitComplete(void);
   
   void _writeData(uint8_t data);
   void _writeRegister(const uint8_t reg, uint8_t val);
