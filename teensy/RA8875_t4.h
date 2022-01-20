@@ -49,7 +49,6 @@ private:
   // These are the old style RA8875 calls -- replace them ***
   void writeCommand(const uint8_t d);
   void writeData16(uint16_t data);
-  void waitTransmitComplete(void);
   
   void _writeData(uint8_t data);
   void _writeRegister(const uint8_t reg, uint8_t val);
@@ -91,7 +90,6 @@ private:
   uint32_t _spi_fcr_save;
   uint8_t *_pfbtft;
   volatile uint8_t _dma_state;
-  uint8_t pending_rx_count;
   uint32_t _spi_tcr_current;
   volatile uint32_t _dma_frame_count;
   volatile uint16_t _dma_sub_frame_count;

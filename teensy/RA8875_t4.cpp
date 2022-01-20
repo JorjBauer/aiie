@@ -79,6 +79,10 @@
 
 #define TCR_MASK  (LPSPI_TCR_PCS(3) | LPSPI_TCR_FRAMESZ(31) | LPSPI_TCR_CONT | LPSPI_TCR_RXMSK )
 
+#define _565toR(c) ( ((c) & 0xF800) >> 8 )
+#define _565toG(c) ( ((c) & 0x07E0) >> 3 )
+#define _565toB(c) ( ((c) & 0x001F) << 3 )
+
 static  RA8875_t4 *_dmaActiveDisplay[3];
 
 RA8875_t4::RA8875_t4(const uint8_t cs_pin, const uint8_t rst_pin, const uint8_t mosi_pin, const uint8_t sck_pin, const uint8_t miso_pin)
@@ -95,7 +99,6 @@ RA8875_t4::RA8875_t4(const uint8_t cs_pin, const uint8_t rst_pin, const uint8_t 
   _pspi = NULL;
   _pfbtft = NULL;
   _dma_state = 0;
-  pending_rx_count = 0;
   _frame_complete_callback = NULL;
   _frame_callback_on_HalfDone = false;
   _dma_frame_count = 0;
@@ -146,7 +149,6 @@ void RA8875_t4::begin(uint32_t spi_clock, uint32_t spi_clock_read)
   //  DIRECT_WRITE_HIGH(_csport, _cspinmask);
   digitalWriteFast(_cs, HIGH);
 
-  pending_rx_count = 0; // Make sure it is zero if we we do a second begin...
   _spi_tcr_current = _pimxrt_spi->TCR; // get the current TCR value
   
   maybeUpdateTCR(LPSPI_TCR_PCS(3)|LPSPI_TCR_FRAMESZ(7));
@@ -348,11 +350,10 @@ bool RA8875_t4::updateScreenAsync(bool update_cont)
   while (pftbft < pfbtft_end) {
     _pspi->transfer(*pftbft++);
   }
-  pending_rx_count++; // waiting for one more full transaction to complete
-  waitTransmitComplete();
   _endSend();
 
-  return;
+  return true;
+  // DEBUG END
   
   if (!_pfbtft) return false;
 
@@ -427,9 +428,9 @@ void RA8875_t4::fillWindow(uint16_t color)
   _writeRegister(RA8875_DLVER0 + 1,y1 >> 8);
   
   // Set the color
-  _writeRegister(RA8875_FGCR0,((color & 0xF800) >> 11)); // 5 bits red
-  _writeRegister(RA8875_FGCR0+1,((color & 0x07E0) >> 5)); // 6 bits green
-  _writeRegister(RA8875_FGCR0+2,((color & 0x001F)     )); // 5 bits blue
+  _writeRegister(RA8875_FGCR0,_565toR(color) >> 2); // 5 bits red -> 3 bits red
+  _writeRegister(RA8875_FGCR0+1,_565toG(color) >> 3); // 6 bits green -> 3 bits green
+  _writeRegister(RA8875_FGCR0+2,_565toB(color) >> 3); // 5 bits blue -> 2 bits blue
 
   // Send fill
   writeCommand(RA8875_DCR); // draw control register
@@ -617,18 +618,6 @@ void RA8875_t4::process_dma_interrupt(void) {
     // complete before we continue
     asm("dsb");
   }
-}
-
-void RA8875_t4::waitTransmitComplete(void)  {
-  uint32_t tmp __attribute__((unused));
-
-  while (pending_rx_count) {
-    if ((_pimxrt_spi->RSR & LPSPI_RSR_RXEMPTY) == 0)  {
-      tmp = _pimxrt_spi->RDR;  // Read any pending RX bytes in            
-      pending_rx_count--; //decrement count of bytes still levt           
-    }
-  }
-  _pimxrt_spi->CR = LPSPI_CR_MEN | LPSPI_CR_RRF; // Clear receive FIFO and leave module enabled
 }
 
 // Other possible methods, that I don't think we'll need:

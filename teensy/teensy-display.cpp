@@ -80,7 +80,7 @@ TeensyDisplay::~TeensyDisplay()
 
 void TeensyDisplay::flush()
 {
-  // Nothing to flush, b/c there's no DMA in this driver and we draw it all in real-time. (Eww.)
+  tft.updateScreenAsync(false);
 }
 
 void TeensyDisplay::redraw()
@@ -114,7 +114,10 @@ void TeensyDisplay::blit()
   // Start updates, if they're not running already
   //  if (!tft.asyncUpdateActive())
   //    tft.updateScreenAsync(true);
-  tft.updateScreenAsync(false);
+  // DEBUGGING: not refreshing every time so I can see the machine boot
+  static uint32_t ctr = 0;
+  if (((ctr++) & 0x0F) == 0)
+    tft.updateScreenAsync(false);
   
   // draw overlay, if any, occasionally
   {
@@ -209,12 +212,12 @@ void TeensyDisplay::clrScr(uint8_t coloridx)
   if (coloridx == c_black) {
     tft.fillWindow();
   } else if (coloridx == c_white) {
-    tft.fillWindow();
+    tft.fillWindow(loresPixelColors[c_white]);
   } else {
     uint16_t color16 = loresPixelColors[c_black];
     if (coloridx < 16)
       color16 = loresPixelColors[coloridx];
-    tft.fillWindow();
+    tft.fillWindow(color16);
   }
 }
 
