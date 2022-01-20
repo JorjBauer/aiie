@@ -33,6 +33,7 @@ class RA8875_t4 {
   void setFrameBuffer(uint8_t *frame_buffer);
   
   bool asyncUpdateActive();
+  void updateScreenSync();
   bool updateScreenAsync(bool update_cont = false);
 
   void drawPixel(int16_t x, int16_t y, uint16_t color);
@@ -69,7 +70,6 @@ private:
   
  protected:
   uint8_t _cs, _miso, _mosi, _sck, _rst;
-  volatile uint8_t _interruptStates;
 
   SPIClass *_pspi;
   IMXRT_LPSPI_t *_pimxrt_spi;
@@ -78,24 +78,19 @@ private:
   uint32_t _spi_clock; // desired clock
   uint32_t _spi_clock_read;
   uint32_t _clock; // current clock, used in starting transactions (b/c we have to slow down sometimes)
-  volatile uint32_t *_csport;
-  uint32_t _cspinmask;
 
   // DMA stuff
-  DMASetting              _dmasettings[3];
+  DMASetting              _dmasettings[12];
   DMAChannel              _dmatx;
   volatile    uint32_t _dma_pixel_index = 0;
   uint16_t _dma_buffer_size;
-  uint16_t _dma_cnt_sub_frames_per_frame;
   uint32_t _spi_fcr_save;
   uint8_t *_pfbtft;
   volatile uint8_t _dma_state;
   uint32_t _spi_tcr_current;
   volatile uint32_t _dma_frame_count;
-  volatile uint16_t _dma_sub_frame_count;
 
   void (*_frame_complete_callback)();
-  bool _frame_callback_on_HalfDone;
   
 protected:
   void DIRECT_WRITE_LOW(volatile uint32_t * base, uint32_t mask)  __attribute__((always_inline)) {

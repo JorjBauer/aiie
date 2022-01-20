@@ -21,7 +21,7 @@ extern const unsigned char interface_glyphs[256];
 #define RA8875_HEIGHT 480
 #endif
 
-DMAMEM uint8_t dmaBuffer[RA8875_HEIGHT][RA8875_WIDTH];
+DMAMEM uint8_t dmaBuffer[RA8875_HEIGHT][RA8875_WIDTH] /*__attribute__((aligned(32))*/;
 
 #include <SPI.h>
 #define _clock 20000000u // FIXME bring this up - it's under the default now
@@ -112,12 +112,10 @@ void TeensyDisplay::drawImageOfSizeAt(const uint8_t *img,
 void TeensyDisplay::blit()
 {
   // Start updates, if they're not running already
-  //  if (!tft.asyncUpdateActive())
-  //    tft.updateScreenAsync(true);
+  if (!tft.asyncUpdateActive())
+    tft.updateScreenAsync(true);
   // DEBUGGING: not refreshing every time so I can see the machine boot
   static uint32_t ctr = 0;
-  if (((ctr++) & 0x0F) == 0)
-    tft.updateScreenAsync(false);
   
   // draw overlay, if any, occasionally
   {
