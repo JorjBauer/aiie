@@ -21,7 +21,7 @@ AudioConnection         patchCord4(mixer1, 0, i2s, 0);
 
 // Ring buffer that we fill with 44.1kHz data
 #define BUFSIZE (4096)
-#define CACHEMULTIPLIER 2
+#define CACHEMULTIPLIER 10
 static volatile uint32_t bufIdx; // 0 .. BUFSIZE-1
 static volatile uint64_t skippedSamples; // Who knows where this will
 					 // wind up
