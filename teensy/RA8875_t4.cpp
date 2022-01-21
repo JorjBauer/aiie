@@ -217,11 +217,11 @@ void RA8875_t4::_initializeTFT()
   delay(10);
 
   // Update the sysclock
-  _writeRegister(RA8875_PLLC1, 0x0B); // %0000 1011 == pre-drive /1; input /11
+  _writeRegister(RA8875_PLLC1, 0x1D);
   delay(1);
-  _writeRegister(RA8875_PLLC1+1, 0x02); // %0000 0010 == PLL output /4
+  _writeRegister(RA8875_PLLC1+1, 0x02);
   delay(1);
-  _writeRegister(RA8875_PCSR, 0x81); // %1000 0001 == PDAT at PCLK falling edge; PCLK period is 2* system clock period
+  _writeRegister(RA8875_PCSR, 0x82);
   delay(1);
 
   _clock = _spi_clock; // speed up to full speed now
@@ -241,7 +241,7 @@ void RA8875_t4::_initializeTFT()
   fillWindow(); // defaults to black
 
   // turn on backlight
-  _writeRegister(RA8875_P1CR, (RA8875_PxCR_ENABLE | (RA8875_PWM_CLK_DIV1024 & 0xF)));
+  _writeRegister(RA8875_P1CR, (RA8875_PxCR_ENABLE | (RA8875_PWM_CLK_DIV2048 & 0xF)));
   _writeRegister(RA8875_P1DCR, 255); // brightness
   
   // set graphics mode & default memory write order/behavior

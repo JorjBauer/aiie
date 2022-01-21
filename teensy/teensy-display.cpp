@@ -24,7 +24,7 @@ extern const unsigned char interface_glyphs[256];
 DMAMEM uint8_t dmaBuffer[RA8875_HEIGHT][RA8875_WIDTH] /*__attribute__((aligned(32))*/;
 
 #include <SPI.h>
-#define _clock 20000000u // FIXME bring this up - it's under the default now
+#define _clock 79500000u
 
 #define PIN_RST 8
 #define PIN_DC 9
