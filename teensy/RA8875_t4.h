@@ -31,7 +31,6 @@ class RA8875_t4 {
   void setFrameBuffer(uint8_t *frame_buffer);
   
   bool asyncUpdateActive();
-  void updateScreenSync();
   bool updateScreenAsync(bool update_cont = false);
 
   void drawPixel(int16_t x, int16_t y, uint16_t color);

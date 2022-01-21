@@ -156,7 +156,7 @@ void RA8875_t4::begin(uint32_t spi_clock, uint32_t spi_clock_read)
   _spi_tcr_current = _pimxrt_spi->TCR; // get the current TCR value
   
   maybeUpdateTCR(LPSPI_TCR_FRAMESZ(7));
-  
+
   _initializeTFT();
 }
 
@@ -179,7 +179,7 @@ void RA8875_t4::_initializeTFT()
     _writeData(RA8875_PWRR_NORMAL);
     delay(200);
   }
-  
+
   // Set the sysclock
   _writeRegister(RA8875_PLLC1, 0x07); // same as default value: %0000 0111 == pre /=1; input /=7
   delay(1);
@@ -214,19 +214,8 @@ void RA8875_t4::_initializeTFT()
   _writeRegister(RA8875_VEAW0, (RA8875_HEIGHT-1) & 0xFF); // vertical end point of active window
   _writeRegister(RA8875_VEAW0+1, (RA8875_HEIGHT-1) >> 8);
 
-  delay(10);
+  delay(100);
 
-  // Update the sysclock
-  _writeRegister(RA8875_PLLC1, 0x1D);
-  delay(1);
-  _writeRegister(RA8875_PLLC1+1, 0x02);
-  delay(1);
-  _writeRegister(RA8875_PCSR, 0x82);
-  delay(1);
-
-  _clock = _spi_clock; // speed up to full speed now
-
-  delay(1);
   // clear memory
   uint8_t temp;
   temp = _readRegister(RA8875_MCLR);
@@ -235,6 +224,23 @@ void RA8875_t4::_initializeTFT()
   _waitBusy(0x80);
 
   delay(1);
+  
+  // Update the sysclock. 300MHz Fpll; 150MHz sysclk; 18.75 MHz pixel
+  // clock.  That's the fastest that seems to reliably work for me. It
+  // also allows a SPI bus transfer at just under 80MHz (literally
+  // 79.999... there must be a constant somewhere that's breaking the
+  // SPI module at 80, or a Teensy 4.1 bus limit, or ... ?)
+  _writeRegister(RA8875_PLLC1, 0x0E);
+  delay(1);
+  _writeRegister(RA8875_PLLC1+1, 0x01);
+  delay(1);
+  _writeRegister(RA8875_PCSR, 0x82);
+  delay(1);
+
+  _clock = _spi_clock; // speed up to full speed now
+
+  delay(10);
+
   // turn on the display
   _writeRegister(RA8875_PWRR, RA8875_PWRR_NORMAL | RA8875_PWRR_DISPON);
   delay(1);
@@ -272,7 +278,6 @@ void RA8875_t4::_initializeTFT()
 //  setCursor(0,0);
   
   _writeRegister(RA8875_GPIOX, true); // turn on backlight
-
 }
 
 void RA8875_t4::setFrameBuffer(uint8_t *frame_buffer)
@@ -283,7 +288,7 @@ void RA8875_t4::setFrameBuffer(uint8_t *frame_buffer)
 
 bool RA8875_t4::asyncUpdateActive()
 {
-  return false;
+  return (_dma_state & RA8875_DMA_ACTIVE);
 }
 
 void RA8875_t4::initDMASettings()
@@ -323,30 +328,6 @@ void RA8875_t4::initDMASettings()
     else _dmatx.attachInterrupt(dmaInterrupt2);
     _dma_state = RA8875_DMA_INIT | RA8875_DMA_EVER_INIT;
   }
-}
-
-// This should be removable after async updates are running
-void RA8875_t4::updateScreenSync()
-{
-  // Set the X/Y cursor
-  _writeRegister(RA8875_CURV0, 0);
-  _writeRegister(RA8875_CURV0+1, 0);
-  _writeRegister(RA8875_CURH0, 0);
-  _writeRegister(RA8875_CURH0+1, 0);
-
-  // start a memory write
-  writeCommand(RA8875_MRWC);
-  // Send all the screen pixel data
-  _startSend();
-  _pspi->transfer(RA8875_DATAWRITE);
-  uint8_t *pfbtft_end = &_pfbtft[COUNT_PIXELS_WRITE];
-  uint8_t *pftbft = _pfbtft;
-  while (pftbft < pfbtft_end) {
-    // Each pixel is 8 bpp...
-    _pspi->transfer(*pftbft++);
-  }
-  // done!
-  _endSend();
 }
 
 bool RA8875_t4::updateScreenAsync(bool update_cont)

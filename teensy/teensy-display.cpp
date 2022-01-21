@@ -21,10 +21,14 @@ extern const unsigned char interface_glyphs[256];
 #define RA8875_HEIGHT 480
 #endif
 
-DMAMEM uint8_t dmaBuffer[RA8875_HEIGHT][RA8875_WIDTH] /*__attribute__((aligned(32))*/;
+DMAMEM uint8_t dmaBuffer[RA8875_HEIGHT][RA8875_WIDTH] __attribute__((aligned(32)));
 
 #include <SPI.h>
-#define _clock 79500000u
+// 30MHz: solid performance, 9 FPS
+// 57.5MHz: solid performance, 14/15 FPS
+// 60MHz: unexpected palatte shifts & (may be audio overruns, needs checking since bumping up buffer sizes) 17 FPS
+// And I can't get the SPI bus working at 80MHz or higher. Not sure why yet...
+#define _clock 57500000u
 
 #define PIN_RST 8
 #define PIN_DC 9
@@ -60,18 +64,21 @@ const uint16_t loresPixelColors[16] = { 0x0000, // 0 black
 #define luminanceFromRGB(r,g,b) ( ((r)*0.2126) + ((g)*0.7152) + ((b)*0.0722) )
 #define _565To332(c) ((((c) & 0xe000) >> 8) | (((c) & 0x700) >> 6) | (((c) & 0x18) >> 3))
 
-
 RA8875_t4 tft = RA8875_t4(PIN_CS, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
 
 TeensyDisplay::TeensyDisplay()
 {
-  //  tft.begin(Adafruit_800x480);
-  tft.begin(_clock);
-  tft.fillWindow();
-  tft.setFrameBuffer((uint8_t *)dmaBuffer);
-  
   driveIndicator[0] = driveIndicator[1] = false;
   driveIndicatorDirty = true;
+  
+  //  tft.begin(Adafruit_800x480);
+  Serial.println("begin");
+  tft.begin(_clock);
+  Serial.println("set framebuffer");
+  tft.setFrameBuffer((uint8_t *)dmaBuffer);
+  Serial.println("clear window");
+  tft.fillWindow();
+  Serial.println("ok");
 }
 
 TeensyDisplay::~TeensyDisplay()
@@ -80,16 +87,17 @@ TeensyDisplay::~TeensyDisplay()
 
 void TeensyDisplay::flush()
 {
-  tft.updateScreenAsync(false);
 }
 
 void TeensyDisplay::redraw()
 {
-  g_ui->drawStaticUIElement(UIeOverlay);
+  if (g_ui) {
+    g_ui->drawStaticUIElement(UIeOverlay);
 
-  if (g_vm && g_ui) {
-    g_ui->drawOnOffUIElement(UIeDisk1_state, ((AppleVM *)g_vm)->DiskName(0)[0] == '\0');
-    g_ui->drawOnOffUIElement(UIeDisk2_state, ((AppleVM *)g_vm)->DiskName(1)[0] == '\0');
+    if (g_vm) {
+      g_ui->drawOnOffUIElement(UIeDisk1_state, ((AppleVM *)g_vm)->DiskName(0)[0] == '\0');
+      g_ui->drawOnOffUIElement(UIeDisk2_state, ((AppleVM *)g_vm)->DiskName(1)[0] == '\0');
+    }
   }
 }
 
@@ -114,7 +122,7 @@ void TeensyDisplay::blit()
   // Start updates, if they're not running already
   if (!tft.asyncUpdateActive())
     tft.updateScreenAsync(true);
-  // DEBUGGING: not refreshing every time so I can see the machine boot
+
   static uint32_t ctr = 0;
   
   // draw overlay, if any, occasionally
@@ -122,9 +130,10 @@ void TeensyDisplay::blit()
     static uint32_t nextMessageTime = 0;
     if (millis() >= nextMessageTime) {
       if (overlayMessage[0]) {
-	drawString(M_SELECTDISABLED, 1, RA8875_HEIGHT - (16 + 12), overlayMessage);
+	drawString(M_SELECTDISABLED, 1, RA8875_HEIGHT - (16 + 12)*2, overlayMessage);
+        Serial.println(overlayMessage);
       }
-      nextMessageTime = millis() + 10; // DEBUGGING FIXME make 1000 again
+      nextMessageTime = millis() + 1000;
     }
   }
 }
@@ -133,14 +142,17 @@ void TeensyDisplay::blit(AiieRect r)
 {
 }
 
+// FIXME do we still need 2 different methods for drawing pixels
 void TeensyDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
 {
-  dmaBuffer[y][x] = _565To332(color);
+  if (x < RA8875_WIDTH && y < RA8875_HEIGHT)
+    dmaBuffer[y][x] = _565To332(color);
 }
 
 void TeensyDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
 {
-  dmaBuffer[y][x] = _565To332(color);
+  if (x < RA8875_WIDTH && y < RA8875_HEIGHT)
+    dmaBuffer[y][x] = _565To332(color);
 }
 
 void TeensyDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b)
@@ -180,14 +192,17 @@ void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint16_t y, char c)
     break;
   }
 
-  // This does not scale when drawing, because drawPixel scales.
   const unsigned char *ch = asciiToAppleGlyph(c);
   for (int8_t y_off = 0; y_off <= ysize; y_off++) {
     for (int8_t x_off = 0; x_off <= xsize; x_off++) {
-      if (*ch & (1 << (x_off))) {
-        drawUIPixel(x + x_off, y + y_off, onPixel);
-      } else {
-        drawUIPixel(x + x_off, y + y_off, offPixel);
+      for (int8_t ys=0; ys<2; ys++) {
+        for (int8_t xs=0; xs<2; xs++) {
+          if (*ch & (1 << (x_off))) {
+            drawUIPixel((x + x_off)*2+xs, (y + y_off)*2+ys, onPixel);
+          } else {
+            drawUIPixel((x + x_off)*2+xs, (y + y_off)*2+ys, offPixel);
+          }
+        }
       }
     }
     ch++;
@@ -196,60 +211,31 @@ void TeensyDisplay::drawCharacter(uint8_t mode, uint16_t x, uint16_t y, char c)
 
 void TeensyDisplay::drawString(uint8_t mode, uint16_t x, uint16_t y, const char *str)
 {
-  int8_t xsize = 8; // width of a char in this font                                                 
+  int8_t xsize = 8; // width of a char in this font
 
   for (int8_t i=0; i<strlen(str); i++) {
     drawCharacter(mode, x, y, str[i]);
-    x += xsize; // fixme: any inter-char spacing?                                                   
-    if (x >= 320) break; // FIXME constant - and pre-scaling, b/c that's in drawCharacter           
+    x += xsize;
+    if (x >= (RA8875_WIDTH-xsize)/2) break; // FIXME this is a pre-scaled number, b/c drawCharacter is scaling. Klutzy.
   }
 }
 
 void TeensyDisplay::clrScr(uint8_t coloridx)
 {
-  if (coloridx == c_black) {
-    tft.fillWindow();
-  } else if (coloridx == c_white) {
-    tft.fillWindow(loresPixelColors[c_white]);
-  } else {
-    uint16_t color16 = loresPixelColors[c_black];
-    if (coloridx < 16)
-      color16 = loresPixelColors[coloridx];
-    tft.fillWindow(color16);
+  uint8_t c = _565To332(loresPixelColors[coloridx]);
+  for (uint16_t y=0; y<480; y++) {
+    for (uint16_t x=0; x<800; x++) {
+      dmaBuffer[y][x] = c;
+    }
   }
-}
-
-inline uint16_t blendColors(uint16_t a, uint16_t b)
-{
-  // Straight linear average doesn't work well for inverted text, because the
-  // whites overwhelm the blacks.
-  //return ((uint32_t)a + (uint32_t)b)/2;
-
-#if 0
-  // Testing a logarithmic color scale. My theory was that, since our
-  // colors here are mostly black or white, it would be reasonable to
-  // use a log scale of the average to bump up the brightness a
-  // little. In practice, it's not really legible.
-  return RGBto565(  (uint8_t)(logfn((_565toR(a) + _565toR(b))/2)),
-		    (uint8_t)(logfn((_565toG(a) + _565toG(b))/2)),
-		    (uint8_t)(logfn((_565toB(a) + _565toB(b))/2))  );
-#endif
-  
-  // Doing an R/G/B average works okay for legibility. It's not great for
-  // inverted text.
-  return RGBto565(  (_565toR(a) + _565toR(b))/2,
-		    (_565toG(a) + _565toG(b))/2,
-		    (_565toB(a) + _565toB(b))/2  );
-
 }
 
 void TeensyDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 {
   for (int yoff=0; yoff<2; yoff++) {
-    dmaBuffer[(y*2)+SCREENINSET_Y+yoff][x+SCREENINSET_X] = color;
+    dmaBuffer[(y*2)+SCREENINSET_Y+yoff][x+SCREENINSET_X] = _565To332(loresPixelColors[color]);
   }
 }
-
 
 void TeensyDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint16_t color16)
 {
@@ -288,13 +274,7 @@ void TeensyDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y,
   }
 }
 
-inline double logfn(double x)
-{
-  // At a value of x=255, log(base 1.022)(x) is 254.636.
-  return log(x)/log(1.022);
-}
-
 uint32_t TeensyDisplay::frameCount()
 {
-  return 0;
+  return tft.frameCount();
 }
