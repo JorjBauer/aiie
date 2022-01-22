@@ -61,8 +61,6 @@ private:
   void maybeUpdateTCR(uint32_t requested_tcr_state);
 
   static void dmaInterrupt(void);
-  static void dmaInterrupt1(void);
-  static void dmaInterrupt2(void);
   void process_dma_interrupt(void);
   
  protected:
@@ -79,8 +77,6 @@ private:
   // DMA stuff
   DMASetting              _dmasettings[12];
   DMAChannel              _dmatx;
-  volatile    uint32_t _dma_pixel_index = 0;
-  uint16_t _dma_buffer_size;
   uint32_t _spi_fcr_save;
   uint8_t *_pfbtft;
   volatile uint8_t _dma_state;

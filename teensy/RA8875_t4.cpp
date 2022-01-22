@@ -304,28 +304,38 @@ void RA8875_t4::initDMASettings()
   uint16_t pixelsWrittenPerDMAreq = COUNT_PIXELS_WRITE / 12;
   
   if (_dma_state & RA8875_DMA_EVER_INIT) {
-    for (int i=0; i<12; i++) {
+    // Just quickly reset the pointers and sizes
+    for (int i=0; i<11; i++) {
       _dmasettings[i].sourceBuffer(&_pfbtft[pixelsWrittenPerDMAreq*i], pixelsWrittenPerDMAreq);
     }
+    uint32_t leftoverPixelsToWrite = COUNT_PIXELS_WRITE - (pixelsWrittenPerDMAreq * 11);
+    _dmasettings[11].sourceBuffer(&_pfbtft[pixelsWrittenPerDMAreq*11], leftoverPixelsToWrite);
   } else {
-    for (int i=0; i<12; i++) {
+    for (int i=0; i<11; i++) {
       _dmasettings[i].sourceBuffer(&_pfbtft[pixelsWrittenPerDMAreq*i], pixelsWrittenPerDMAreq);
       _dmasettings[i].destination(_pimxrt_spi->TDR); // DMA sends data to LPSPI's transmit data register
       _dmasettings[i].TCD->ATTR_DST = 0; // 8-bit destination size (%000)
       _dmasettings[i].replaceSettingsOnCompletion(_dmasettings[(i+1)%12]);
     }
+    // The last one has a short write to perform...
+    uint32_t leftoverPixelsToWrite = COUNT_PIXELS_WRITE - (pixelsWrittenPerDMAreq * 11);
+    _dmasettings[11].sourceBuffer(&_pfbtft[pixelsWrittenPerDMAreq*11], leftoverPixelsToWrite);
+    _dmasettings[11].destination(_pimxrt_spi->TDR); // DMA sends data to LPSPI's transmit data register
+    _dmasettings[11].TCD->ATTR_DST = 0; // 8-bit destination size (%000)
+    _dmasettings[11].replaceSettingsOnCompletion(_dmasettings[0]);
     // "half done" for 12 is at the end of index 5, so we don't have to set up interruptAtHalf()
     // but we do have to change the way we deal with sub-frame counting. If we need it. I don't
     // think we do, so I'm leaving this here as a comment for now...
     // _dmasettings[5].interruptAtCompletion();
     _dmasettings[11].interruptAtCompletion();
 
+    // Not sure we need this...
+    //_dmasettings[11].TCD->CSR &= ~(DMA_TCD_CSR_DREQ); // DMA_TCDn_CSR[3] -- If this flag is set, the eDMA hardware automatically clears the corresponding ERQ bit when the current major iteration count reaches zero.
+
     _dmatx = _dmasettings[0];
     _dmatx.begin(true);
     _dmatx.triggerAtHardwareEvent(dmaTXevent);
-    if (_spi_num == 0) _dmatx.attachInterrupt(dmaInterrupt);
-    else if (_spi_num == 1) _dmatx.attachInterrupt(dmaInterrupt1);
-    else _dmatx.attachInterrupt(dmaInterrupt2);
+    _dmatx.attachInterrupt(dmaInterrupt);
     _dma_state = RA8875_DMA_INIT | RA8875_DMA_EVER_INIT;
   }
 }
@@ -334,15 +344,13 @@ bool RA8875_t4::updateScreenAsync(bool update_cont)
 {
   if (!_pfbtft) return false;
 
-  initDMASettings();
   if (_dma_state & RA8875_DMA_ACTIVE) {
     return false;
   }
-
+  initDMASettings();
+  
   // Half of main ram has a 32k cache. This tells it to flush the cache if necessary.
   if ((uint32_t)_pfbtft >= 0x20200000u) arm_dcache_flush(_pfbtft, RA8875_WIDTH*RA8875_HEIGHT);
-  
-  _dmasettings[2].TCD->CSR &= ~(DMA_TCD_CSR_DREQ); // DMA_TCDn_CSR[3] -- If this flag is set, the eDMA hardware automatically clears the corresponding ERQ bit when the current major iteration count reaches zero.
   
   // Don't need to reset the window b/c we never change it; but set the X/Y cursor back to the origin
   _writeRegister(RA8875_CURV0, 0);
@@ -354,7 +362,7 @@ bool RA8875_t4::updateScreenAsync(bool update_cont)
   writeCommand(RA8875_MRWC);
   _startSend();
   _pspi->transfer(RA8875_DATAWRITE);
-  
+
   _spi_fcr_save = _pimxrt_spi->FCR; // FIFO Control Register
   _pimxrt_spi->FCR=0; // turn off FIFO watermarks
  
@@ -369,7 +377,7 @@ bool RA8875_t4::updateScreenAsync(bool update_cont)
   //   data match; REF: rec error flag; TEF: xmit error flag; TCF:
   //   xmit complete flag; FCF: frame complete flag; WCF: word
   //   complete flag; RDF: rec data flag; TDF: xmit data flag
-  _pimxrt_spi->SR = 0x3f00; // Why setting these bits? Should this be '&=' ?
+  _pimxrt_spi->SR &= 0x3f00; // clear status flags, but leave error flags
   _dmatx.triggerAtHardwareEvent( _spi_hardware->tx_dma_channel );
   _dmatx = _dmasettings[0];
   
@@ -501,19 +509,9 @@ void RA8875_t4::dmaInterrupt(void) {
   if (_dmaActiveDisplay[0]) {
     _dmaActiveDisplay[0]->process_dma_interrupt();
   }
-}
-
-void RA8875_t4::dmaInterrupt1(void) {
-  // FIXME this isn't being called - the LED doesn't go off.
-  
-  // I'm using single (not continuous) async writes, so this *should* go off; and then call the interrupt; and then clear the state, so I get a second dash printed to the serial console, showing that it's doing another update. But instead I get one dash and then the sound buffer OVERRRUN messages b/c the main thread isn't running. It's got to be the DMA code that's hanging it somewhere.
-  
   if (_dmaActiveDisplay[1]) {
     _dmaActiveDisplay[1]->process_dma_interrupt();
   }
-}
-
-void RA8875_t4::dmaInterrupt2(void) {
   if (_dmaActiveDisplay[2]) {
     _dmaActiveDisplay[2]->process_dma_interrupt();
   }
@@ -528,10 +526,10 @@ void RA8875_t4::process_dma_interrupt(void) {
     while (_pimxrt_spi->FSR & 0x1f) ; // wait until transfer is done
     while (_pimxrt_spi->SR & LPSPI_SR_MBF) ; // ... and the module is not busy
     _dmatx.clearComplete();
-    _pimxrt_spi->FCR = LPSPI_FCR_TXWATER(15);
+    _pimxrt_spi->FCR = _spi_fcr_save;
     _pimxrt_spi->DER = 0; // turn off tx and rx DMA
     _pimxrt_spi->CR = LPSPI_CR_MEN | LPSPI_CR_RRF | LPSPI_CR_RTF; //RRF: reset receive FIFO; RTF: reset transmit FIFO; MEN: enable module
-    _pimxrt_spi->SR = 0x3f00; // Why setting these bits? Should this be '&=' ?
+    _pimxrt_spi->SR &= 0x3f00; // clear status flags, but leave error flags
     // DMF: data match flag set
     // REF: receive error flag set
     // TEF: transmit error flag set
