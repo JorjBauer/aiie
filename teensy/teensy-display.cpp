@@ -217,8 +217,8 @@ void TeensyDisplay::drawString(uint8_t mode, uint16_t x, uint16_t y, const char 
 void TeensyDisplay::clrScr(uint8_t coloridx)
 {
   uint8_t c = _565To332(loresPixelColors[coloridx]);
-  for (uint16_t y=0; y<RA8875_WIDTH; y++) {
-    for (uint16_t x=0; x<RA8875_HEIGHT; x++) {
+  for (uint16_t y=0; y<RA8875_HEIGHT; y++) {
+    for (uint16_t x=0; x<RA8875_WIDTH; x++) {
       dmaBuffer[y][x] = c;
     }
   }
