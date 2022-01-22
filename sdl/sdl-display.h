@@ -8,6 +8,9 @@
 
 #include "physicaldisplay.h"
 
+#define SDL_WIDTH 800
+#define SDL_HEIGHT 480
+
 class SDLDisplay : public PhysicalDisplay {
  public:
   SDLDisplay();
@@ -38,7 +41,7 @@ class SDLDisplay : public PhysicalDisplay {
   void windowResized(uint32_t w, uint32_t h);
 
  private:
-  uint32_t videoBuffer[480][800];// ***
+  uint32_t videoBuffer[SDL_HEIGHT][SDL_WIDTH];
 
   SDL_Window *screen;
   SDL_Renderer *renderer;

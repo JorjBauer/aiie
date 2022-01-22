@@ -53,7 +53,7 @@ SDLDisplay::SDLDisplay()
   screen = SDL_CreateWindow("Aiie!",
 			    SDL_WINDOWPOS_UNDEFINED,
 			    SDL_WINDOWPOS_UNDEFINED,
-			    800, 480,
+			    SDL_WIDTH, SDL_HEIGHT,
 			    SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE);
 
   // SDL_RENDERER_SOFTWARE because, at least on my Mac, this has some
@@ -63,12 +63,11 @@ SDLDisplay::SDLDisplay()
   SDL_RenderClear(renderer); // clear it to the selected color
   SDL_RenderPresent(renderer); // perform the render
 
-  // ***
   buffer = SDL_CreateTexture(renderer,
                            SDL_PIXELFORMAT_RGB888,
                            SDL_TEXTUREACCESS_STREAMING, 
-                           800,
-                           480);
+                           SDL_WIDTH,
+                           SDL_HEIGHT);
 }
 
 SDLDisplay::~SDLDisplay()
@@ -146,8 +145,7 @@ inline void putpixel(SDL_Renderer *renderer, int x, int y, uint8_t r, uint8_t g,
 
 void SDLDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
 {
-  // ***
-  if (x >= 800 || y >= 480) return; // make sure it's onscreen
+  if (x >= SDL_WIDTH || y >= SDL_HEIGHT) return; // make sure it's onscreen
   
   videoBuffer[y][x] = color16To32(color);
 }
@@ -159,11 +157,6 @@ void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
     g = (color & 0x7E0) >> 3,
     b = (color & 0x1F) << 3;
 
-  // Pixel-doubling vertically and horizontally, based on scale
-  //    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-  //      putpixel(renderer, x+xoff, yoff+y*SDLDISPLAY_SCALE, r, g, b);
-  //    }
-  //  }
   for (int yoff=0; yoff<2; yoff++) {
     putpixel(renderer, x, (y*2)+yoff, r, g, b);
   }
@@ -171,13 +164,6 @@ void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
 
 void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b)
 {
-  // Pixel-doubling horizontally and vertically, based on scale
-  // ***
-  //  for (int yoff=0; yoff<SDLDISPLAY_SCALE; yoff++) {
-  //    for (int xoff=0; xoff<SDLDISPLAY_SCALE; xoff++) {
-  //      putpixel(renderer, x+xoff, yoff+y*SDLDISPLAY_SCALE, r, g, b);
-  //    }
-  //  }
   for (int yoff=0; yoff<2; yoff++) {
     putpixel(renderer, x, (y*2)+yoff, r, g, b);
   }
@@ -253,8 +239,8 @@ void SDLDisplay::clrScr(uint8_t coloridx)
 
   uint32_t packedColor = packColor32(loresPixelColors[coloridx]);
   
-  for (uint16_t y=0; y<480; y++) {
-    for (uint16_t x=0; x<800; x++) {
+  for (uint16_t y=0; y<SDL_HEIGHT; y++) {
+    for (uint16_t x=0; x<SDL_WIDTH; x++) {
       videoBuffer[y][x] = packedColor;
     }
   }
@@ -262,7 +248,6 @@ void SDLDisplay::clrScr(uint8_t coloridx)
 
 void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 {
-  // ***
   for (int yoff=0; yoff<2; yoff++) {
     videoBuffer[(y*2)+SCREENINSET_Y+yoff][x+SCREENINSET_X] = packColor32(loresPixelColors[color]);
   }
@@ -271,7 +256,6 @@ void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 // "DoubleWide" means "please double the X because I'm in low-res width mode"
 void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
 {
-  // ***
   for (int yoff=0; yoff<2; yoff++) {
     for (int xoff=0; xoff<2; xoff++) {
       videoBuffer[(y*2)+SCREENINSET_Y+yoff][(x*2)+SCREENINSET_X+xoff] = packColor32(loresPixelColors[color]);
@@ -281,7 +265,6 @@ void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
 
 void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint32_t packedColor)
 {
-  // ***
   for (int yoff=0; yoff<2; yoff++) {
     for (int xoff=0; xoff<2; xoff++) {
       videoBuffer[(y*2)+SCREENINSET_Y+yoff][(x*2)+SCREENINSET_X+xoff] = packedColor;
@@ -291,7 +274,6 @@ void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint32_t packedCol
 
 void SDLDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorB, uint8_t colorA)
 {
-  // ***
   for (int yoff=0; yoff<2; yoff++) {
     for (int xoff=0; xoff<2; xoff++) {
       videoBuffer[(y*2)+SCREENINSET_Y+yoff][(x*2)+SCREENINSET_X+xoff] = packColor32(loresPixelColors[colorA]);
@@ -304,11 +286,11 @@ void SDLDisplay::windowResized(uint32_t w, uint32_t h)
 {
   // Preserve the aspect ratio
   float aspectRatio = (float)w/(float)h;
-  if (aspectRatio != 800.0/480.0) {
-    if (aspectRatio > 800.0/480.0) {
-      h = ((1.f * 480.0) / 800.0) * w;
+  if (aspectRatio != ((float)SDL_WIDTH)/((float)SDL_HEIGHT)) {
+    if (aspectRatio > ((float)SDL_WIDTH)/((float)SDL_HEIGHT)) {
+      h = ((1.f * ((float)SDL_HEIGHT)) / ((float)SDL_WIDTH)) * w;
     } else {
-      w = (800.0/480.0) * h;
+      w = (((float)SDL_WIDTH)/((float)SDL_HEIGHT)) * h;
     }
   }
   
