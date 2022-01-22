@@ -488,7 +488,8 @@ void AppleDisplay::redrawHires()
     start = 0x2000;
   }
 
-  // FIXME: check MIXED & don't redraw the lower area if it's set
+  // S_MIXED is checked inside Draw14HiresPixelsAt and
+  // Draw14DoubleHiresPixelsAt, so no need to check it here
   for (uint16_t addr = start; addr <= start + 0x1FFF; addr+=2) {
     if ((*switches) & S_DHIRES) {
       // FIXME: inline & optimize
@@ -502,15 +503,17 @@ void AppleDisplay::redrawHires()
 
 void AppleDisplay::redrawLores()
 {
-  // FIXME: can make more efficient by checking S_MIXED for lower bound
-  
   if (((*switches) & S_80COL) && ((*switches) & S_DHIRES)) {
     for (uint16_t addr = 0x400; addr <= 0x400 + 0x3ff; addr++) {
       uint8_t row, col;
       deinterlaceAddress(addr, &row, &col);
       if (col <= 39 && row <= 23) {
-	Draw80LoresPixelAt(mmu->readDirect(addr, 0), col, row, 1);
-	Draw80LoresPixelAt(mmu->readDirect(addr, 1), col, row, 0);
+        if (((*switches) & S_MIXED) && row >= 20) { // ***@@@ is 20 right?
+          // Don't draw this row, we're in MIXED mode
+        } else {
+          Draw80LoresPixelAt(mmu->readDirect(addr, 0), col, row, 1);
+          Draw80LoresPixelAt(mmu->readDirect(addr, 1), col, row, 0);
+        }
       }
     }
   } else {
@@ -518,8 +521,12 @@ void AppleDisplay::redrawLores()
     for (uint16_t addr = start; addr <= start + 0x3FF; addr++) {
       uint8_t row, col;
       deinterlaceAddress(addr, &row, &col);
-      if (col <= 39 && row <= 23) {
-	DrawLoresPixelAt(mmu->readDirect(addr, 0), col, row);
+      if (((*switches) & S_MIXED) && row >= 20) { // ***@@@ is 20 right?
+        // Don't draw this row, we're in MIXED mode
+      } else {
+        if (col <= 39 && row <= 23) {
+          DrawLoresPixelAt(mmu->readDirect(addr, 0), col, row);
+        }
       }
     }
   }
@@ -547,17 +554,25 @@ void AppleDisplay::Draw80LoresPixelAt(uint8_t c, uint8_t x, uint8_t y, uint8_t o
     // The colors in every other column are swizzled. Un-swizzle.
     c = ((c & 0x77) << 1) | ((c & 0x88) >> 3);
   }
+  
   uint8_t pixel = c & 0x0F;
   for (uint8_t y2 = 0; y2<4; y2++) {
     for (int8_t x2 = 3; x2>=offset; x2--) {
-      drawApplePixel(pixel, x*7+x2+offset*3, y*8+y2);
+
+      if ( !(*switches & S_MIXED) ||
+           y < 20 ) {
+        drawApplePixel(pixel, x*7+x2+offset*3, y*8+y2);
+      }
     }
   }
 
   pixel = (c >> 4);
   for (uint8_t y2 = 4; y2<8; y2++) {
     for (int8_t x2 = 3; x2>=offset; x2--) {
-      drawApplePixel(pixel, x*7+x2+offset*3, y*8+y2);
+      if ( !(*switches & S_MIXED) ||
+           y < 20 ) {
+        drawApplePixel(pixel, x*7+x2+offset*3, y*8+y2);
+      }
     }
   }
 }
