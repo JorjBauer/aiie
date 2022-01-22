@@ -125,8 +125,7 @@ void TeensyDisplay::blit()
     static uint32_t nextMessageTime = 0;
     if (millis() >= nextMessageTime) {
       if (overlayMessage[0]) {
-	drawString(M_SELECTDISABLED, 1, RA8875_HEIGHT - (16 + 12)*2, overlayMessage);
-        Serial.println(overlayMessage);
+	drawString(M_SELECTDISABLED, 1, (RA8875_HEIGHT - 18)/2, overlayMessage); // FIXME this /2 is clunky b/c drawString winds up doubling
       }
       nextMessageTime = millis() + 1000;
     }
