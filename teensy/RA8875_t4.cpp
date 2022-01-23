@@ -96,7 +96,7 @@
 // 3 of these, one for each of the 3 busses, so that 3 separate
 // displays could be driven. FIXME: I don't really need all 3 in this
 // application, so this can be pared down.
-static  RA8875_t4 *_dmaActiveDisplay[3];
+static  RA8875_t4 *_dmaActiveDisplay = NULL;
 
 RA8875_t4::RA8875_t4(const uint8_t cs_pin, const uint8_t rst_pin, const uint8_t mosi_pin, const uint8_t sck_pin, const uint8_t miso_pin)
 {
@@ -109,9 +109,8 @@ RA8875_t4::RA8875_t4(const uint8_t cs_pin, const uint8_t rst_pin, const uint8_t 
   _pspi = NULL;
   _pfbtft = NULL;
   _dma_state = 0;
-  _frame_complete_callback = NULL;
   _dma_frame_count = 0;
-  _dmaActiveDisplay[0] = _dmaActiveDisplay[1] = _dmaActiveDisplay[2] = NULL;
+  _dmaActiveDisplay = NULL;
 }
 
 RA8875_t4::~RA8875_t4()
@@ -127,15 +126,12 @@ void RA8875_t4::begin(uint32_t spi_clock, uint32_t spi_clock_read)
   // figure out which SPI bus we're using
   if (SPI.pinIsMOSI(_mosi) && ((_miso == 0xff) || SPI.pinIsMISO(_miso)) && SPI.pinIsSCK(_sck)) {
     _pspi = &SPI;
-    _spi_num = 0;
     _pimxrt_spi = &IMXRT_LPSPI4_S;
   } else if (SPI1.pinIsMOSI(_mosi) && ((_miso == 0xff) || SPI1.pinIsMISO(_miso)) && SPI1.pinIsSCK(_sck)) {
     _pspi = &SPI1;
-    _spi_num = 1;
     _pimxrt_spi = &IMXRT_LPSPI3_S;
   } else if (SPI2.pinIsMOSI(_mosi) && ((_miso == 0xff) || SPI2.pinIsMISO(_miso)) && SPI2.pinIsSCK(_sck)) {
     _pspi = &SPI2;
-    _spi_num = 2;
     _pimxrt_spi = &IMXRT_LPSPI1_S;
   } else {
     Serial.println("Pins given are not valid SPI bus pins");
@@ -300,29 +296,23 @@ void RA8875_t4::initDMASettings()
 
   // Each DMA structure can only track 32767 words written (where a
   // word here is 8 bits). So we need 12 of these to cover the whole
-  // set of 800*480 display data.
+  // set of 800*480 display data. And we're assuming that they are
+  // evenly divisible, and that the DMA engine won't care if the
+  // data isn't all aligned to 2^15 boundaries.
   uint16_t pixelsWrittenPerDMAreq = COUNT_PIXELS_WRITE / 12;
   
   if (_dma_state & RA8875_DMA_EVER_INIT) {
     // Just quickly reset the pointers and sizes
-    for (int i=0; i<11; i++) {
+    for (int i=0; i<12; i++) {
       _dmasettings[i].sourceBuffer(&_pfbtft[pixelsWrittenPerDMAreq*i], pixelsWrittenPerDMAreq);
     }
-    uint32_t leftoverPixelsToWrite = COUNT_PIXELS_WRITE - (pixelsWrittenPerDMAreq * 11);
-    _dmasettings[11].sourceBuffer(&_pfbtft[pixelsWrittenPerDMAreq*11], leftoverPixelsToWrite);
   } else {
-    for (int i=0; i<11; i++) {
+    for (int i=0; i<12; i++) {
       _dmasettings[i].sourceBuffer(&_pfbtft[pixelsWrittenPerDMAreq*i], pixelsWrittenPerDMAreq);
       _dmasettings[i].destination(_pimxrt_spi->TDR); // DMA sends data to LPSPI's transmit data register
       _dmasettings[i].TCD->ATTR_DST = 0; // 8-bit destination size (%000)
       _dmasettings[i].replaceSettingsOnCompletion(_dmasettings[(i+1)%12]);
     }
-    // The last one has a short write to perform...
-    uint32_t leftoverPixelsToWrite = COUNT_PIXELS_WRITE - (pixelsWrittenPerDMAreq * 11);
-    _dmasettings[11].sourceBuffer(&_pfbtft[pixelsWrittenPerDMAreq*11], leftoverPixelsToWrite);
-    _dmasettings[11].destination(_pimxrt_spi->TDR); // DMA sends data to LPSPI's transmit data register
-    _dmasettings[11].TCD->ATTR_DST = 0; // 8-bit destination size (%000)
-    _dmasettings[11].replaceSettingsOnCompletion(_dmasettings[0]);
     // "half done" for 12 is at the end of index 5, so we don't have to set up interruptAtHalf()
     // but we do have to change the way we deal with sub-frame counting. If we need it. I don't
     // think we do, so I'm leaving this here as a comment for now...
@@ -344,13 +334,13 @@ bool RA8875_t4::updateScreenAsync(bool update_cont)
 {
   if (!_pfbtft) return false;
 
+  // Half of main ram has a 32k cache. This tells it to flush the cache if necessary.
+  if ((uint32_t)_pfbtft >= 0x20200000u) arm_dcache_flush(_pfbtft, RA8875_WIDTH*RA8875_HEIGHT);
+
   if (_dma_state & RA8875_DMA_ACTIVE) {
     return false;
   }
   initDMASettings();
-  
-  // Half of main ram has a 32k cache. This tells it to flush the cache if necessary.
-  if ((uint32_t)_pfbtft >= 0x20200000u) arm_dcache_flush(_pfbtft, RA8875_WIDTH*RA8875_HEIGHT);
   
   // Don't need to reset the window b/c we never change it; but set the X/Y cursor back to the origin
   _writeRegister(RA8875_CURV0, 0);
@@ -372,17 +362,12 @@ bool RA8875_t4::updateScreenAsync(bool update_cont)
   maybeUpdateTCR(LPSPI_TCR_FRAMESZ(7) | LPSPI_TCR_RXMSK /*| LPSPI_TCR_CONT*/);
   // Set up the DMA Enable Register to enable transmit DMA (and not receive DMA)
   _pimxrt_spi->DER = LPSPI_DER_TDDE;
-  // Clear the status register %0011 1111 0000 0000 == set DMF, REF,
-  //   TEF, TCF, FCF, WCF; clear MBF, RDF, TDF.  MBF: busy flag; DMF:
-  //   data match; REF: rec error flag; TEF: xmit error flag; TCF:
-  //   xmit complete flag; FCF: frame complete flag; WCF: word
-  //   complete flag; RDF: rec data flag; TDF: xmit data flag
-  _pimxrt_spi->SR &= 0x3f00; // clear status flags, but leave error flags
+  _pimxrt_spi->SR &= 0x3f00; // clear status flags RDF and TDF (rx and tx data flags), but leave error flags
   _dmatx.triggerAtHardwareEvent( _spi_hardware->tx_dma_channel );
   _dmatx = _dmasettings[0];
   
   _dma_frame_count = 0;
-  _dmaActiveDisplay[_spi_num]  = this;
+  _dmaActiveDisplay  = this;
   
   _dmatx.begin(false);
   _dmatx.enable();
@@ -506,15 +491,8 @@ void RA8875_t4::maybeUpdateTCR(uint32_t requested_tcr_state)
 }
 
 void RA8875_t4::dmaInterrupt(void) {
-  if (_dmaActiveDisplay[0]) {
-    _dmaActiveDisplay[0]->process_dma_interrupt();
-  }
-  if (_dmaActiveDisplay[1]) {
-    _dmaActiveDisplay[1]->process_dma_interrupt();
-  }
-  if (_dmaActiveDisplay[2]) {
-    _dmaActiveDisplay[2]->process_dma_interrupt();
-  }
+  if (_dmaActiveDisplay)
+    _dmaActiveDisplay->process_dma_interrupt();
 }
 
 void RA8875_t4::process_dma_interrupt(void) {
@@ -529,26 +507,15 @@ void RA8875_t4::process_dma_interrupt(void) {
     _pimxrt_spi->FCR = _spi_fcr_save;
     _pimxrt_spi->DER = 0; // turn off tx and rx DMA
     _pimxrt_spi->CR = LPSPI_CR_MEN | LPSPI_CR_RRF | LPSPI_CR_RTF; //RRF: reset receive FIFO; RTF: reset transmit FIFO; MEN: enable module
-    _pimxrt_spi->SR &= 0x3f00; // clear status flags, but leave error flags
-    // DMF: data match flag set
-    // REF: receive error flag set
-    // TEF: transmit error flag set
-    // TCF: transfer complete flag set
-    // FCF: frame complete flag set
-    // WCF: word complete flag set
+    _pimxrt_spi->SR &= 0x3f00; // clear status flags RDF and TDF (rx and tx data flags), but leave error flags
     maybeUpdateTCR(LPSPI_TCR_FRAMESZ(7));
-    // *** the other modules send a NOP here, don't know why
     _endSend();
     _dma_state &= ~RA8875_DMA_ACTIVE;
-    _dmaActiveDisplay[_spi_num] = 0;
+    _dmaActiveDisplay = 0;
   } else {
-    if (_frame_complete_callback)
-      (*_frame_complete_callback)();
-    else {
-      // Try to flush memory
-      if ((uint32_t)_pfbtft >= 0x20200000u)
-        arm_dcache_flush(_pfbtft, RA8875_WIDTH*RA8875_HEIGHT);
-    }
+    // Try to flush memory
+    if ((uint32_t)_pfbtft >= 0x20200000u)
+      arm_dcache_flush(_pfbtft, RA8875_WIDTH*RA8875_HEIGHT);
   }
   // make sure the code is synchronized - memory access must be
   // complete before we continue

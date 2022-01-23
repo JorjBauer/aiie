@@ -69,7 +69,6 @@ private:
   SPIClass *_pspi;
   IMXRT_LPSPI_t *_pimxrt_spi;
   SPIClass::SPI_Hardware_t *_spi_hardware;
-  uint8_t _spi_num;
   uint32_t _spi_clock; // desired clock
   uint32_t _spi_clock_read;
   uint32_t _clock; // current clock, used in starting transactions (b/c we have to slow down sometimes)
@@ -83,8 +82,6 @@ private:
   uint32_t _spi_tcr_current;
   volatile uint32_t _dma_frame_count;
 
-  void (*_frame_complete_callback)();
-  
 protected:
   void DIRECT_WRITE_LOW(volatile uint32_t * base, uint32_t mask)  __attribute__((always_inline)) {
     *(base+34) = mask;
