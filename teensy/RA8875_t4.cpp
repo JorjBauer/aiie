@@ -362,7 +362,7 @@ bool RA8875_t4::updateScreenAsync(bool update_cont)
   maybeUpdateTCR(LPSPI_TCR_FRAMESZ(7) | LPSPI_TCR_RXMSK /*| LPSPI_TCR_CONT*/);
   // Set up the DMA Enable Register to enable transmit DMA (and not receive DMA)
   _pimxrt_spi->DER = LPSPI_DER_TDDE;
-  _pimxrt_spi->SR &= 0x3f00; // clear status flags RDF and TDF (rx and tx data flags), but leave error flags
+  _pimxrt_spi->SR = 0x3f00; // Clear error flags (these are w1c flags - "write 1 to clear")
   _dmatx.triggerAtHardwareEvent( _spi_hardware->tx_dma_channel );
   _dmatx = _dmasettings[0];
   
@@ -507,7 +507,7 @@ void RA8875_t4::process_dma_interrupt(void) {
     _pimxrt_spi->FCR = _spi_fcr_save;
     _pimxrt_spi->DER = 0; // turn off tx and rx DMA
     _pimxrt_spi->CR = LPSPI_CR_MEN | LPSPI_CR_RRF | LPSPI_CR_RTF; //RRF: reset receive FIFO; RTF: reset transmit FIFO; MEN: enable module
-    _pimxrt_spi->SR &= 0x3f00; // clear status flags RDF and TDF (rx and tx data flags), but leave error flags
+    _pimxrt_spi->SR = 0x3f00; // Clear error flags (these are w1c flags - "write 1 to clear")
     maybeUpdateTCR(LPSPI_TCR_FRAMESZ(7));
     _endSend();
     _dma_state &= ~RA8875_DMA_ACTIVE;
