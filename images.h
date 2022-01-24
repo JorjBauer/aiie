@@ -1,3 +1,6 @@
+#ifndef __IMAGES_H
+#define __IMAGES_H
+
 #ifdef TEENSYDUINO
 #include <Arduino.h>
 #else
@@ -22,20 +25,15 @@
 #define LED1_Y 68
 #define LED2_Y 117
 
-// RGB
-extern const uint8_t displayBitmap[];
+enum {
+  IMG_SHELL = 0, // previously displayBitmap
+  IMG_D1OPEN = 1,
+  IMG_D1CLOSED = 2,
+  IMG_D2OPEN = 3,
+  IMG_D2CLOSED = 4,
+  IMG_APPLEBATTERY = 5
+};
 
-// RGB
-extern const uint8_t drive1LatchClosed[];
+const bool getImageInfoAndData(uint8_t imgnum, uint16_t *width, uint16_t *height, const uint8_t **dataptr);
 
-// RGB
-extern const uint8_t drive1LatchOpen[];
-
-// RGB
-extern const uint8_t drive2LatchClosed[];
-
-// RGB
-extern const uint8_t drive2LatchOpen[];
-
-// 10 x 11, RGBA
-extern const uint8_t appleBitmap[];
+#endif

@@ -62,26 +62,35 @@ void AppleUI::drawBatteryStatus(uint8_t percent)
   // the area around the apple is 12 wide; it's exactly 11 high the
   // color is 210/202/159
 
-  float watermark = ((float)percent / 100.0) * 11;
+  static const uint8_t *img = NULL;
+  static uint16_t h,w;
+  if (!img) {
+    if (!getImageInfoAndData(IMG_APPLEBATTERY, &w, &h, &img)) {
+      return;
+    }
+  }
+  
+  float watermark = ((float)percent / 100.0) * h;
 
-  for (int y=0; y<11; y++) {
+  for (int y=0; y<h; y++) {
     uint8_t bgr = 210;
     uint8_t bgg = 202;
     uint8_t bgb = 159;
 
-    if (11-y > watermark) {
+    if ((h-y) > watermark) {
       // black...
       bgr = bgg = bgb = 0;
     }
 
-    for (int x=0; x<10; x++) {
+    uint16_t w = w;
+    for (int x=0; x<w; x++) {
 #ifdef TEENSYDUINO
-      uint8_t r = pgm_read_byte(&appleBitmap[(y * 10 + x)*4 + 0]);
-      uint8_t g = pgm_read_byte(&appleBitmap[(y * 10 + x)*4 + 1]);
-      uint8_t b = pgm_read_byte(&appleBitmap[(y * 10 + x)*4 + 2]);
-      uint8_t a = pgm_read_byte(&appleBitmap[(y * 10 + x)*4 + 3]);
+      uint8_t r = pgm_read_byte(&img[(y * w + x)*4 + 0]);
+      uint8_t g = pgm_read_byte(&img[(y * w + x)*4 + 1]);
+      uint8_t b = pgm_read_byte(&img[(y * w + x)*4 + 2]);
+      uint8_t a = pgm_read_byte(&img[(y * w + x)*4 + 3]);
 #else
-      const uint8_t *p = &appleBitmap[(y * 10 + (x-1))*4];
+      const uint8_t *p = &img[(y * w + (x-1))*4];
       uint8_t r, g, b, a;
       r = p[0];
       g = p[1];
@@ -103,20 +112,43 @@ void AppleUI::drawBatteryStatus(uint8_t percent)
 
 void AppleUI::blit()
 {
+  static const uint8_t *bg_img = NULL;
+  static uint16_t bg_h,bg_w;
+  if (!bg_img) {
+    if (!getImageInfoAndData(IMG_SHELL, &bg_w, &bg_h, &bg_img))
+      return;
+  }
+  
   if (redrawFrame) {
     redrawFrame = false;
-    g_display->drawImageOfSizeAt(displayBitmap, DBITMAP_WIDTH, DBITMAP_HEIGHT, 0, 0);
+    g_display->drawImageOfSizeAt(bg_img, bg_w, bg_h, 0, 0);
   }
 
   if (redrawDriveLatches) {
     redrawDriveLatches = false;
-    const uint8_t *img;
+    static const uint8_t *d1open_img = NULL;
+    static const uint8_t *d1closed_img = NULL;
+    static const uint16_t d1_w, d1_h;
+    static const uint8_t *d2open_img = NULL;
+    static const uint8_t *d2closed_img = NULL;
+    static const uint16_t d2_w, d2_h;
 
-    img = driveInserted[0] ? drive1LatchOpen : drive1LatchClosed;
-    g_display->drawImageOfSizeAt(img, LATCH_WIDTH, LATCH_HEIGHT, LATCH_X, LATCH1_Y);
+    if (!d1open_img && !getImageInfoAndData(IMG_D1OPEN, &d1_w, &d1_h, &d1open_img))
+      return;
 
-    img = driveInserted[1] ? drive2LatchOpen : drive2LatchClosed;
-    g_display->drawImageOfSizeAt(img, LATCH_WIDTH, LATCH_HEIGHT, LATCH_X, LATCH2_Y);
+    if (!d1closed_img && !getImageInfoAndData(IMG_D1CLOSED, &d1_w, &d1_h, &d1closed_img))
+      return;
+
+    if (!d2open_img &&  !getImageInfoAndData(IMG_D2OPEN, &d2_w, &d2_h, &d2open_img))
+      return;
+
+    if (!d2closed_img && !getImageInfoAndData(IMG_D2CLOSED, &d2_w, &d2_h, &d2closed_img))
+      return;
+
+    // assumes all the latch images are the same width/height
+    g_display->drawImageOfSizeAt(driveInserted[0] ? d1closed_img : d1open_img, d1_w, d1_h, LATCH_X, LATCH1_Y);
+
+    g_display->drawImageOfSizeAt(driveInserted[1] ? d2closed_img : d2open_img, d2_w, d2_h, LATCH_X, LATCH1_Y);
   }
 
   if (redrawDriveActivity) {
