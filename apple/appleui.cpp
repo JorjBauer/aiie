@@ -1,11 +1,8 @@
 #include "appleui.h"
 
-#include "vm.h" // for DISPLAYHEIGHT. Probably not the most sensible.
-#include "images.h"
+#include "vm.h"
+#include "images.h" // for the image abstraction constants
 #include "globals.h"
-
-// FIXME: abstract and standardize the sizes, onscreen locations, and
-// underlying bitmap types
 
 AppleUI::AppleUI()
 {
@@ -48,8 +45,7 @@ void AppleUI::drawPercentageUIElement(uint8_t element, uint8_t percent)
   if (element != UIePowerPercentage) {
     return;
   }
-  // Temporarily disabled; the API for this needs updating for resolution-independent display coordinates
-  //  drawBatteryStatus(percent);
+  drawBatteryStatus(percent);
 }
 
 void AppleUI::drawBatteryStatus(uint8_t percent)
@@ -62,7 +58,7 @@ void AppleUI::drawBatteryStatus(uint8_t percent)
   // the area around the apple is 12 wide; it's exactly 11 high the
   // color is 210/202/159
 
-  static const uint8_t *img = NULL;
+  static uint8_t *img = NULL;
   static uint16_t h,w;
   if (!img) {
     if (!getImageInfoAndData(IMG_APPLEBATTERY, &w, &h, &img)) {
@@ -112,48 +108,22 @@ void AppleUI::drawBatteryStatus(uint8_t percent)
 
 void AppleUI::blit()
 {
-  static const uint8_t *bg_img = NULL;
-  static uint16_t bg_h,bg_w;
-  if (!bg_img) {
-    if (!getImageInfoAndData(IMG_SHELL, &bg_w, &bg_h, &bg_img))
-      return;
-  }
-  
   if (redrawFrame) {
     redrawFrame = false;
-    g_display->drawImageOfSizeAt(bg_img, bg_w, bg_h, 0, 0);
+    g_display->drawUIImage(IMG_SHELL);
   }
 
   if (redrawDriveLatches) {
     redrawDriveLatches = false;
-    static const uint8_t *d1open_img = NULL;
-    static const uint8_t *d1closed_img = NULL;
-    static const uint16_t d1_w, d1_h;
-    static const uint8_t *d2open_img = NULL;
-    static const uint8_t *d2closed_img = NULL;
-    static const uint16_t d2_w, d2_h;
-
-    if (!d1open_img && !getImageInfoAndData(IMG_D1OPEN, &d1_w, &d1_h, &d1open_img))
-      return;
-
-    if (!d1closed_img && !getImageInfoAndData(IMG_D1CLOSED, &d1_w, &d1_h, &d1closed_img))
-      return;
-
-    if (!d2open_img &&  !getImageInfoAndData(IMG_D2OPEN, &d2_w, &d2_h, &d2open_img))
-      return;
-
-    if (!d2closed_img && !getImageInfoAndData(IMG_D2CLOSED, &d2_w, &d2_h, &d2closed_img))
-      return;
-
-    // assumes all the latch images are the same width/height
-    g_display->drawImageOfSizeAt(driveInserted[0] ? d1closed_img : d1open_img, d1_w, d1_h, LATCH_X, LATCH1_Y);
-
-    g_display->drawImageOfSizeAt(driveInserted[1] ? d2closed_img : d2open_img, d2_w, d2_h, LATCH_X, LATCH1_Y);
+    g_display->drawUIImage(driveInserted[0] ? IMG_D1CLOSED : IMG_D1OPEN);
+    g_display->drawUIImage(driveInserted[1] ? IMG_D2CLOSED : IMG_D2OPEN);
   }
 
   if (redrawDriveActivity) {
     redrawDriveActivity = false;
 
+    /*
+    // FIXME make these bitmaps so the size/location are abstracted
     for (int y=0; y<LED_HEIGHT; y++) {
       for (int x=0; x<LED_WIDTH; x++) {
         g_display->drawUIPixel(x + LED_X, y + LED1_Y, driveActivity[0] ? 0xFA00 : 0x0000);
@@ -161,6 +131,7 @@ void AppleUI::blit()
         g_display->drawUIPixel(x + LED_X, y + LED2_Y, driveActivity[1] ? 0xFA00 : 0x0000);
       }
     }
+    */
   }
 
 }

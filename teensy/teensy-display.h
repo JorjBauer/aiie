@@ -3,7 +3,7 @@
 
 #include <Arduino.h>
 #include <SPI.h>
-#include "RA8875_t4.h"
+#include "basedisplay.h"
 
 #include "physicaldisplay.h"
 
@@ -26,6 +26,7 @@ class TeensyDisplay : public PhysicalDisplay {
   virtual void drawCharacter(uint8_t mode, uint16_t x, uint16_t y, char c);
   virtual void drawString(uint8_t mode, uint16_t x, uint16_t y, const char *str);
 
+  virtual void drawUIImage(uint8_t imageIdx);
   virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint16_t sizey, uint16_t wherex, uint16_t wherey);
 
   void cacheDoubleWidePixel(uint16_t x, uint16_t y, uint16_t color16);
@@ -42,6 +43,19 @@ class TeensyDisplay : public PhysicalDisplay {
   bool needsRedraw;
   bool driveIndicator[2];
   bool driveIndicatorDirty;
+
+private:
+  bool use8875;
+
+  const uint8_t *shellImage;
+  const uint16_t shellWidth, shellHeight;
+  const uint8_t *d1OpenImage;
+  const uint16_t driveWidth, driveHeight; // assume all the latches are the same width/height no matter what position
+  const uint8_t *d1ClosedImage;
+  const uint8_t *d2OpenImage;
+  const uint8_t *d2ClosedImage;
+  const uint8_t *appleImage;
+  const uint16_t appleImageWidth, appleImageHeight;
 };
 
 #endif

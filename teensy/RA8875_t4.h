@@ -6,6 +6,8 @@
 #include <DMAChannel.h>
 #include <stdint.h>
 
+#include "basedisplay.h"
+
 #define RA8875_WIDTH 800
 #define RA8875_HEIGHT 480
 
@@ -19,22 +21,23 @@ enum {
   RA8875_DMA_ACTIVE=0x80
 };
 
-class RA8875_t4 {
+class RA8875_t4 : public BaseDisplay {
  public:
-  RA8875_t4(const uint8_t cs_pin, const uint8_t rst_pin, const uint8_t mosi_pin, const uint8_t sck_pin, const uint8_t miso_pin);
+  RA8875_t4(uint8_t cs_pin, uint8_t rst_pin, uint8_t mosi_pin, uint8_t sck_pin, uint8_t miso_pin, uint8_t dc_pin); // dc pin is unused for this display but it's needed for the ILI and base class.
+
   ~RA8875_t4();
 
-  void begin(uint32_t spi_clock=30000000u, uint32_t spi_clock_read=2000000);
+  virtual void begin(uint32_t spi_clock=30000000u, uint32_t spi_clock_read=2000000);
 
-  void fillWindow(uint16_t color = 0x0000);
+  virtual void fillWindow(uint16_t color = 0x0000);
   
-  void setFrameBuffer(uint8_t *frame_buffer);
+  virtual void setFrameBuffer(uint8_t *frame_buffer);
   
-  bool asyncUpdateActive();
-  bool updateScreenAsync(bool update_cont = false);
-
-  void drawPixel(int16_t x, int16_t y, uint16_t color);
-  uint32_t frameCount();
+  virtual bool asyncUpdateActive();
+  virtual bool updateScreenAsync(bool update_cont = false);
+  
+  virtual void drawPixel(int16_t x, int16_t y, uint16_t color);
+  virtual uint32_t frameCount();
 
   uint8_t color16To8bpp(uint16_t color) __attribute__((always_inline)) {
     return ((color & 0xe000) >> 8) | ((color & 0x700) >> 6) | ((color & 0x18) >> 3);

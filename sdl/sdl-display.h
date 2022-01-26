@@ -22,6 +22,7 @@ class SDLDisplay : public PhysicalDisplay {
 
   virtual void flush();
 
+  virtual void drawUIImage(uint8_t imageIdx);
   virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint16_t sizey, uint16_t wherex, uint16_t wherey);
 
   virtual void drawPixel(uint16_t x, uint16_t y, uint16_t color);
@@ -46,6 +47,18 @@ class SDLDisplay : public PhysicalDisplay {
   SDL_Window *screen;
   SDL_Renderer *renderer;
   SDL_Texture *buffer;
+  
+  uint8_t *shellImage;
+  uint16_t shellWidth, shellHeight;
+  uint8_t *d1OpenImage;
+  uint16_t driveWidth, driveHeight; // assume all the latches are the
+                                    // same width/height no matter
+                                    // what position
+  uint8_t *d1ClosedImage;
+  uint8_t *d2OpenImage;
+  uint8_t *d2ClosedImage;
+  uint8_t *appleImage;
+  uint16_t appleImageWidth, appleImageHeight;
 };
 
 #endif

@@ -15,6 +15,8 @@ class PhysicalDisplay {
   virtual void blit() = 0;             // blit everything to the display (including UI area)
   virtual void blit(AiieRect r) = 0;   // blit a piece of the VM area to the display
 
+  virtual void drawUIImage(uint8_t imageIdx) = 0;
+  // FIXME: drawImageOfSizeAt should probably be private now
   virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint16_t sizey, uint16_t wherex, uint16_t wherey) = 0;
 
   virtual void drawCharacter(uint8_t mode, uint16_t x, uint16_t y, char c) = 0;

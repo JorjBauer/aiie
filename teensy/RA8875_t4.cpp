@@ -98,7 +98,7 @@
 // application, so this can be pared down.
 static  RA8875_t4 *_dmaActiveDisplay = NULL;
 
-RA8875_t4::RA8875_t4(const uint8_t cs_pin, const uint8_t rst_pin, const uint8_t mosi_pin, const uint8_t sck_pin, const uint8_t miso_pin)
+RA8875_t4::RA8875_t4(uint8_t cs_pin, uint8_t rst_pin, uint8_t mosi_pin, uint8_t sck_pin, uint8_t miso_pin, uint8_t dc_pin) : BaseDisplay(cs_pin, rst_pin, mosi_pin, sck_pin, miso_pin, dc_pin)
 {
   _mosi = mosi_pin;
   _miso = miso_pin;

@@ -19,41 +19,64 @@
 #include "image-8875-bg.h"
 #include "image-8875-apple.h"
 #include "image-8875-drivelatches.h"
+#include "image-9341-bg.h"
+#include "image-9341-drivelatches.h"
+#include "image-9341-applebitmap.h"
 
-const bool getImageInfoAndData(uint8_t imgnum, uint16_t *width, uint16_t *height, const uint8_t **dataptr)
+bool getImageInfoAndData(uint8_t imgnum, uint16_t *width, uint16_t *height, uint8_t **dataptr)
 {
   switch (imgnum) {
-  case IMG_SHELL:
+  case IMG_8875_SHELL:
     *width = 800;
     *height = 480;
-    *dataptr = image_8875_bg;
+    *dataptr = (uint8_t *)image_8875_bg;
     break;
-  case IMG_D1OPEN:
+  case IMG_8875_D1OPEN:
     *width = 62;
     *height = 11;
-    *dataptr = image_d1_open;
+    *dataptr = (uint8_t *)image_d1_open;
     break;
-  case IMG_D1CLOSED:
+  case IMG_8875_D1CLOSED:
     *width = 62;
     *height = 11;
-    *dataptr = image_d1_closed;
+    *dataptr = (uint8_t *)image_d1_closed;
     break;
     
-  case IMG_D2OPEN:
+  case IMG_8875_D2OPEN:
     *width = 62;
     *height = 11;
-    *dataptr = image_d2_open;
+    *dataptr = (uint8_t *)image_d2_open;
     break;
-  case IMG_D2CLOSED:
+  case IMG_8875_D2CLOSED:
     *width = 62;
     *height = 11;
-    *dataptr = image_d2_closed;
+    *dataptr = (uint8_t *)image_d2_closed;
     break;
     
-  case IMG_APPLEBATTERY:
+  case IMG_8875_APPLEBATTERY:
     // FIXME
     return false;
     break;
+  case IMG_9341_SHELL:
+    *width = 320;
+    *height = 240;
+    *dataptr = (uint8_t *)img_9341_bg;
+    break;
+  case IMG_9341_D1OPEN: // d2 is the same constant
+    *width = 43;
+    *height = 20;
+    *dataptr = (uint8_t *)image_9341_driveopen;
+    break;
+  case IMG_9341_D1CLOSED: // d2 is the same constant
+    *width = 43;
+    *height = 20;
+    *dataptr = (uint8_t *)image_9341_driveclosed;
+    break;
+  case IMG_9341_APPLEBATTERY:
+    // FIXME
+    return false;
+    break;
+    
   default:
     // Don't know what this one is...
     return false;

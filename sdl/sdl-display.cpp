@@ -15,6 +15,8 @@ extern const unsigned char lcase_glyphs[256];
 extern const unsigned char mousetext_glyphs[256];
 extern const unsigned char interface_glyphs[256];
 
+#include "images.h"
+
 // RGB map of each of the lowres colors
 const uint8_t loresPixelColors[16][3] = { { 0, 0, 0 }, // black
 					  { 0xAC, 0x12, 0x4C }, // magenta
@@ -49,6 +51,18 @@ SDLDisplay::SDLDisplay()
 {
   memset(videoBuffer, 0, sizeof(videoBuffer));
 
+  shellImage = NULL;
+  d1OpenImage = d1ClosedImage = d2OpenImage = d2ClosedImage = NULL;
+  appleImage = NULL;
+
+  // Load the 9341 images                                                                                                              
+  getImageInfoAndData(IMG_8875_SHELL, &shellWidth, &shellHeight, &shellImage);
+  getImageInfoAndData(IMG_8875_D1OPEN, &driveWidth, &driveHeight, &d1OpenImage);
+  getImageInfoAndData(IMG_8875_D1CLOSED, &driveWidth, &driveHeight, &d1ClosedImage);
+  getImageInfoAndData(IMG_8875_D2OPEN, &driveWidth, &driveHeight, &d2OpenImage);
+  getImageInfoAndData(IMG_8875_D2CLOSED, &driveWidth, &driveHeight, &d2ClosedImage);
+  getImageInfoAndData(IMG_8875_APPLEBATTERY, &appleImageWidth, &appleImageHeight, &appleImage);
+  
   // FIXME: abstract constants
   screen = SDL_CreateWindow("Aiie!",
 			    SDL_WINDOWPOS_UNDEFINED,
@@ -91,6 +105,30 @@ void SDLDisplay::redraw()
     // determine whether or not a disk is inserted & redraw each drive
     g_ui->drawOnOffUIElement(UIeDisk1_state, ((AppleVM *)g_vm)->DiskName(0)[0] == '\0');
     g_ui->drawOnOffUIElement(UIeDisk2_state, ((AppleVM *)g_vm)->DiskName(1)[0] == '\0');
+  }
+}
+
+void SDLDisplay::drawUIImage(uint8_t imageIdx)
+{
+  switch (imageIdx) {
+  case IMG_SHELL:
+    drawImageOfSizeAt(shellImage, shellWidth, shellHeight, 0, 0);
+    break;
+  case IMG_D1OPEN:
+    drawImageOfSizeAt(d1OpenImage, driveWidth, driveHeight, 4, 67);
+    break;
+  case IMG_D1CLOSED:
+    drawImageOfSizeAt(d1ClosedImage, driveWidth, driveHeight, 4, 67);
+    break;
+  case IMG_D2OPEN:
+    drawImageOfSizeAt(d2OpenImage, driveWidth, driveHeight, 4, 116);
+    break;
+  case IMG_D2CLOSED:
+    drawImageOfSizeAt(d2ClosedImage, driveWidth, driveHeight, 4, 116);
+    break;
+  case IMG_APPLEBATTERY:
+    // FIXME ***                                                                                                                         
+    break;
   }
 }
 
@@ -249,7 +287,7 @@ void SDLDisplay::clrScr(uint8_t coloridx)
 void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 {
   for (int yoff=0; yoff<2; yoff++) {
-    videoBuffer[(y*2)+SCREENINSET_Y+yoff][x+SCREENINSET_X] = packColor32(loresPixelColors[color]);
+    videoBuffer[(y*2)+SCREENINSET_8875_Y+yoff][x+SCREENINSET_8875_X] = packColor32(loresPixelColors[color]);
   }
 }
 
@@ -258,7 +296,7 @@ void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
 {
   for (int yoff=0; yoff<2; yoff++) {
     for (int xoff=0; xoff<2; xoff++) {
-      videoBuffer[(y*2)+SCREENINSET_Y+yoff][(x*2)+SCREENINSET_X+xoff] = packColor32(loresPixelColors[color]);
+      videoBuffer[(y*2)+SCREENINSET_8875_Y+yoff][(x*2)+SCREENINSET_8875_X+xoff] = packColor32(loresPixelColors[color]);
     }
   }
 }
@@ -267,7 +305,7 @@ void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint32_t packedCol
 {
   for (int yoff=0; yoff<2; yoff++) {
     for (int xoff=0; xoff<2; xoff++) {
-      videoBuffer[(y*2)+SCREENINSET_Y+yoff][(x*2)+SCREENINSET_X+xoff] = packedColor;
+      videoBuffer[(y*2)+SCREENINSET_8875_Y+yoff][(x*2)+SCREENINSET_8875_X+xoff] = packedColor;
     }
   }
 }
@@ -276,8 +314,8 @@ void SDLDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorB, 
 {
   for (int yoff=0; yoff<2; yoff++) {
     for (int xoff=0; xoff<2; xoff++) {
-      videoBuffer[(y*2)+SCREENINSET_Y+yoff][(x*2)+SCREENINSET_X+xoff] = packColor32(loresPixelColors[colorA]);
-      videoBuffer[(y*2)+SCREENINSET_Y+yoff][(x+1)*2+SCREENINSET_X+xoff] = packColor32(loresPixelColors[colorB]);
+      videoBuffer[(y*2)+SCREENINSET_8875_Y+yoff][(x*2)+SCREENINSET_8875_X+xoff] = packColor32(loresPixelColors[colorA]);
+      videoBuffer[(y*2)+SCREENINSET_8875_Y+yoff][(x+1)*2+SCREENINSET_8875_X+xoff] = packColor32(loresPixelColors[colorB]);
     }
   }
 }
