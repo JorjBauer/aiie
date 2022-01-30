@@ -55,7 +55,6 @@ SDLDisplay::SDLDisplay()
   d1OpenImage = d1ClosedImage = d2OpenImage = d2ClosedImage = NULL;
   appleImage = NULL;
 
-  // Load the 9341 images                                                                                                              
   getImageInfoAndData(IMG_8875_SHELL, &shellWidth, &shellHeight, &shellImage);
   getImageInfoAndData(IMG_8875_D1OPEN, &driveWidth, &driveHeight, &d1OpenImage);
   getImageInfoAndData(IMG_8875_D1CLOSED, &driveWidth, &driveHeight, &d1ClosedImage);
@@ -136,11 +135,13 @@ void SDLDisplay::drawImageOfSizeAt(const uint8_t *img,
 				   uint16_t sizex, uint16_t sizey,
 				   uint16_t wherex, uint16_t wherey)
 {
+  const uint8_t *p = img;
   for (uint16_t y=0; y<sizey; y++) {
-    const uint8_t *p = &img[(y * sizex)*3];
     for (uint16_t x=0; x<sizex; x++) {
-      videoBuffer[(y+wherey)][(x+wherex)] = packColor32(p);
-      p += 3;
+      uint16_t v = *p++;
+      v<<=8;
+      v |= *p++;
+      videoBuffer[(y+wherey)][(x+wherex)] = color16To32(v);
     }
   }
 }
