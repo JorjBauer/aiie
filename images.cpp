@@ -13,7 +13,7 @@
  * To create the data array for a PNG or JPG image...
  *   use ImageMagick's "stream" utility to generate raw RGB
  *    $ stream -map rgb -storage-type char newimg.png newimg.raw
- *   then use util/genimage.pl to generate the bytestream and copy/paste
+ *   then use util/genimage16.pl to generate the bytestream and copy/paste
  */
 
 #include "image-8875-bg.h"

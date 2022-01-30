@@ -85,8 +85,7 @@ TeensyDisplay::TeensyDisplay()
   pinMode(11, INPUT);
   digitalWrite(11, HIGH); // turn on pull-up
 
-  // FIXME: reversed for debugging
-  if (!digitalRead(11)) {
+  if (digitalRead(11)) {
     // Default: use older, small ILI display if pin 11 is not connected to ground
     Serial.println("    using ILI9341 display");
     tft = new ILI9341_Wrap(PIN_CS, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO, PIN_DC);
@@ -180,15 +179,16 @@ void TeensyDisplay::drawImageOfSizeAt(const uint8_t *img,
 {
   uint8_t r, g, b;
 
+  uint8_t *p = img;
   for (uint16_t y=0; y<sizey; y++) {
     for (uint16_t x=0; x<sizex; x++) {
-      r = pgm_read_byte(&img[(y*sizex + x)*3 + 0]);
-      g = pgm_read_byte(&img[(y*sizex + x)*3 + 1]);
-      b = pgm_read_byte(&img[(y*sizex + x)*3 + 2]);
+      uint16_t v = pgm_read_byte(p++);
+      v <<= 8;
+      v |= pgm_read_byte(p++);
       if (use8875) {
-        dmaBuffer[(y+wherey)*RA8875_WIDTH + x+wherex] = RGBto332(r,g,b);
+        dmaBuffer[(y+wherey)*RA8875_WIDTH + x+wherex] = _565To332(v);
       } else {
-        dmaBuffer16[(y+wherey)*ILI9341_WIDTH + x+wherex] = RGBto565(r,g,b);
+        dmaBuffer16[(y+wherey)*ILI9341_WIDTH + x+wherex] = v;
       }
     }
   }
