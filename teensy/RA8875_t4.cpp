@@ -119,8 +119,10 @@ RA8875_t4::~RA8875_t4()
 
 void RA8875_t4::begin(uint32_t spi_clock, uint32_t spi_clock_read)
 {
+  Serial.print("    starting RA8875 @ ");
+  Serial.println(spi_clock);
   _spi_clock = spi_clock;
-  _spi_clock_read = spi_clock_read;
+  _spi_clock_read = spi_clock_read; // FIXME not used at the moment, not sure we need it yet
   _clock = 4000000UL; // start at low speed
 
   // figure out which SPI bus we're using

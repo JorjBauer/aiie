@@ -30,11 +30,6 @@ DMAMEM uint8_t dmaBuffer[RA8875_HEIGHT * RA8875_WIDTH] __attribute__((aligned(32
 uint16_t *dmaBuffer16 = NULL; // At runtime, this points to dmaBuffer.
 
 #include <SPI.h>
-// 30MHz: solid performance, 9 FPS
-// 57.5MHz: solid performance, 14/15 FPS
-// 60MHz: unexpected palatte shifts & (may be audio overruns, needs checking since bumping up buffer sizes) 17 FPS
-// And I can't get the SPI bus working at 80MHz or higher. Not sure why yet...
-#define _clock 57500000u
 
 #define PIN_RST 8
 #define PIN_DC 9
@@ -90,8 +85,10 @@ TeensyDisplay::TeensyDisplay()
   pinMode(11, INPUT);
   digitalWrite(11, HIGH); // turn on pull-up
 
-  if (digitalRead(11)) {
+  // FIXME: reversed for debugging
+  if (!digitalRead(11)) {
     // Default: use older, small ILI display if pin 11 is not connected to ground
+    Serial.println("    using ILI9341 display");
     tft = new ILI9341_Wrap(PIN_CS, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO, PIN_DC);
     use8875 = false;
 
@@ -102,9 +99,12 @@ TeensyDisplay::TeensyDisplay()
     getImageInfoAndData(IMG_9341_D2OPEN, &driveWidth, &driveHeight, &d2OpenImage);
     getImageInfoAndData(IMG_9341_D2CLOSED, &driveWidth, &driveHeight, &d2ClosedImage);
     getImageInfoAndData(IMG_9341_APPLEBATTERY, &appleImageWidth, &appleImageHeight, &appleImage);
+    
+    tft->begin(50000000u);
   } else {
     // If someone grounded pin 11, then use the new RA8875 display
-    tft = new RA8875_t4(PIN_CS, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO, 255);
+    Serial.println("    using RA8875 display");
+    tft = new RA8875_t4(PIN_CS, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
     use8875 = true;
 
     // Load the 8875 images
@@ -114,9 +114,13 @@ TeensyDisplay::TeensyDisplay()
     getImageInfoAndData(IMG_8875_D2OPEN, &driveWidth, &driveHeight, &d2OpenImage);
     getImageInfoAndData(IMG_8875_D2CLOSED, &driveWidth, &driveHeight, &d2ClosedImage);
     getImageInfoAndData(IMG_8875_APPLEBATTERY, &appleImageWidth, &appleImageHeight, &appleImage);
+    // 30MHz: solid performance, 9 FPS
+    // 57.5MHz: solid performance, 14/15 FPS
+    // 60MHz: unexpected palatte shifts & (may be audio overruns, needs checking since bumping up buffer sizes) 17 FPS
+    // And I can't get the SPI bus working at 80MHz or higher. Not sure why yet...
+    tft->begin(57500000);
   }
-  
-  tft->begin(_clock);
+
   tft->setFrameBuffer((uint8_t *)dmaBuffer);
   tft->fillWindow();
 }
@@ -383,12 +387,8 @@ void TeensyDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint16_t color1
 {
   if (use8875) {
     for (int yoff=0; yoff<2; yoff++) {
-      if (use8875) {
-        for (int xoff=0; xoff<2; xoff++) {
-          dmaBuffer[((y*2)+SCREENINSET_8875_Y+yoff)*RA8875_WIDTH+(x*2)+SCREENINSET_8875_X+xoff] = _565To332(color16);
-        }
-      } else {
-        dmaBuffer[((y*2)+SCREENINSET_8875_Y+yoff)*RA8875_WIDTH+x+SCREENINSET_8875_X] = _565To332(color16);
+      for (int xoff=0; xoff<2; xoff++) {
+        dmaBuffer[((y*2)+SCREENINSET_8875_Y+yoff)*RA8875_WIDTH+(x*2)+SCREENINSET_8875_X+xoff] = _565To332(color16);
       }
     }
   } else {

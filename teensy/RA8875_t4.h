@@ -23,7 +23,7 @@ enum {
 
 class RA8875_t4 : public BaseDisplay {
  public:
-  RA8875_t4(uint8_t cs_pin, uint8_t rst_pin, uint8_t mosi_pin, uint8_t sck_pin, uint8_t miso_pin, uint8_t dc_pin); // dc pin is unused for this display but it's needed for the ILI and base class.
+  RA8875_t4(uint8_t cs_pin, uint8_t rst_pin, uint8_t mosi_pin, uint8_t sck_pin, uint8_t miso_pin, uint8_t dc_pin=255); // dc pin is unused for this display but it's needed for the ILI and base class.
 
   ~RA8875_t4();
 
@@ -77,8 +77,8 @@ private:
   uint32_t _clock; // current clock, used in starting transactions (b/c we have to slow down sometimes)
 
   // DMA stuff
-  DMASetting              _dmasettings[12];
-  DMAChannel              _dmatx;
+  DMASetting _dmasettings[12];
+  DMAChannel _dmatx;
   uint32_t _spi_fcr_save;
   uint8_t *_pfbtft;
   volatile uint8_t _dma_state;

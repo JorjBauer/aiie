@@ -14,7 +14,7 @@
 
 class ILI9341_Wrap : public BaseDisplay {
  public:
-  ILI9341_Wrap(uint8_t cs_pin, uint8_t rst_pin, uint8_t mosi_pin, uint8_t sck_pin, uint8_t miso_pin, uint8_t dc_pin);
+  ILI9341_Wrap(uint8_t cs_pin, uint8_t rst_pin, uint8_t mosi_pin, uint8_t sck_pin, uint8_t miso_pin, uint8_t dc_pin=255);
   ~ILI9341_Wrap();
 
   virtual void begin(uint32_t spi_clock=30000000u, uint32_t spi_clock_read=2000000);
