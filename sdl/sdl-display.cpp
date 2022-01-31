@@ -7,13 +7,6 @@
 #include "applevm.h"
 
 #include "apple/appleui.h"
-// FIXME should be able to omit this include and rely on the xterns, which
-// would prove it's linking properly
-#include "apple/font.h"
-extern const unsigned char ucase_glyphs[512];
-extern const unsigned char lcase_glyphs[256];
-extern const unsigned char mousetext_glyphs[256];
-extern const unsigned char interface_glyphs[256];
 
 #include "images.h"
 
@@ -94,19 +87,6 @@ void SDLDisplay::flush()
   SDL_RenderPresent(renderer);
 }
 
-void SDLDisplay::redraw()
-{
-  // primarily for the device, where it's in and out of the
-  // bios. Draws the background image.
-  g_ui->drawStaticUIElement(UIeOverlay);
-
-  if (g_vm && g_ui) {
-    // determine whether or not a disk is inserted & redraw each drive
-    g_ui->drawOnOffUIElement(UIeDisk1_state, ((AppleVM *)g_vm)->DiskName(0)[0] == '\0');
-    g_ui->drawOnOffUIElement(UIeDisk2_state, ((AppleVM *)g_vm)->DiskName(1)[0] == '\0');
-  }
-}
-
 void SDLDisplay::drawUIImage(uint8_t imageIdx)
 {
   switch (imageIdx) {
@@ -163,34 +143,16 @@ void SDLDisplay::blit()
   SDL_RenderPresent(renderer);
 }
 
-// Blit the videoBuffer to the display device, in the rect given
-void SDLDisplay::blit(AiieRect r)
-{
-  blit();
-  /*
-  if (overlayMessage[0]) {
-    drawString(M_SELECTDISABLED, 1, 240 - 16 - 12, overlayMessage);
-  }
-
-  SDL_RenderPresent(renderer);
-  */
-}
-
 inline void putpixel(SDL_Renderer *renderer, int x, int y, uint8_t r, uint8_t g, uint8_t b)
 {
   SDL_SetRenderDrawColor(renderer, r, g, b, 255);
   SDL_RenderDrawPoint(renderer, x, y);
 }
 
-void SDLDisplay::drawUIPixel(uint16_t x, uint16_t y, uint16_t color)
+void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
 {
   if (x >= SDL_WIDTH || y >= SDL_HEIGHT) return; // make sure it's onscreen
   
-  videoBuffer[y][x] = color16To32(color);
-}
-
-void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
-{
   uint8_t
     r = (color & 0xF800) >> 8,
     g = (color & 0x7E0) >> 3,
@@ -204,69 +166,9 @@ void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
 void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b)
 {
   for (int yoff=0; yoff<2; yoff++) {
-    putpixel(renderer, x, (y*2)+yoff, r, g, b);
-  }
-}
-
-void SDLDisplay::drawCharacter(uint8_t mode, uint16_t x, uint16_t y, char c)
-{
-  int8_t xsize = 8,
-    ysize = 0x07;
-
-  uint16_t offPixel, onPixel;
-  switch (mode) {
-  case M_NORMAL:
-    onPixel = 0xFFFF;
-    offPixel = 0x0010;
-    break;
-  case M_SELECTED:
-    onPixel = 0x0000;
-    offPixel = 0xFFFF;
-    break;
-  case M_DISABLED:
-  default:
-    onPixel = 0x7BEF;
-    offPixel = 0x0000;
-    break;
-  case M_SELECTDISABLED:
-    onPixel = 0x7BEF;
-    offPixel = 0xFFE0;
-    break;
-  case M_PLAIN:
-    onPixel = 0xFFFF;
-    offPixel = 0x0000;
-    break;
-  }
-
-  // scale up the font
-  const unsigned char *ch = asciiToAppleGlyph(c);
-  for (int8_t y_off = 0; y_off <= ysize; y_off++) {
-    for (int8_t x_off = 0; x_off <= xsize; x_off++) {
-      if (*ch & (1 << (x_off))) {
-        for (int8_t ys=0; ys<2; ys++) {
-          for (int8_t xs=0; xs<2; xs++) {
-            drawUIPixel((x + x_off)*2+xs, (y+y_off)*2 + ys, onPixel);
-          }
-        }
-      } else {
-        for (int8_t ys=0; ys<2; ys++) {
-          for (int8_t xs=0; xs<2; xs++) {
-            drawUIPixel((x + x_off)*2+xs, (y+y_off)*2 + ys, offPixel);
-          }
-        }
-      }
+    if (x < SDL_WIDTH && y < SDL_HEIGHT) {
+      putpixel(renderer, x, (y*2)+yoff, r, g, b);
     }
-    ch++;
-  }
-}
-
-void SDLDisplay::drawString(uint8_t mode, uint16_t x, uint16_t y, const char *str)
-{
-  int8_t xsize = 8; // width of a char in this font
-  
-  for (int8_t i=0; i<strlen(str); i++) {
-    drawCharacter(mode, x, y, str[i]);
-    x += xsize;
   }
 }
 
@@ -307,16 +209,6 @@ void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint32_t packedCol
   for (int yoff=0; yoff<2; yoff++) {
     for (int xoff=0; xoff<2; xoff++) {
       videoBuffer[(y*2)+SCREENINSET_8875_Y+yoff][(x*2)+SCREENINSET_8875_X+xoff] = packedColor;
-    }
-  }
-}
-
-void SDLDisplay::cache2DoubleWidePixels(uint16_t x, uint16_t y, uint8_t colorB, uint8_t colorA)
-{
-  for (int yoff=0; yoff<2; yoff++) {
-    for (int xoff=0; xoff<2; xoff++) {
-      videoBuffer[(y*2)+SCREENINSET_8875_Y+yoff][(x*2)+SCREENINSET_8875_X+xoff] = packColor32(loresPixelColors[colorA]);
-      videoBuffer[(y*2)+SCREENINSET_8875_Y+yoff][(x+1)*2+SCREENINSET_8875_X+xoff] = packColor32(loresPixelColors[colorB]);
     }
   }
 }

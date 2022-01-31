@@ -37,6 +37,11 @@ class RA8875_t4 : public BaseDisplay {
   virtual bool updateScreenAsync(bool update_cont = false);
   
   virtual void drawPixel(int16_t x, int16_t y, uint16_t color);
+  virtual void drawPixel(int16_t x, int16_t y, uint8_t color);
+
+  virtual void cacheApplePixel(uint16_t x, uint16_t y, uint16_t color16);
+  virtual void cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint16_t color16);
+  
   virtual uint32_t frameCount();
 
   uint8_t color16To8bpp(uint16_t color) __attribute__((always_inline)) {

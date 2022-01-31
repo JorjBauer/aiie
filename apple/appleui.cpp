@@ -101,7 +101,7 @@ void AppleUI::drawBatteryStatus(uint8_t percent)
       b = (float)b * alpha + (bgb * (1.0 - alpha));
 
       uint16_t color16 = ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | ((b & 0xF8) >> 3);
-      g_display->drawUIPixel(x+xoff, y+yoff, color16);
+      g_display->drawPixel(x+xoff, y+yoff, color16);
     }
   }
 }
@@ -126,9 +126,9 @@ void AppleUI::blit()
     // FIXME make these bitmaps so the size/location are abstracted
     for (int y=0; y<LED_HEIGHT; y++) {
       for (int x=0; x<LED_WIDTH; x++) {
-        g_display->drawUIPixel(x + LED_X, y + LED1_Y, driveActivity[0] ? 0xFA00 : 0x0000);
+        g_display->drawPixel(x + LED_X, y + LED1_Y, driveActivity[0] ? 0xFA00 : 0x0000);
         
-        g_display->drawUIPixel(x + LED_X, y + LED2_Y, driveActivity[1] ? 0xFA00 : 0x0000);
+        g_display->drawPixel(x + LED_X, y + LED2_Y, driveActivity[1] ? 0xFA00 : 0x0000);
       }
     }
     */

@@ -1,6 +1,8 @@
 #include "RA8875_t4.h"
 #include "RA8875_registers.h"
 
+#include "images.h"
+
 // Discussion about DMA channels: http://forum.pjrc.com/threads/25778-Could-there-be-something-like-an-ISR-template-function/page3
 // Thread discussing the way to get started: https://forum.pjrc.com/threads/63353-Teensy-4-1-How-to-start-using-DMA
 // Thread of someone writing an LCD interface: https://forum.pjrc.com/threads/67247-Teensy-4-0-DMA-SPI
@@ -399,6 +401,31 @@ void RA8875_t4::drawPixel(int16_t x, int16_t y, uint16_t color)
 {
   // FIXME: bounds checking
   _pfbtft[y*RA8875_WIDTH+x] = _color16To8bpp(color);
+}
+
+void RA8875_t4::drawPixel(int16_t x, int16_t y, uint8_t color)
+{
+  // FIXME: bounds checking
+  _pfbtft[y*RA8875_WIDTH+x] = color;
+}
+
+void RA8875_t4::cacheApplePixel(uint16_t x, uint16_t y, uint16_t color)
+{
+  // The 8875 display doubles vertically
+  uint c8 = _565To332(color);
+  for (int yoff=0; yoff<2; yoff++) {
+    _pfbtft[((y*2)+SCREENINSET_8875_Y+yoff) * RA8875_WIDTH +x+SCREENINSET_8875_X] = c8;
+    }
+}
+
+void RA8875_t4::cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint16_t color16)
+{
+  // The RA8875 doubles Apple's pixels.
+    for (int yoff=0; yoff<2; yoff++) {
+      for (int xoff=0; xoff<2; xoff++) {
+        _pfbtft[((y*2)+SCREENINSET_8875_Y+yoff)*RA8875_WIDTH+(x*2)+SCREENINSET_8875_X+xoff] = _565To332(color16);
+      }
+    }
 }
 
 uint32_t RA8875_t4::frameCount()

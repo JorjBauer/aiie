@@ -137,12 +137,12 @@ void BIOS::DrawMenuBar()
 
   for (int i=0; i<NUM_TITLES; i++) {
     for (int x=0; x<titleWidths[i] + 2*XPADDING; x++) {
-      g_display->drawUIPixel(xpos+x, 0, 0xFFFF);
-      g_display->drawUIPixel(xpos+x, LINEHEIGHT, 0xFFFF);
+      g_display->drawPixel(xpos+x, 0, 0xFFFF);
+      g_display->drawPixel(xpos+x, LINEHEIGHT, 0xFFFF);
     }
     for (int y=0; y<=LINEHEIGHT; y++) {
-      g_display->drawUIPixel(xpos, y, 0xFFFF);
-      g_display->drawUIPixel(xpos + titleWidths[i] + 2*XPADDING, y, 0xFFFF);
+      g_display->drawPixel(xpos, y, 0xFFFF);
+      g_display->drawPixel(xpos + titleWidths[i] + 2*XPADDING, y, 0xFFFF);
     }
 
     xpos += XPADDING;
@@ -551,7 +551,7 @@ uint16_t BIOS::AboutScreenHandler(bool needsRedraw, bool performAction)
     // Draw a black area where we're going to "boot" a fake //e for the about screen. Don't put the whole graphic around it so it's obvious it's not a //e.
     for (uint8_t y=12; y<12+192; y++) {
       for (uint16_t x=20; x<280+20; x++) {
-	g_display->drawUIPixel( x, y, 0x0000 );
+	g_display->drawPixel( x, y, 0x0000 );
       }
     }
     /*
@@ -682,26 +682,26 @@ uint16_t BIOS::PaddlesScreenHandler(bool needsRedraw, bool performAction)
     // Draw the target for the paddle position
     for (uint16_t y=10; y<=110; y++) {
       for (uint16_t x=160; x<=260; x++) {
-	g_display->drawUIPixel(x, y, 0x0000);
-	g_display->drawUIPixel(x, 10, 0xFFFF);
-	g_display->drawUIPixel(x, 110, 0xFFFF);
+	g_display->drawPixel(x, y, 0x0000);
+	g_display->drawPixel(x, 10, 0xFFFF);
+	g_display->drawPixel(x, 110, 0xFFFF);
       }
-      g_display->drawUIPixel(160, y, 0xFFFF);
-      g_display->drawUIPixel(260, y, 0xFFFF);
+      g_display->drawPixel(160, y, 0xFFFF);
+      g_display->drawPixel(260, y, 0xFFFF);
     }
 
     for (uint16_t y=57; y<=63; y++) {
-      g_display->drawUIPixel(207,y,0xFFFF);
-      g_display->drawUIPixel(213,y,0xFFFF);
+      g_display->drawPixel(207,y,0xFFFF);
+      g_display->drawPixel(213,y,0xFFFF);
     }
     for (uint16_t x=207; x<=213; x++) {
-      g_display->drawUIPixel(x,57,0xFFFF);
-      g_display->drawUIPixel(x,63,0xFFFF);
+      g_display->drawPixel(x,57,0xFFFF);
+      g_display->drawPixel(x,63,0xFFFF);
     }
 
     float drawX = ((float)lastPaddleX/255.0)*100.0;
     float drawY = ((float)lastPaddleY/255.0)*100.0;
-    g_display->drawUIPixel(160+drawX, 10+drawY, 0xFFFF);
+    g_display->drawPixel(160+drawX, 10+drawY, 0xFFFF);
     
     g_display->flush();
 
@@ -1050,7 +1050,7 @@ void BIOS::DrawHardwareMenu()
   uint16_t volCutoff = 300.0 * (float)((float) g_volume / 15.0);
   for (uint8_t y=234; y<=235; y++) {
     for (uint16_t x = 0; x< 300; x++) {
-      g_display->drawUIPixel( x, y, x <= volCutoff ? 0xFFFF : 0x0010 );
+      g_display->drawPixel( x, y, x <= volCutoff ? 0xFFFF : 0x0010 );
     }
   }
 }
@@ -1159,7 +1159,7 @@ uint16_t BIOS::DrawDiskNames(uint8_t page, int8_t selection, const char *filter)
   g_display->drawString(M_NORMAL, 0, 0, title);
   
   for (int x=0; x<strlen(title)*8; x++) {
-      g_display->drawUIPixel(x, LINEHEIGHT-1, 0xFFFF);
+      g_display->drawPixel(x, LINEHEIGHT-1, 0xFFFF);
   }
 
   uint8_t vpos = FILEMENUSTARTAT;

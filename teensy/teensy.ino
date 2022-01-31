@@ -32,7 +32,6 @@
 #define BATTERYSELECT 21 // digital select that turns on the power reading ckt
 
 #include "globals.h"
-#include "teensy-crash.h"
 
 BIOS bios;
 
@@ -166,6 +165,10 @@ void setup()
   delay(2000);
 #endif
   delay(200); // let the power settle & serial to get its bearings
+  if (CrashReport) {
+    Serial.print(CrashReport);
+    delay(5000);
+  }
 
   pinMode(DEBUGPIN, OUTPUT); // for debugging
   pinMode(BATTERYSELECT, OUTPUT);

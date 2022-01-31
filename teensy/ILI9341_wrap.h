@@ -27,11 +27,17 @@ class ILI9341_Wrap : public BaseDisplay {
   virtual bool updateScreenAsync(bool update_cont = false);
   
   virtual void drawPixel(int16_t x, int16_t y, uint16_t color);
+  virtual void drawPixel(int16_t x, int16_t y, uint8_t color);
+
+  virtual void cacheApplePixel(uint16_t x, uint16_t y, uint16_t color);
+  virtual void ILI9341_Wrap::cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint16_t color16);
+  
   virtual uint32_t frameCount();
 
 private:
   ILI9341_t3n *tft;
   uint8_t _cs, _dc, _rst, _mosi, _sck, _miso;
+  uint16_t *frame_buffer;
 };
 
 

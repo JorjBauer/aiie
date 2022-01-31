@@ -42,8 +42,6 @@
 
 #define drawApplePixel(c,x,y) { g_display->cacheDoubleWidePixel(x,y,c); }
 
-#define draw2Pixels(cA, cB, x, y) { g_display->cache2DoubleWidePixels(x,y,cA, cB); }
-
 #define DrawLoresPixelAt(c, x, y) {     \
   uint8_t pixel = c & 0x0F;             \
   for (uint8_t y2 = 0; y2<4; y2++) {    \

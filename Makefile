@@ -8,9 +8,9 @@ CXXFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/loca
 
 TSRC=cpu.cpp util/testharness.cpp
 
-COMMONSRCS=cpu.cpp apple/appledisplay.cpp apple/applekeyboard.cpp apple/applemmu.cpp apple/applevm.cpp apple/diskii.cpp apple/nibutil.cpp LRingBuffer.cpp globals.cpp apple/parallelcard.cpp apple/fx80.cpp lcg.cpp apple/hd32.cpp images.cpp apple/appleui.cpp vmram.cpp bios.cpp apple/noslotclock.cpp apple/woz.cpp apple/crc32.c apple/woz-serializer.cpp apple/mouse.c
+COMMONSRCS=cpu.cpp apple/appledisplay.cpp apple/applekeyboard.cpp apple/applemmu.cpp apple/applevm.cpp apple/diskii.cpp apple/nibutil.cpp LRingBuffer.cpp globals.cpp apple/parallelcard.cpp apple/fx80.cpp lcg.cpp apple/hd32.cpp images.cpp apple/appleui.cpp vmram.cpp bios.cpp apple/noslotclock.cpp apple/woz.cpp apple/crc32.c apple/woz-serializer.cpp apple/mouse.c physicaldisplay.cpp
 
-COMMONOBJS=cpu.o apple/appledisplay.o apple/applekeyboard.o apple/applemmu.o apple/applevm.o apple/diskii.o apple/nibutil.o LRingBuffer.o globals.o apple/parallelcard.o apple/fx80.o lcg.o apple/hd32.o images.o apple/appleui.o vmram.o bios.o apple/noslotclock.o apple/woz.o apple/crc32.o apple/woz-serializer.o apple/mouse.o
+COMMONOBJS=cpu.o apple/appledisplay.o apple/applekeyboard.o apple/applemmu.o apple/applevm.o apple/diskii.o apple/nibutil.o LRingBuffer.o globals.o apple/parallelcard.o apple/fx80.o lcg.o apple/hd32.o images.o apple/appleui.o vmram.o bios.o apple/noslotclock.o apple/woz.o apple/crc32.o apple/woz-serializer.o apple/mouse.o physicaldisplay.o
 
 FBSRCS=linuxfb/linux-speaker.cpp linuxfb/fb-display.cpp linuxfb/linux-keyboard.cpp linuxfb/fb-paddles.cpp nix/nix-filemanager.cpp linuxfb/aiie.cpp linuxfb/linux-printer.cpp nix/nix-clock.cpp nix/nix-prefs.cpp
 

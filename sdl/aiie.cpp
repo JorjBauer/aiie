@@ -227,9 +227,8 @@ struct timespec runDisplay(struct timespec now)
     g_ui->blit();
     g_vm->vmdisplay->lockDisplay();
     if (g_vm->vmdisplay->needsRedraw()) {
-      AiieRect what = g_vm->vmdisplay->getDirtyRect();
       g_vm->vmdisplay->didRedraw();
-      g_display->blit(what);
+      g_display->blit();
     }
     g_vm->vmdisplay->unlockDisplay();
     
