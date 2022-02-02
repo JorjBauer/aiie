@@ -213,8 +213,7 @@ void TeensyDisplay::blit()
     if (millis() >= nextMessageTime) {
       if (overlayMessage[0]) {
         if (use8875) {
-        /// FIXME This position needs updating for each display differently
-        //	drawString(M_SELECTDISABLED, 1, (RA8875_HEIGHT - 18)/2, overlayMessage); // FIXME this /2 is clunky b/c drawString winds up doubling
+          drawString(M_SELECTDISABLED, 1, RA8875_HEIGHT-18, overlayMessage);
         } else {
           drawString(M_SELECTDISABLED, 1, ILI9341_HEIGHT - (16+12), overlayMessage);
         }
