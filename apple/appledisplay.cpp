@@ -460,7 +460,6 @@ void AppleDisplay::redraw40ColumnText(uint8_t startingY)
     // Only draw onscreen locations
     if (row >= startingY && col <= 39 && row <= 23) {
       const uint8_t *cptr = xlateChar(mmu->readDirect(addr, 0), &invert);
-      
       for (uint8_t y2 = 0; y2<8; y2++) {
 	uint8_t d = *(cptr + y2);
 	for (uint8_t x2 = 0; x2 < 7; x2++) {

@@ -5,24 +5,6 @@
 
 #include "font.h"
 
-const uint16_t loresPixelColors[16] = { 0x0000, // 0 black
-                                         0xC006, // 1 magenta
-                                         0x0010, // 2 dark blue
-                                         0xA1B5, // 3 purple
-                                         0x0480, // 4 dark green
-                                         0x6B4D, // 5 dark grey
-                                         0x1B9F, // 6 med blue
-                                         0x0DFD, // 7 light blue
-                                         0x92A5, // 8 brown
-                                         0xF8C5, // 9 orange
-                                         0x9555, // 10 light gray
-                                         0xFCF2, // 11 pink
-                                         0x07E0, // 12 green
-                                         0xFFE0, // 13 yellow
-                                         0x87F0, // 14 aqua
-                                         0xFFFF  // 15 white
-};
-
 void PhysicalDisplay::drawCharacter(uint8_t mode, uint16_t x, uint16_t y, char c)
 {
   int8_t xsize = 8,

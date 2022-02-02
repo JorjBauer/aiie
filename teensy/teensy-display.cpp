@@ -25,6 +25,24 @@ uint16_t *dmaBuffer16 = NULL;
 #define PIN_MISO 1
 #define PIN_SCK 27
 
+const uint16_t loresPixelColors[16] = { 0x0000, // 0 black
+                                         0xC006, // 1 magenta
+                                         0x0010, // 2 dark blue
+                                         0xA1B5, // 3 purple
+                                         0x0480, // 4 dark green
+                                         0x6B4D, // 5 dark grey
+                                         0x1B9F, // 6 med blue
+                                         0x0DFD, // 7 light blue
+                                         0x92A5, // 8 brown
+                                         0xF8C5, // 9 orange
+                                         0x9555, // 10 light gray
+                                         0xFCF2, // 11 pink
+                                         0x07E0, // 12 green
+                                         0xFFE0, // 13 yellow
+                                         0x87F0, // 14 aqua
+                                         0xFFFF  // 15 white
+};
+
 TeensyDisplay::TeensyDisplay()
 {
   driveIndicator[0] = driveIndicator[1] = false;
@@ -38,11 +56,15 @@ TeensyDisplay::TeensyDisplay()
   pinMode(11, INPUT);
   digitalWrite(11, HIGH); // turn on pull-up
 
-  if (digitalRead(11)) {
+  if (!digitalRead(11)) {
     // Default: use older, smaller but faster, ILI display if pin 11 is not connected to ground
     Serial.println("    using ILI9341 display");
     
-    dmaBuffer16 = (uint16_t *)malloc((320*240)*2+32); // malloc() happens in the DMAMEM area (RAM2) FIXME *** CONSTANTS -- and does the +32 align properly?
+    dmaBuffer16 = (uint16_t *)malloc((320*240)*2+32); // malloc() happens in the DMAMEM area (RAM2)
+    // And we have to be sure dmaBuffer16 is 32-byte aligned for DMA purposes
+    // so we intentionally alloc'd an extra 32 bytes in order to shift here
+    dmaBuffer16 = (uint16_t *)(((uintptr_t)dmaBuffer16 + 32) &
+                               ~((uintptr_t)(31)));
   
     tft = new ILI9341_Wrap(PIN_CS, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO, PIN_DC);
 
@@ -60,8 +82,12 @@ TeensyDisplay::TeensyDisplay()
     // If someone grounded pin 11, then use the new RA8875 display
     Serial.println("    using RA8875 display");
 
-    dmaBuffer = (uint8_t *)malloc(800*480+32); // malloc() happens in the DMAMEM area (RAM2) FIXME *** CONSTANTS -- and does the +32 align properly?
-
+    dmaBuffer = (uint8_t *)malloc(800*480+32); // malloc() happens in the DMAMEM area (RAM2)
+    // And we have to be sure dmaBuffer is 32-byte aligned for DMA purposes
+    // so we intentionally alloc'd an extra 32 bytes in order to shift here
+    dmaBuffer = (uint8_t *)(((uintptr_t)dmaBuffer + 32) &
+                            ~((uintptr_t)(31)));
+    
     tft = new RA8875_t4(PIN_CS, PIN_RST, PIN_MOSI, PIN_SCK, PIN_MISO);
 
     // Load the 8875 images
@@ -79,16 +105,17 @@ TeensyDisplay::TeensyDisplay()
     tft->setFrameBuffer((uint8_t *)dmaBuffer);
   }
 
-  Serial.print("before ");
-  Serial.println((uint32_t)tft);
-  Serial.print("after ");
-  Serial.println((uint32_t)tft);
   tft->fillWindow();
-  Serial.println("finished filling");
 }
 
 TeensyDisplay::~TeensyDisplay()
 {
+  /* FIXME: we mucked with these after alloc to align them, so we can't free them from their offset addresses; need to keep track of the original malloc'd address instead
+  if (dmaBuffer)
+    free(dmaBuffer);
+  if (dmaBuffer16)
+    free(dmaBuffer16);
+  */
 }
 
 // Take one of the abstracted image constants, figure out which one it
@@ -125,7 +152,6 @@ void TeensyDisplay::drawImageOfSizeAt(const uint8_t *img,
 				      uint16_t wherex, uint16_t wherey)
 {
   uint8_t r, g, b;
-
   uint8_t *p = img;
   for (uint16_t y=0; y<sizey; y++) {
     for (uint16_t x=0; x<sizex; x++) {
@@ -181,11 +207,6 @@ void TeensyDisplay::clrScr(uint8_t coloridx)
 void TeensyDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 {
   tft->cacheApplePixel(x,y,loresPixelColors[color]);
-}
-
-void TeensyDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint16_t color16)
-{
-  tft->cacheDoubleWideApplePixel(x, y, color16);
 }
 
 // "DoubleWide" means "please double the X because I'm in low-res

@@ -358,6 +358,7 @@ void runDisplay(uint32_t now)
     }
 
     if (!g_biosInterrupt) {
+      // FIXME this needs some love. It could be efficient, but parts are removed, so it's doing duplicative work.
       g_ui->blit();
       g_vm->vmdisplay->lockDisplay();
       if (g_vm->vmdisplay->needsRedraw()) { // necessary for the VM to redraw

@@ -1,8 +1,6 @@
 #ifndef __BASE_DISPLAY_H
 #define __BASE_DISPLAY_H
 
-const uint16_t loresPixelColors[16];
-
 #define RGBto565(r,g,b) ((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3))
 #define _565toR(c) ( ((c) & 0xF800) >> 8 )
 #define _565toG(c) ( ((c) & 0x07E0) >> 3 )
@@ -30,7 +28,6 @@ class BaseDisplay {
   virtual bool updateScreenAsync(bool update_cont = false) = 0;
 
   virtual void drawPixel(int16_t x, int16_t y, uint16_t color) = 0;
-  virtual void drawPixel(int16_t x, int16_t y, uint8_t color) = 0;
 
   // Apple interface methods
   virtual void cacheApplePixel(uint16_t x, uint16_t y, uint16_t color) = 0;

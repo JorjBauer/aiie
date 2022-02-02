@@ -60,18 +60,19 @@ bool ILI9341_Wrap::updateScreenAsync(bool update_cont)
 
 void ILI9341_Wrap::drawPixel(int16_t x, int16_t y, uint16_t color)
 {
+  if (x>=320 || y>=240)
+    return;
+  
   frame_buffer[y*ILI9341_WIDTH+x] = color;
-}
-
-void ILI9341_Wrap::drawPixel(int16_t x, int16_t y, uint8_t color)
-{
-  frame_buffer[y*ILI9341_WIDTH+x] = _332To565(color);
 }
 
 // The 9341 is half the width we need, so this jumps through hoops to
 // reduce the resolution in a way that's reasonable by blending pixels
 void ILI9341_Wrap::cacheApplePixel(uint16_t x, uint16_t y, uint16_t color)
 {
+  if (x>=560 || y>=192)
+    return;
+  
   if (x&1) {
     uint16_t origColor =frame_buffer[(y+SCREENINSET_9341_Y)*ILI9341_WIDTH+(x>>1)+SCREENINSET_9341_X];
       if (g_displayType == m_blackAndWhite) {
@@ -98,6 +99,9 @@ void ILI9341_Wrap::cacheApplePixel(uint16_t x, uint16_t y, uint16_t color)
 
 void ILI9341_Wrap::cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint16_t color16)
 {
+  if (x>=280 || y>=192)
+    return;
+  
   frame_buffer[(y+SCREENINSET_9341_Y)*ILI9341_WIDTH + (x) + SCREENINSET_9341_X] = color16;
 }
 

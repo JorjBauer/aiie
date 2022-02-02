@@ -37,7 +37,6 @@ class RA8875_t4 : public BaseDisplay {
   virtual bool updateScreenAsync(bool update_cont = false);
   
   virtual void drawPixel(int16_t x, int16_t y, uint16_t color);
-  virtual void drawPixel(int16_t x, int16_t y, uint8_t color);
 
   virtual void cacheApplePixel(uint16_t x, uint16_t y, uint16_t color16);
   virtual void cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint16_t color16);
@@ -81,9 +80,13 @@ private:
   uint32_t _spi_clock_read;
   uint32_t _clock; // current clock, used in starting transactions (b/c we have to slow down sometimes)
 
-  // DMA stuff
-  DMASetting _dmasettings[12];
-  DMAChannel _dmatx;
+  // DMA stuff. The _dmasettings[] and _dmatx can't be member
+  // variables. If they are, then the object will work if it's
+  // statically allocated; but dynamically allocated RA8875_t4 objects
+  // would be malloc()'d in RAM2, which is a problem for DMA.
+  // So instead they're static globals in the module.
+  // DMASetting _dmasettings[12];
+  // DMAChannel _dmatx;
   uint32_t _spi_fcr_save;
   uint8_t *_pfbtft;
   volatile uint8_t _dma_state;

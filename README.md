@@ -85,10 +85,9 @@ You'll also need the ILI9341_t3n library from
 
        https://github.com/KurtE/ILI9341_t3n/
 
-I'm using it at tag f1bfb81825c60e39e011e502fe5c39a04305e1dc - not
-because that tag is special, but because that's when I checked out the
-repo. I haven't tested newer code and if you have problems, you'll
-want to roll back to that tag.
+As of this writing, the master branch does not work for Aiie; but the
+branch "dma_new_fix" is fine. I'd recommend checking out that branch
+if it exists.
 
 # Running (on the Teensy)
 

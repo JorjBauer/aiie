@@ -87,6 +87,10 @@
  *   https://github-wiki-see.page/m/TeensyUser/doc/wiki/Memory-Mapping
  */
 
+// Static DMA objects that we need in RAM1
+DMASetting _dmasettings[12];
+DMAChannel _dmatx;
+
 // at 8bpp, each pixel is 1 byte
 #define COUNT_PIXELS_WRITE (RA8875_WIDTH * RA8875_HEIGHT)
 
@@ -282,6 +286,8 @@ void RA8875_t4::_initializeTFT()
 
 void RA8875_t4::setFrameBuffer(uint8_t *frame_buffer)
 {
+  Serial.print("fb 0x");
+  Serial.println((uint32_t)frame_buffer, HEX);
   _pfbtft = frame_buffer;
   _dma_state &= ~RA8875_DMA_INIT;
 }
@@ -382,7 +388,10 @@ bool RA8875_t4::updateScreenAsync(bool update_cont)
     _dma_state &= ~RA8875_DMA_CONT;
   }
   _dma_state |= RA8875_DMA_ACTIVE;
-  
+
+  // Make sure the dma settings are flushed. Otherwise bad things happen.
+  if ((uint32_t)_dmasettings >= 0x20200000u)
+    arm_dcache_flush(_dmasettings, sizeof(DMASetting)*12); // FIXME constant
   return true;
 }
 
@@ -399,18 +408,27 @@ uint8_t _color16To8bpp(uint16_t color) {
   
 void RA8875_t4::drawPixel(int16_t x, int16_t y, uint16_t color)
 {
-  // FIXME: bounds checking
+  if (x>=800 || y>=480) {
+    Serial.print("^ ");
+    Serial.print(x);
+    Serial.print(" ");
+    Serial.println(y);
+    return;
+  }
+  
   _pfbtft[y*RA8875_WIDTH+x] = _color16To8bpp(color);
-}
-
-void RA8875_t4::drawPixel(int16_t x, int16_t y, uint8_t color)
-{
-  // FIXME: bounds checking
-  _pfbtft[y*RA8875_WIDTH+x] = color;
 }
 
 void RA8875_t4::cacheApplePixel(uint16_t x, uint16_t y, uint16_t color)
 {
+  if (x>=560 || y>=192) {
+    Serial.print("! ");
+    Serial.print(x);
+    Serial.print(" ");
+    Serial.println(y);
+    return;
+  }
+  
   // The 8875 display doubles vertically
   uint c8 = _565To332(color);
   for (int yoff=0; yoff<2; yoff++) {
@@ -420,6 +438,11 @@ void RA8875_t4::cacheApplePixel(uint16_t x, uint16_t y, uint16_t color)
 
 void RA8875_t4::cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint16_t color16)
 {
+  if (x>=280 || y>=192) {
+    Serial.println("@");
+    return;
+  }
+  
   // The RA8875 doubles Apple's pixels.
     for (int yoff=0; yoff<2; yoff++) {
       for (int xoff=0; xoff<2; xoff++) {
