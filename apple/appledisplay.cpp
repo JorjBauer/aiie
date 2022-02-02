@@ -406,7 +406,7 @@ void AppleDisplay::redraw80ColumnText(uint8_t startingY)
       cptr = xlateChar(mmu->readDirect(addr, 1), &invert);
       for (uint8_t y2 = 0; y2<8; y2++) {
 	uint8_t d = *(cptr + y2);
-	for (uint8_t x2 = 0; x2 <= 7; x2++) {
+	for (uint8_t x2 = 0; x2 < 7; x2++) {
 	  uint16_t basex = (col*2)*7;
 	  bool pixelOn = (d & (1<<x2));
 	  if (pixelOn) {
@@ -423,7 +423,7 @@ void AppleDisplay::redraw80ColumnText(uint8_t startingY)
       cptr = xlateChar(mmu->readDirect(addr, 0), &invert);
       for (uint8_t y2 = 0; y2<8; y2++) {
 	uint8_t d = *(cptr + y2);
-	for (uint8_t x2 = 0; x2 <= 7; x2++) {
+	for (uint8_t x2 = 0; x2 < 7; x2++) {
 	  uint16_t basex = (col*2+1)*7;
 	  bool pixelOn = (d & (1<<x2));
 	  if (pixelOn) {
