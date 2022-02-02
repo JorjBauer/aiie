@@ -41,7 +41,7 @@ void PhysicalDisplay::drawCharacter(uint8_t mode, uint16_t x, uint16_t y, char c
       if (*ch & (1 << (x_off))) {
         drawPixel(x+x_off, y+y_off, onPixel);
       } else {
-        drawPixel(x+x_off, y+y_off, onPixel);
+        drawPixel(x+x_off, y+y_off, offPixel);
       }
     }
     ch++;
