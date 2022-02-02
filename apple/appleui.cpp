@@ -6,9 +6,9 @@
 
 AppleUI::AppleUI()
 {
-  redrawFrame = false;
-  redrawDriveLatches = false;
-  redrawDriveActivity = false;
+  redrawFrame = true;
+  redrawDriveLatches = true;
+  redrawDriveActivity = true;
   driveInserted[0] = driveInserted[1] = 0;
   driveActivity[0] = driveActivity[1] = 0;
 }

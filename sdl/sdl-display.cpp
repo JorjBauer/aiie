@@ -44,7 +44,7 @@ SDLDisplay::SDLDisplay()
 {
   memset(videoBuffer, 0, sizeof(videoBuffer));
 
-  driveIndicator[0] = driveIndicator[1] = false;
+  driveIndicator[0] = driveIndicator[1] = true; // assume on so they will redraw the first time
 
   shellImage = NULL;
   d1OpenImage = d1ClosedImage = d2OpenImage = d2ClosedImage = NULL;

@@ -45,7 +45,7 @@ const uint16_t loresPixelColors[16] = { 0x0000, // 0 black
 
 TeensyDisplay::TeensyDisplay()
 {
-  driveIndicator[0] = driveIndicator[1] = false;
+  driveIndicator[0] = driveIndicator[1] = true; // assume on so they will redraw immediately the first time
 
   shellImage = NULL;
   d1OpenImage = d1ClosedImage = d2OpenImage = d2ClosedImage = NULL;
@@ -212,8 +212,12 @@ void TeensyDisplay::blit()
     static uint32_t nextMessageTime = 0;
     if (millis() >= nextMessageTime) {
       if (overlayMessage[0]) {
+        if (use8875) {
         /// FIXME This position needs updating for each display differently
         //	drawString(M_SELECTDISABLED, 1, (RA8875_HEIGHT - 18)/2, overlayMessage); // FIXME this /2 is clunky b/c drawString winds up doubling
+        } else {
+          drawString(M_SELECTDISABLED, 1, ILI9341_HEIGHT - (16+12), overlayMessage);
+        }
       }
       nextMessageTime = millis() + 1000;
     }
