@@ -36,6 +36,7 @@ void ILI9341_Wrap::begin(uint32_t spi_clock=30000000u, uint32_t spi_clock_read=2
 
 void ILI9341_Wrap::fillWindow(uint16_t color = 0x0000)
 {
+  tft->fillScreen(color);
 }
 
 void ILI9341_Wrap::setFrameBuffer(uint8_t *frame_buffer)
