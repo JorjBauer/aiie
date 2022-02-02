@@ -20,6 +20,13 @@
 #define LED1_Y_8875 68
 #define LED2_Y_8875 117
 
+#define LED_HEIGHT_9341 1
+#define LED_WIDTH_9341 6
+#define LED1_X_9341 125
+#define LED2_X_9341 (125+135)
+#define LED1_Y_9341 213
+#define LED2_Y_9341 213
+
 // These are the ABSTRACTED constants that AppleUI uses to tell the
 // display what it wants redrawn via drawUIImage(uint8_t imageIdx)
 enum {

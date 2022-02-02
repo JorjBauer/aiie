@@ -46,7 +46,6 @@ const uint16_t loresPixelColors[16] = { 0x0000, // 0 black
 TeensyDisplay::TeensyDisplay()
 {
   driveIndicator[0] = driveIndicator[1] = false;
-  driveIndicatorDirty = true;
 
   shellImage = NULL;
   d1OpenImage = d1ClosedImage = d2OpenImage = d2ClosedImage = NULL;
@@ -158,27 +157,24 @@ void TeensyDisplay::drawUIImage(uint8_t imageIdx)
 
 void TeensyDisplay::drawDriveActivity(bool drive0, bool drive1)
 {
-  // FIXME port constants for 9341
+  // FIXME this could be much more efficient; it's doing a lot of checking use8875 in the middle of a loop
+  
   if (drive0 != driveIndicator[0]) {
-    if (use8875) {
-      for (int y=0; y<LED_HEIGHT_8875; y++) {
-        for (int x=0; x<LED_WIDTH_8875; x++) {
-          drawPixel(x+LED1_X_8875, y+LED1_Y_8875, drive0 ? 0xFA00 : 0x0000);
-        }
+    for (int y=0; y<(use8875 ? LED_HEIGHT_8875 : LED_HEIGHT_9341); y++) {
+      for (int x=0; x<(use8875 ? LED_WIDTH_8875 : LED_WIDTH_9341); x++) {
+        drawPixel(x+(use8875 ? LED1_X_8875 : LED1_X_9341), y+(use8875 ? LED1_Y_8875 : LED1_Y_9341), drive0 ? 0xFA00 : 0x0000);
       }
     }
     driveIndicator[0] = drive0;
   }
 
   if (drive1 != driveIndicator[1]) {
-    if (use8875) {
-      for (int y=0; y<LED_HEIGHT_8875; y++) {
-        for (int x=0; x<LED_WIDTH_8875; x++) {
-          drawPixel(x+LED2_X_8875, y+LED2_Y_8875, drive1 ? 0xFA00 : 0x0000);
-        }
+    for (int y=0; y<(use8875 ? LED_HEIGHT_8875 : LED_HEIGHT_9341); y++) {
+      for (int x=0; x<(use8875 ? LED_WIDTH_8875 : LED_WIDTH_9341); x++) {
+        drawPixel(x+(use8875 ? LED2_X_8875 : LED2_X_9341), y+(use8875 ? LED2_Y_8875 : LED2_Y_9341), drive0 ? 0xFA00 : 0x0000);
       }
     }
-    // FIXME also 9341
+
     driveIndicator[1] = drive1;
   }
 }

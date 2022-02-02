@@ -117,6 +117,7 @@ void AppleUI::blit()
     redrawDriveLatches = false;
     g_display->drawUIImage(driveInserted[0] ? IMG_D1CLOSED : IMG_D1OPEN);
     g_display->drawUIImage(driveInserted[1] ? IMG_D2CLOSED : IMG_D2OPEN);
+    redrawDriveActivity = true; // these overlap
   }
 
   if (redrawDriveActivity) {

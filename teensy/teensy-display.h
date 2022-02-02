@@ -34,9 +34,7 @@ class TeensyDisplay : public PhysicalDisplay {
   virtual void drawPixel(uint16_t x, uint16_t y, uint16_t color);
   virtual void drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b);
 
-  bool needsRedraw;
   bool driveIndicator[2];
-  bool driveIndicatorDirty;
 
 private:
   const uint8_t *shellImage;

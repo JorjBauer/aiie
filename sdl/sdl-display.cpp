@@ -44,6 +44,8 @@ SDLDisplay::SDLDisplay()
 {
   memset(videoBuffer, 0, sizeof(videoBuffer));
 
+  driveIndicator[0] = driveIndicator[1] = false;
+
   shellImage = NULL;
   d1OpenImage = d1ClosedImage = d2OpenImage = d2ClosedImage = NULL;
   appleImage = NULL;
@@ -111,6 +113,30 @@ void SDLDisplay::drawUIImage(uint8_t imageIdx)
   }
 }
 
+void SDLDisplay::drawDriveActivity(bool drive0, bool drive1)
+{
+  if (drive0 != driveIndicator[0]) {
+    printf("change d0\n");
+    for (int y=0; y<LED_HEIGHT_8875; y++) {
+      for (int x=0; x<LED_WIDTH_8875; x++) {
+        // FIXME this isn't working, not sure why
+        drawPixel(x+LED1_X_8875, y+LED1_Y_8875, 0xFF, 0, 0); ///*drive0 ?*/ 0xFA00/* : 0x0000*/);
+      }
+    }
+    driveIndicator[0] = drive0;
+  }
+  
+  if (drive1 != driveIndicator[1]) {
+    for (int y=0; y<LED_HEIGHT_8875; y++) {
+      for (int x=0; x<LED_WIDTH_8875; x++) {
+        drawPixel(x+LED2_X_8875, y+LED2_Y_8875, drive0 ? 0xFA00 : 0x0000);
+      }
+    }
+    
+    driveIndicator[1] = drive1;
+  }
+}
+
 void SDLDisplay::drawImageOfSizeAt(const uint8_t *img,
 				   uint16_t sizex, uint16_t sizey,
 				   uint16_t wherex, uint16_t wherey)
@@ -158,17 +184,13 @@ void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
     g = (color & 0x7E0) >> 3,
     b = (color & 0x1F) << 3;
 
-  for (int yoff=0; yoff<2; yoff++) {
-    putpixel(renderer, x, (y*2)+yoff, r, g, b);
-  }
+  putpixel(renderer, x, y, r, g, b);
 }
 
 void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b)
 {
-  for (int yoff=0; yoff<2; yoff++) {
-    if (x < SDL_WIDTH && y < SDL_HEIGHT) {
-      putpixel(renderer, x, (y*2)+yoff, r, g, b);
-    }
+  if (x < SDL_WIDTH && y < SDL_HEIGHT) {
+    putpixel(renderer, x, y, r, g, b);
   }
 }
 
