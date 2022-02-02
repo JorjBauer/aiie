@@ -98,6 +98,7 @@ DMAChannel _dmatx;
 #define _565toR(c) ( ((c) & 0xF800) >> 8 )
 #define _565toG(c) ( ((c) & 0x07E0) >> 3 )
 #define _565toB(c) ( ((c) & 0x001F) << 3 )
+#define _565To332(c) ((((c) & 0xe000) >> 8) | (((c) & 0x700) >> 6) | (((c) & 0x18) >> 3))
 
 // 3 of these, one for each of the 3 busses, so that 3 separate
 // displays could be driven. FIXME: I don't really need all 3 in this
@@ -397,15 +398,14 @@ bool RA8875_t4::updateScreenAsync(bool update_cont)
 
 void RA8875_t4::fillWindow(uint16_t color)
 {
-  // FIXME: reduce color & fill appropriately
-  memset(_pfbtft, RA8875_WIDTH*RA8875_HEIGHT, 0);
+  if (!_pfbtft)
+    return;
+  
+  // Reduce color to 8 bit
+  uint8_t c8 = _565To332(color);
+  memset(_pfbtft, c8, RA8875_WIDTH*RA8875_HEIGHT);
 }
 
-// *** Remove this and convert to native 8-bit? Or make it inline?
-uint8_t _color16To8bpp(uint16_t color) {
-  return ((color & 0xe000) >> 8) | ((color & 0x700) >> 6) | ((color & 0x18) >> 3);
-}
-  
 void RA8875_t4::drawPixel(int16_t x, int16_t y, uint16_t color)
 {
   if (x>=800 || y>=480) {
@@ -416,7 +416,7 @@ void RA8875_t4::drawPixel(int16_t x, int16_t y, uint16_t color)
     return;
   }
   
-  _pfbtft[y*RA8875_WIDTH+x] = _color16To8bpp(color);
+  _pfbtft[y*RA8875_WIDTH+x] = _565To332(color);
 }
 
 void RA8875_t4::cacheApplePixel(uint16_t x, uint16_t y, uint16_t color)
