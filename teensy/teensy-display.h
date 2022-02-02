@@ -22,6 +22,8 @@ class TeensyDisplay : public PhysicalDisplay {
   virtual void clrScr(uint8_t coloridx);
 
   virtual void drawUIImage(uint8_t imageIdx);
+  virtual void drawDriveActivity(bool drive0, bool drive1);
+
   virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint16_t sizey, uint16_t wherex, uint16_t wherey);
 
   virtual void cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color);
@@ -47,6 +49,8 @@ private:
   const uint8_t *appleImage;
   const uint16_t appleImageWidth, appleImageHeight;
 
+  bool use8875;
+  
   BaseDisplay *tft;
 };
 

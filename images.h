@@ -12,12 +12,13 @@
 #define SCREENINSET_9341_X (18)
 #define SCREENINSET_9341_Y (13)
 
-// Spacing and positioning of elements within the DBITMAP, used by AppleUI
-#define LED_HEIGHT 9
-#define LED_WIDTH 17
-#define LED_X 48
-#define LED1_Y 68
-#define LED2_Y 117
+// drive activity LED positions
+#define LED_HEIGHT_8875 9
+#define LED_WIDTH_8875 17
+#define LED1_X_8875 48
+#define LED2_X_8875 48
+#define LED1_Y_8875 68
+#define LED2_Y_8875 117
 
 // These are the ABSTRACTED constants that AppleUI uses to tell the
 // display what it wants redrawn via drawUIImage(uint8_t imageIdx)

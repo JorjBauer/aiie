@@ -53,12 +53,13 @@ TeensyDisplay::TeensyDisplay()
   appleImage = NULL;
   
   // FIXME abstract pin number, don't hard code it
-  pinMode(11, INPUT);
-  digitalWrite(11, HIGH); // turn on pull-up
-
+  pinMode(11, INPUT_PULLUP);
+  delay(10); // let it rise before reading it
+  
   if (digitalRead(11)) {
     // Default: use older, smaller but faster, ILI display if pin 11 is not connected to ground
     Serial.println("    using ILI9341 display");
+    use8875 = false;
     
     dmaBuffer16 = (uint16_t *)malloc((320*240)*2+32); // malloc() happens in the DMAMEM area (RAM2)
     // And we have to be sure dmaBuffer16 is 32-byte aligned for DMA purposes
@@ -81,6 +82,7 @@ TeensyDisplay::TeensyDisplay()
   } else {
     // If someone grounded pin 11, then use the new RA8875 display
     Serial.println("    using RA8875 display");
+    use8875 = true;
 
     dmaBuffer = (uint8_t *)malloc(800*480+32); // malloc() happens in the DMAMEM area (RAM2)
     // And we have to be sure dmaBuffer is 32-byte aligned for DMA purposes
@@ -129,20 +131,55 @@ void TeensyDisplay::drawUIImage(uint8_t imageIdx)
     drawImageOfSizeAt(shellImage, shellWidth, shellHeight, 0, 0);
     break;
   case IMG_D1OPEN:
-    drawImageOfSizeAt(d1OpenImage, driveWidth, driveHeight, 55, 216);
+    drawImageOfSizeAt(d1OpenImage, driveWidth, driveHeight,
+                      use8875 ? 4 : 55,
+                      use8875 ? 67 : 216);
     break;
   case IMG_D1CLOSED:
-    drawImageOfSizeAt(d1ClosedImage, driveWidth, driveHeight, 55, 216);
+    drawImageOfSizeAt(d1ClosedImage, driveWidth, driveHeight,
+                      use8875 ? 4 : 55,
+                      use8875 ? 67 : 216);
     break;
   case IMG_D2OPEN:
-    drawImageOfSizeAt(d2OpenImage, driveWidth, driveHeight, 189, 216);
+    drawImageOfSizeAt(d2OpenImage, driveWidth, driveHeight,
+                      use8875 ? 4 : 189,
+                      use8875 ? 116 : 216);
     break;
   case IMG_D2CLOSED:
-    drawImageOfSizeAt(d2ClosedImage, driveWidth, driveHeight, 189, 216);
+    drawImageOfSizeAt(d2ClosedImage, driveWidth, driveHeight,
+                      use8875 ? 4 : 189,
+                      use8875 ? 116 : 216);
     break;
   case IMG_APPLEBATTERY:
     // FIXME ***
     break;
+  }
+}
+
+void TeensyDisplay::drawDriveActivity(bool drive0, bool drive1)
+{
+  // FIXME port constants for 9341
+  if (drive0 != driveIndicator[0]) {
+    if (use8875) {
+      for (int y=0; y<LED_HEIGHT_8875; y++) {
+        for (int x=0; x<LED_WIDTH_8875; x++) {
+          drawPixel(x+LED1_X_8875, y+LED1_Y_8875, drive0 ? 0xFA00 : 0x0000);
+        }
+      }
+    }
+    driveIndicator[0] = drive0;
+  }
+
+  if (drive1 != driveIndicator[1]) {
+    if (use8875) {
+      for (int y=0; y<LED_HEIGHT_8875; y++) {
+        for (int x=0; x<LED_WIDTH_8875; x++) {
+          drawPixel(x+LED2_X_8875, y+LED2_Y_8875, drive1 ? 0xFA00 : 0x0000);
+        }
+      }
+    }
+    // FIXME also 9341
+    driveIndicator[1] = drive1;
   }
 }
 
@@ -179,7 +216,8 @@ void TeensyDisplay::blit()
     static uint32_t nextMessageTime = 0;
     if (millis() >= nextMessageTime) {
       if (overlayMessage[0]) {
-	drawString(M_SELECTDISABLED, 1, (RA8875_HEIGHT - 18)/2, overlayMessage); // FIXME this /2 is clunky b/c drawString winds up doubling
+        /// FIXME This position needs updating for each display differently
+        //	drawString(M_SELECTDISABLED, 1, (RA8875_HEIGHT - 18)/2, overlayMessage); // FIXME this /2 is clunky b/c drawString winds up doubling
       }
       nextMessageTime = millis() + 1000;
     }

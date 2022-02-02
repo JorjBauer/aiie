@@ -121,17 +121,7 @@ void AppleUI::blit()
 
   if (redrawDriveActivity) {
     redrawDriveActivity = false;
-
-    /*
-    // FIXME make these bitmaps so the size/location are abstracted
-    for (int y=0; y<LED_HEIGHT; y++) {
-      for (int x=0; x<LED_WIDTH; x++) {
-        g_display->drawPixel(x + LED_X, y + LED1_Y, driveActivity[0] ? 0xFA00 : 0x0000);
-        
-        g_display->drawPixel(x + LED_X, y + LED2_Y, driveActivity[1] ? 0xFA00 : 0x0000);
-      }
-    }
-    */
+    g_display->drawDriveActivity(driveActivity[0], driveActivity[1]);
   }
 
 }

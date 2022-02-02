@@ -15,6 +15,7 @@ class PhysicalDisplay {
   virtual void flush() = 0;
 
   virtual void drawUIImage(uint8_t imageIdx) = 0;
+  virtual void drawDriveActivity(bool drive0, bool drive1) = 0;
   // FIXME: drawImageOfSizeAt should probably be private now
   virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint16_t sizey, uint16_t wherex, uint16_t wherey) = 0;
 
