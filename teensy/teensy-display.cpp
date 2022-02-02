@@ -56,7 +56,7 @@ TeensyDisplay::TeensyDisplay()
   pinMode(11, INPUT);
   digitalWrite(11, HIGH); // turn on pull-up
 
-  if (!digitalRead(11)) {
+  if (digitalRead(11)) {
     // Default: use older, smaller but faster, ILI display if pin 11 is not connected to ground
     Serial.println("    using ILI9341 display");
     
