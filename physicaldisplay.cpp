@@ -55,13 +55,7 @@ void PhysicalDisplay::drawString(uint8_t mode, uint16_t x, uint16_t y, const cha
   for (int8_t i=0; i<strlen(str); i++) {
     drawCharacter(mode, x, y, str[i]);
     x += xsize;
-    if (x >= (320-xsize)/2) break; // FIXME this is a
-                                            // pre-scaled number, b/c
-                                            // drawCharacter is
-                                            // scaling. Klutzy. It's
-                                            // also using the ILI
-                                            // constant; what about
-                                            // the RA8875?
+    if (x >= 320-xsize) break; // FIXME needs to know the actual display size?
   }
 }
 
