@@ -371,9 +371,24 @@ void loop()
   }
 }
 
+bool use8875 = true;
+
 int main(int argc, char *argv[])
 {
   _init_darwin_shim();
+
+  /* Look for flags first and strip them out of argv/argc if present, leaving
+   * just filenames for disks to have been inserted */
+  if (argc > 1 && !strcmp(argv[1], "-9")) {
+    argc--;
+    argv++;
+    use8875 = false;
+  }
+  else if (argc > 1 && !strcmp(argv[1], "-8")) {
+    argc--;
+    argv++;
+    use8875 = true;
+  }
   
   SDL_Init(SDL_INIT_EVERYTHING);
 

@@ -10,6 +10,16 @@
 
 #include "images.h"
 
+#define RA8875_WIDTH 800
+#define RA8875_HEIGHT 480
+#define ILI9341_WIDTH 320
+#define ILI9341_HEIGHT 240
+
+// *** FIXME need a better blend
+#define blendColors(a,b) (a | b)
+
+extern bool use8875;
+
 // RGB map of each of the lowres colors
 const uint8_t loresPixelColors[16][3] = { { 0, 0, 0 }, // black
 					  { 0xAC, 0x12, 0x4C }, // magenta
@@ -42,26 +52,37 @@ const uint8_t loresPixelColors[16][3] = { { 0, 0, 0 }, // black
 
 SDLDisplay::SDLDisplay()
 {
-  memset(videoBuffer, 0, sizeof(videoBuffer));
-
   driveIndicator[0] = driveIndicator[1] = true; // assume on so they will redraw the first time
 
   shellImage = NULL;
   d1OpenImage = d1ClosedImage = d2OpenImage = d2ClosedImage = NULL;
   appleImage = NULL;
 
-  getImageInfoAndData(IMG_8875_SHELL, &shellWidth, &shellHeight, &shellImage);
-  getImageInfoAndData(IMG_8875_D1OPEN, &driveWidth, &driveHeight, &d1OpenImage);
-  getImageInfoAndData(IMG_8875_D1CLOSED, &driveWidth, &driveHeight, &d1ClosedImage);
-  getImageInfoAndData(IMG_8875_D2OPEN, &driveWidth, &driveHeight, &d2OpenImage);
-  getImageInfoAndData(IMG_8875_D2CLOSED, &driveWidth, &driveHeight, &d2ClosedImage);
-  getImageInfoAndData(IMG_8875_APPLEBATTERY, &appleImageWidth, &appleImageHeight, &appleImage);
+  if (use8875) {
+    videoBuffer = (uint32_t *)calloc(RA8875_HEIGHT * RA8875_WIDTH, sizeof(uint32_t));
+    getImageInfoAndData(IMG_8875_SHELL, &shellWidth, &shellHeight, &shellImage);
+    getImageInfoAndData(IMG_8875_D1OPEN, &driveWidth, &driveHeight, &d1OpenImage);
+    getImageInfoAndData(IMG_8875_D1CLOSED, &driveWidth, &driveHeight, &d1ClosedImage);
+    getImageInfoAndData(IMG_8875_D2OPEN, &driveWidth, &driveHeight, &d2OpenImage);
+    getImageInfoAndData(IMG_8875_D2CLOSED, &driveWidth, &driveHeight, &d2ClosedImage);
+    getImageInfoAndData(IMG_8875_APPLEBATTERY, &appleImageWidth, &appleImageHeight, &appleImage);
+  } else {
+    videoBuffer = (uint32_t *)calloc(ILI9341_HEIGHT * ILI9341_WIDTH, sizeof(uint32_t));
+    getImageInfoAndData(IMG_9341_SHELL, &shellWidth, &shellHeight, &shellImage);
+    getImageInfoAndData(IMG_9341_D1OPEN, &driveWidth, &driveHeight, &d1OpenImage);
+    getImageInfoAndData(IMG_9341_D1CLOSED, &driveWidth, &driveHeight, &d1ClosedImage);
+  getImageInfoAndData(IMG_9341_D2OPEN, &driveWidth, &driveHeight, &d2OpenImage);
+  getImageInfoAndData(IMG_9341_D2CLOSED, &driveWidth, &driveHeight, &d2ClosedImage);
+  getImageInfoAndData(IMG_9341_APPLEBATTERY, &appleImageWidth, &appleImageHeight, &appleImage);
+  }
+  
   
   // FIXME: abstract constants
   screen = SDL_CreateWindow("Aiie!",
 			    SDL_WINDOWPOS_UNDEFINED,
 			    SDL_WINDOWPOS_UNDEFINED,
-			    SDL_WIDTH, SDL_HEIGHT,
+                            use8875 ? RA8875_WIDTH : ILI9341_WIDTH,
+                            use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT,
 			    SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE);
 
   // SDL_RENDERER_SOFTWARE because, at least on my Mac, this has some
@@ -72,10 +93,10 @@ SDLDisplay::SDLDisplay()
   SDL_RenderPresent(renderer); // perform the render
 
   buffer = SDL_CreateTexture(renderer,
-                           SDL_PIXELFORMAT_RGB888,
-                           SDL_TEXTUREACCESS_STREAMING, 
-                           SDL_WIDTH,
-                           SDL_HEIGHT);
+                             SDL_PIXELFORMAT_RGB888,
+                             SDL_TEXTUREACCESS_STREAMING, 
+                             use8875 ? RA8875_WIDTH : ILI9341_WIDTH,
+                             use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT);
 }
 
 SDLDisplay::~SDLDisplay()
@@ -96,19 +117,27 @@ void SDLDisplay::drawUIImage(uint8_t imageIdx)
     drawImageOfSizeAt(shellImage, shellWidth, shellHeight, 0, 0);
     break;
   case IMG_D1OPEN:
-    drawImageOfSizeAt(d1OpenImage, driveWidth, driveHeight, 4, 67);
+    drawImageOfSizeAt(d1OpenImage, driveWidth, driveHeight,
+                      use8875 ? 4 : 55,
+                      use8875 ? 67 : 216);
     break;
   case IMG_D1CLOSED:
-    drawImageOfSizeAt(d1ClosedImage, driveWidth, driveHeight, 4, 67);
+    drawImageOfSizeAt(d1ClosedImage, driveWidth, driveHeight,
+                      use8875 ? 4 : 189,
+                      use8875 ? 116 : 216);
     break;
   case IMG_D2OPEN:
-    drawImageOfSizeAt(d2OpenImage, driveWidth, driveHeight, 4, 116);
+    drawImageOfSizeAt(d2OpenImage, driveWidth, driveHeight,
+                      use8875 ? 4 : 189,
+                      use8875 ? 116 : 216);
     break;
   case IMG_D2CLOSED:
-    drawImageOfSizeAt(d2ClosedImage, driveWidth, driveHeight, 4, 116);
+    drawImageOfSizeAt(d2ClosedImage, driveWidth, driveHeight,
+                      use8875 ? 4 : 189,
+                      use8875 ? 116 : 216);
     break;
   case IMG_APPLEBATTERY:
-    // FIXME ***                                                                                                                         
+    // FIXME ***
     break;
   }
 }
@@ -117,22 +146,22 @@ void SDLDisplay::drawDriveActivity(bool drive0, bool drive1)
 {
   if (drive0 != driveIndicator[0]) {
     printf("change d0\n");
-    for (int y=0; y<LED_HEIGHT_8875; y++) {
-      for (int x=0; x<LED_WIDTH_8875; x++) {
+    for (int y=0; y<(use8875 ? LED_HEIGHT_8875 : LED_HEIGHT_9341); y++) {
+      for (int x=0; x<(use8875 ? LED_WIDTH_8875 : LED_WIDTH_9341); x++) {
         // FIXME this isn't working, not sure why
-        drawPixel(x+LED1_X_8875, y+LED1_Y_8875, 0xFF, 0, 0); ///*drive0 ?*/ 0xFA00/* : 0x0000*/);
+        drawPixel(x+(use8875 ? LED1_X_8875 : LED1_X_9341), y+(use8875 ? LED1_Y_8875 : LED1_Y_9341), drive0 ? 0xFA00 : 0x0000);
       }
     }
     driveIndicator[0] = drive0;
   }
   
   if (drive1 != driveIndicator[1]) {
-    for (int y=0; y<LED_HEIGHT_8875; y++) {
-      for (int x=0; x<LED_WIDTH_8875; x++) {
-        drawPixel(x+LED2_X_8875, y+LED2_Y_8875, drive0 ? 0xFA00 : 0x0000);
+    for (int y=0; y<(use8875 ? LED_HEIGHT_8875 : LED_HEIGHT_9341); y++) {
+      for (int x=0; x<(use8875 ? LED_WIDTH_8875 : LED_WIDTH_9341); x++) {
+        drawPixel(x+(use8875 ? LED2_X_8875 : LED2_X_9341), y+(use8875 ? LED2_Y_8875 : LED2_Y_9341), drive0 ? 0xFA00 : 0x0000);
       }
     }
-    
+
     driveIndicator[1] = drive1;
   }
 }
@@ -147,7 +176,8 @@ void SDLDisplay::drawImageOfSizeAt(const uint8_t *img,
       uint16_t v = *p++;
       v<<=8;
       v |= *p++;
-      videoBuffer[(y+wherey)][(x+wherex)] = color16To32(v);
+      videoBuffer[(y+wherey) * (use8875 ? RA8875_WIDTH : ILI9341_WIDTH) +
+                  (x+wherex)] = color16To32(v);
     }
   }
 }
@@ -161,8 +191,12 @@ void SDLDisplay::blit()
 		  (void **)&pixels,
 		  &pitch);
   // FIXME what if pitch isn't as expected? Should be width*4
-  
-  memcpy(pixels, videoBuffer, sizeof(videoBuffer));
+
+  static uint32_t bufsize = 0;
+  if (!bufsize) {
+    bufsize = use8875 ? (RA8875_WIDTH*RA8875_HEIGHT*sizeof(uint32_t)) : (ILI9341_HEIGHT*ILI9341_WIDTH*sizeof(uint32_t));
+  }
+  memcpy(pixels, videoBuffer, bufsize);
   
   SDL_UnlockTexture(buffer);
   SDL_RenderCopy(renderer, buffer, NULL, NULL);
@@ -177,7 +211,10 @@ inline void putpixel(SDL_Renderer *renderer, int x, int y, uint8_t r, uint8_t g,
 
 void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
 {
-  if (x >= SDL_WIDTH || y >= SDL_HEIGHT) return; // make sure it's onscreen
+  if (use8875 && (x >= RA8875_WIDTH || y >= RA8875_HEIGHT))
+    return;
+  if ((!use8875) && (x >= ILI9341_WIDTH || y >= ILI9341_HEIGHT))
+    return;
   
   uint8_t
     r = (color & 0xF800) >> 8,
@@ -189,9 +226,12 @@ void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
 
 void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b)
 {
-  if (x < SDL_WIDTH && y < SDL_HEIGHT) {
-    putpixel(renderer, x, y, r, g, b);
-  }
+  if (use8875 && (x >= RA8875_WIDTH || y >= RA8875_HEIGHT))
+    return;
+  if ((!use8875) && (x >= ILI9341_WIDTH || y >= ILI9341_HEIGHT))
+    return;
+
+  putpixel(renderer, x, y, r, g, b);
 }
 
 void SDLDisplay::clrScr(uint8_t coloridx)
@@ -201,37 +241,67 @@ void SDLDisplay::clrScr(uint8_t coloridx)
     rgbptr = loresPixelColors[coloridx];
 
   uint32_t packedColor = packColor32(loresPixelColors[coloridx]);
-  
-  for (uint16_t y=0; y<SDL_HEIGHT; y++) {
-    for (uint16_t x=0; x<SDL_WIDTH; x++) {
-      videoBuffer[y][x] = packedColor;
+
+  for (uint16_t y=0; y<(use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT); y++) {
+    for (uint16_t x=0; x<(use8875 ? RA8875_WIDTH : ILI9341_WIDTH); x++) {
+      videoBuffer[y*(use8875 ? RA8875_WIDTH : ILI9341_WIDTH) + x] = packedColor;
     }
   }
 }
 
 void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 {
-  for (int yoff=0; yoff<2; yoff++) {
-    videoBuffer[(y*2)+SCREENINSET_8875_Y+yoff][x+SCREENINSET_8875_X] = packColor32(loresPixelColors[color]);
+  if (use8875) {
+    for (int yoff=0; yoff<2; yoff++) {
+      videoBuffer[((y*2)+SCREENINSET_8875_Y+yoff)*RA8875_WIDTH +
+                  x+SCREENINSET_8875_X] = packColor32(loresPixelColors[color]);
+    }
+  } else {
+    if (x&1) {
+      uint32_t origColor =videoBuffer[(y+SCREENINSET_9341_Y)*ILI9341_WIDTH+(x>>1)+SCREENINSET_9341_X];
+      if (g_displayType == m_blackAndWhite) {
+        uint32_t blendedColor = blendColors(origColor, color);
+        uint32_t luminance = luminanceFromRGB((blendedColor & 0xFF0000)>>16,
+                                              (blendedColor & 0x00FF00)>> 8,
+                                              (blendedColor & 0x0000FF));
+        cacheDoubleWidePixel(x>>1,y,(uint32_t)((luminance >= g_luminanceCutoff) ? 0xFFFFFF : 0x000000));
+      } else {
+        cacheDoubleWidePixel(x>>1, y, color);
+      }
+      
+    } else {
+      // All of the even pixels get drawn...
+      cacheDoubleWidePixel(x>>1, y, color);
+    }
   }
 }
 
 // "DoubleWide" means "please double the X because I'm in low-res width mode"
 void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
 {
-  for (int yoff=0; yoff<2; yoff++) {
-    for (int xoff=0; xoff<2; xoff++) {
-      videoBuffer[(y*2)+SCREENINSET_8875_Y+yoff][(x*2)+SCREENINSET_8875_X+xoff] = packColor32(loresPixelColors[color]);
+  if (use8875) {
+    for (int yoff=0; yoff<2; yoff++) {
+      for (int xoff=0; xoff<2; xoff++) {
+        videoBuffer[((y*2)+SCREENINSET_8875_Y+yoff)*RA8875_WIDTH +
+                    (x*2)+SCREENINSET_8875_X+xoff] = packColor32(loresPixelColors[color]);
+      }
     }
+  } else {
+    videoBuffer[(y+SCREENINSET_9341_Y)*ILI9341_WIDTH + (x) + SCREENINSET_9341_X] = packColor32(loresPixelColors[color]);
   }
 }
 
 void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint32_t packedColor)
 {
-  for (int yoff=0; yoff<2; yoff++) {
-    for (int xoff=0; xoff<2; xoff++) {
-      videoBuffer[(y*2)+SCREENINSET_8875_Y+yoff][(x*2)+SCREENINSET_8875_X+xoff] = packedColor;
+  if (use8875) {
+    for (int yoff=0; yoff<2; yoff++) {
+      for (int xoff=0; xoff<2; xoff++) {
+        videoBuffer[((y*2)+SCREENINSET_8875_Y+yoff)*RA8875_WIDTH +
+                    (x*2)+SCREENINSET_8875_X+xoff] = packedColor;
+      }
     }
+  } else {
+    videoBuffer[(y+SCREENINSET_9341_Y)*ILI9341_WIDTH + (x) + SCREENINSET_9341_X] = packedColor;
   }
 }
 
@@ -239,11 +309,15 @@ void SDLDisplay::windowResized(uint32_t w, uint32_t h)
 {
   // Preserve the aspect ratio
   float aspectRatio = (float)w/(float)h;
-  if (aspectRatio != ((float)SDL_WIDTH)/((float)SDL_HEIGHT)) {
-    if (aspectRatio > ((float)SDL_WIDTH)/((float)SDL_HEIGHT)) {
-      h = ((1.f * ((float)SDL_HEIGHT)) / ((float)SDL_WIDTH)) * w;
+
+  float expectedWidth = use8875 ? RA8875_WIDTH : ILI9341_WIDTH;
+  float expectedHeight = use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT;
+  
+  if (aspectRatio != ((float)expectedWidth)/((float)expectedHeight)) {
+    if (aspectRatio > ((float)expectedWidth)/((float)expectedHeight)) {
+      h = ((1.f * ((float)expectedHeight)) / ((float)expectedWidth)) * w;
     } else {
-      w = (((float)SDL_WIDTH)/((float)SDL_HEIGHT)) * h;
+      w = (((float)expectedWidth)/((float)expectedHeight)) * h;
     }
   }
   
