@@ -3,6 +3,8 @@
 
 #include "images.h"
 
+#include "palette.h"
+
 // Discussion about DMA channels: http://forum.pjrc.com/threads/25778-Could-there-be-something-like-an-ISR-template-function/page3
 // Thread discussing the way to get started: https://forum.pjrc.com/threads/63353-Teensy-4-1-How-to-start-using-DMA
 // Thread of someone writing an LCD interface: https://forum.pjrc.com/threads/67247-Teensy-4-0-DMA-SPI
@@ -396,13 +398,13 @@ bool RA8875_t4::updateScreenAsync(bool update_cont)
   return true;
 }
 
-void RA8875_t4::fillWindow(uint16_t color)
+void RA8875_t4::fillWindow(uint8_t coloridx)
 {
   if (!_pfbtft)
     return;
   
   // Reduce color to 8 bit
-  uint8_t c8 = _565To332(color);
+  uint8_t c8 = palette8[coloridx];
   memset(_pfbtft, c8, RA8875_WIDTH*RA8875_HEIGHT);
 }
 
@@ -419,7 +421,7 @@ void RA8875_t4::drawPixel(int16_t x, int16_t y, uint16_t color)
   _pfbtft[y*RA8875_WIDTH+x] = _565To332(color);
 }
 
-void RA8875_t4::cacheApplePixel(uint16_t x, uint16_t y, uint16_t color)
+void RA8875_t4::cacheApplePixel(uint16_t x, uint16_t y, uint8_t coloridx)
 {
   if (x>=560 || y>=192) {
     Serial.print("! ");
@@ -430,13 +432,13 @@ void RA8875_t4::cacheApplePixel(uint16_t x, uint16_t y, uint16_t color)
   }
   
   // The 8875 display doubles vertically
-  uint c8 = _565To332(color);
+  uint c8 = palette8[coloridx];
   for (int yoff=0; yoff<2; yoff++) {
     _pfbtft[((y*2)+SCREENINSET_8875_Y+yoff) * RA8875_WIDTH +x+SCREENINSET_8875_X] = c8;
     }
 }
 
-void RA8875_t4::cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint16_t color16)
+void RA8875_t4::cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint8_t coloridx)
 {
   if (x>=280 || y>=192) {
     Serial.println("@");
@@ -446,7 +448,7 @@ void RA8875_t4::cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint16_t color
   // The RA8875 doubles Apple's pixels.
     for (int yoff=0; yoff<2; yoff++) {
       for (int xoff=0; xoff<2; xoff++) {
-        _pfbtft[((y*2)+SCREENINSET_8875_Y+yoff)*RA8875_WIDTH+(x*2)+SCREENINSET_8875_X+xoff] = _565To332(color16);
+        _pfbtft[((y*2)+SCREENINSET_8875_Y+yoff)*RA8875_WIDTH+(x*2)+SCREENINSET_8875_X+xoff] = palette8[coloridx];
       }
     }
 }

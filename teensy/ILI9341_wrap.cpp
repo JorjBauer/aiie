@@ -3,6 +3,7 @@
 #include "images.h"
 #include "globals.h"
 #include "appledisplay.h"
+#include "palette.h"
 
 #define _332To565(c) ((((c) & 0xe0) << 8) | (((c) & 0x1c) << 6) | ((c) & 0x03))
 
@@ -34,9 +35,9 @@ void ILI9341_Wrap::begin(uint32_t spi_clock=30000000u, uint32_t spi_clock_read=2
   }
 }
 
-void ILI9341_Wrap::fillWindow(uint16_t color = 0x0000)
+void ILI9341_Wrap::fillWindow(uint8_t coloridx = 0x00)
 {
-  tft->fillScreen(color);
+  tft->fillScreen(palette16[coloridx]);
 }
 
 void ILI9341_Wrap::setFrameBuffer(uint8_t *frame_buffer)
@@ -67,15 +68,27 @@ void ILI9341_Wrap::drawPixel(int16_t x, int16_t y, uint16_t color)
   frame_buffer[y*ILI9341_WIDTH+x] = color;
 }
 
+// find the color in the array and return its index
+static uint8_t reverseColor(uint16_t c)
+{
+  for (int i=0; i<16; i++) {
+    if (palette16[i] == c)
+      return i;
+  }
+  // didn't find it, return black
+  return c_black;
+}
+
 // The 9341 is half the width we need, so this jumps through hoops to
 // reduce the resolution in a way that's reasonable by blending pixels
-void ILI9341_Wrap::cacheApplePixel(uint16_t x, uint16_t y, uint16_t color)
+void ILI9341_Wrap::cacheApplePixel(uint16_t x, uint16_t y, uint8_t coloridx)
 {
   if (x>=560 || y>=192)
     return;
   
   if (x&1) {
     uint16_t origColor =frame_buffer[(y+SCREENINSET_9341_Y)*ILI9341_WIDTH+(x>>1)+SCREENINSET_9341_X];
+    uint16_t blendedColor = mix16[reverseColor(origColor)][coloridx];
       if (g_displayType == m_blackAndWhite) {
         // There are four reasonable decisions here: if either pixel
         // *was* on, then it's on; if both pixels *were* on, then it's
@@ -84,26 +97,34 @@ void ILI9341_Wrap::cacheApplePixel(uint16_t x, uint16_t y, uint16_t color)
         // some certain overall brightness, then it's on. This is the
         // last of those - where the brightness cutoff is defined in
         // the bios as g_luminanceCutoff.
-        uint16_t blendedColor = blendColors(origColor, color);
         uint16_t luminance = luminanceFromRGB(_565toR(blendedColor),
                                               _565toG(blendedColor),
                                               _565toB(blendedColor));
-        cacheDoubleWideApplePixel(x>>1,y,(uint16_t)((luminance >= g_luminanceCutoff) ? 0xFFFF : 0x0000));
+        cacheDoubleWideApplePixel(x>>1,y,(uint16_t)((luminance >= g_luminanceCutoff) ? c_white : c_black));
       } else {
-        cacheDoubleWideApplePixel(x>>1, y, color);
+        cacheBlendedPixel(x>>1, y, blendedColor);
       }
   } else {
     // All of the even pixels get drawn...
-    cacheDoubleWideApplePixel(x>>1, y, color);
+    cacheDoubleWideApplePixel(x>>1, y, coloridx);
   }
 }
 
-void ILI9341_Wrap::cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint16_t color16)
+// This is an internal method that sets a non-standard indexed color
+void ILI9341_Wrap::cacheBlendedPixel(uint16_t x, uint16_t y, uint16_t c)
 {
   if (x>=280 || y>=192)
     return;
-  
-  frame_buffer[(y+SCREENINSET_9341_Y)*ILI9341_WIDTH + (x) + SCREENINSET_9341_X] = color16;
+
+  frame_buffer[(y+SCREENINSET_9341_Y)*ILI9341_WIDTH + (x) + SCREENINSET_9341_X] = c;
+}
+
+void ILI9341_Wrap::cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint8_t coloridx)
+{
+  if (x>=280 || y>=192)
+    return;
+
+  frame_buffer[(y+SCREENINSET_9341_Y)*ILI9341_WIDTH + (x) + SCREENINSET_9341_X] = palette16[coloridx];
 }
 
 uint32_t ILI9341_Wrap::frameCount()

@@ -10,7 +10,7 @@
 #define _565To332(c) ((((c) & 0xe000) >> 8) | (((c) & 0x700) >> 6) | (((c) & 0x18) >> 3))
 #define _332To565(c) ((((c) & 0xe0) << 8) | (((c) & 0x1c) << 6) | ((c) & 0x03))
 
-#define blendColors(a,b) RGBto565( (_565toR(a) + _565toR(b))/2, (_565toG(a) + _565toG(b))/2, (_565toB(a) + _565toB(b))/2  )
+//#define blendColors(a,b) RGBto565( (_565toR(a) + _565toR(b))/2, (_565toG(a) + _565toG(b))/2, (_565toB(a) + _565toB(b))/2  )
 
 class BaseDisplay {
  public:
@@ -20,7 +20,7 @@ class BaseDisplay {
 
   virtual void begin(uint32_t spi_clock=30000000u, uint32_t spi_clock_read=2000000) = 0;
 
-  virtual void fillWindow(uint16_t color = 0x0000) = 0;
+  virtual void fillWindow(uint8_t coloridx = 0x00) = 0;
   
   virtual void setFrameBuffer(uint8_t *frame_buffer) = 0;
   
@@ -30,8 +30,8 @@ class BaseDisplay {
   virtual void drawPixel(int16_t x, int16_t y, uint16_t color) = 0;
 
   // Apple interface methods
-  virtual void cacheApplePixel(uint16_t x, uint16_t y, uint16_t color) = 0;
-  virtual void cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint16_t color16) = 0;
+  virtual void cacheApplePixel(uint16_t x, uint16_t y, uint8_t coloridx) = 0;
+  virtual void cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint8_t coloridx) = 0;
   
   virtual uint32_t frameCount() = 0;
 };

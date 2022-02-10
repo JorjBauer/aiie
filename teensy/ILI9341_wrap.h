@@ -19,7 +19,7 @@ class ILI9341_Wrap : public BaseDisplay {
 
   virtual void begin(uint32_t spi_clock=30000000u, uint32_t spi_clock_read=2000000);
 
-  virtual void fillWindow(uint16_t color = 0x0000);
+  virtual void fillWindow(uint8_t coloridx = 0x00);
   
   virtual void setFrameBuffer(uint8_t *frame_buffer);
   
@@ -28,9 +28,11 @@ class ILI9341_Wrap : public BaseDisplay {
   
   virtual void drawPixel(int16_t x, int16_t y, uint16_t color);
 
-  virtual void cacheApplePixel(uint16_t x, uint16_t y, uint16_t color);
-  virtual void ILI9341_Wrap::cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint16_t color16);
-  
+  virtual void cacheApplePixel(uint16_t x, uint16_t y, uint8_t coloridx);
+  virtual void cacheDoubleWideApplePixel(uint16_t x, uint16_t y, uint8_t coloridx);
+
+  void cacheBlendedPixel(uint16_t x, uint16_t y, uint16_t color16);
+
   virtual uint32_t frameCount();
 
 private:

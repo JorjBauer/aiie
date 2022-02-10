@@ -25,24 +25,6 @@ uint16_t *dmaBuffer16 = NULL;
 #define PIN_MISO 1
 #define PIN_SCK 27
 
-const uint16_t loresPixelColors[16] = { 0x0000, // 0 black
-                                         0xC006, // 1 magenta
-                                         0x0010, // 2 dark blue
-                                         0xA1B5, // 3 purple
-                                         0x0480, // 4 dark green
-                                         0x6B4D, // 5 dark grey
-                                         0x1B9F, // 6 med blue
-                                         0x0DFD, // 7 light blue
-                                         0x92A5, // 8 brown
-                                         0xF8C5, // 9 orange
-                                         0x9555, // 10 light gray
-                                         0xFCF2, // 11 pink
-                                         0x07E0, // 12 green
-                                         0xFFE0, // 13 yellow
-                                         0x87F0, // 14 aqua
-                                         0xFFFF  // 15 white
-};
-
 TeensyDisplay::TeensyDisplay()
 {
   driveIndicator[0] = driveIndicator[1] = true; // assume on so they will redraw immediately the first time
@@ -237,23 +219,19 @@ void TeensyDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint
 
 void TeensyDisplay::clrScr(uint8_t coloridx)
 {
-  uint16_t color16 = loresPixelColors[coloridx];
-  tft->fillWindow(color16);
+  tft->fillWindow(coloridx);
 }
 
-void TeensyDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
+void TeensyDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t coloridx)
 {
-  tft->cacheApplePixel(x,y,loresPixelColors[color]);
+  tft->cacheApplePixel(x,y,coloridx);
 }
 
 // "DoubleWide" means "please double the X because I'm in low-res
 // width mode".
-void TeensyDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
+void TeensyDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t coloridx)
 {
-  uint16_t color16;
-  color16 = loresPixelColors[(( color & 0x0F )     )];
-
-  tft->cacheDoubleWideApplePixel(x, y, color16);
+  tft->cacheDoubleWideApplePixel(x, y, coloridx);
 }
 
 uint32_t TeensyDisplay::frameCount()
