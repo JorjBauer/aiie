@@ -15,7 +15,104 @@
 #define ILI9341_WIDTH 320
 #define ILI9341_HEIGHT 240
 
-// *** FIXME need a better blend
+#ifndef min
+#define min(a,b) (((a) < (b)) ? (a) : (b))
+#endif
+#ifndef max
+#define max(a,b) (((a) > (b)) ? (a) : (b))
+#endif
+
+
+static void rgb_to_hsv(double r, double g, double b, double *h, double *s, double *v)
+{
+  // Range for these equations is [0..1] not [0..255]
+  r = r / 255.0;
+  g = g / 255.0;
+  b = b / 255.0;
+  
+  // h, s, v = hue, saturation, value
+  double cmax = max(r, max(g, b)); // maximum of r, g, b
+  double cmin = min(r, min(g, b)); // minimum of r, g, b
+  double diff = cmax - cmin; // diff of cmax and cmin.
+  
+  // if cmax and cmax are equal then h = 0
+  if (cmax == cmin)
+    *h = 0;
+  
+  // if cmax equal r then compute h
+  else if (cmax == r)
+    *h = (int)(60 * ((g - b) / diff) + 360) % 360;
+  
+  // if cmax equal g then compute h
+  else if (cmax == g)
+    *h = (int)(60 * ((b - r) / diff) + 120) % 360;
+  
+  // if cmax equal b then compute h
+  else if (cmax == b)
+    *h = (int)(60 * ((r - g) / diff) + 240) % 360;
+  
+  // if cmax equal zero
+  if (cmax == 0)
+    *s = 0;
+  else
+    *s = (diff / cmax) * 100;
+  
+  // compute v
+  *v = cmax * 100;
+}
+
+static void hsv_to_rgb(double H, double S, double V, uint8_t *R, uint8_t *G, uint8_t *B)
+{
+  float s = S/100;
+  float v = V/100;
+  float C = s*v;
+  float X = C*(1-fabs(fmod(H/60.0, 2)-1));
+  float m = v-C;
+  float r,g,b;
+  if(H >= 0 && H < 60){
+    r = C,g = X,b = 0;
+  }
+  else if(H >= 60 && H < 120){
+    r = X,g = C,b = 0;
+  }
+  else if(H >= 120 && H < 180){
+    r = 0,g = C,b = X;
+  }
+  else if(H >= 180 && H < 240){
+    r = 0,g = X,b = C;
+  }
+  else if(H >= 240 && H < 300){
+    r = X,g = 0,b = C;
+  }
+  else{
+    r = C,g = 0,b = X;
+  }
+  *R = (r+m)*255;
+  *G = (g+m)*255;
+  *B = (b+m)*255;
+}
+
+// blend two 24-bit packed colors
+uint32_t blendColors(uint32_t a, uint32_t b)
+{
+  uint8_t r1, r2, g1, g2, b1, b2;
+  r1 = (a & 0xFF0000) >> 16;
+  g1 = (a & 0x00FF00) >> 8;
+  b1 = (a & 0x0000FF);
+  r2 = (b & 0xFF0000) >> 16;
+  g2 = (b & 0x00FF00) >> 8;
+  b2 = (b & 0x0000FF);
+
+  double h1, s1, v1, h2, s2, v2;
+  rgb_to_hsv(r1, g1, b1, &h1, &s1, &v1);
+  rgb_to_hsv(r2, g2, b2, &h2, &s2, &v2);
+  
+  hsv_to_rgb((h1+h2)/2, (s1+s2)/2, (v1+v2)/2, &r1, &g1, &b1);
+  uint32_t ret = (r1 << 16) | (g1 << 8) | (b1);
+
+  return ret;
+}
+
 #define blendColors(a,b) (a | b)
 
 extern bool use8875;
@@ -77,12 +174,11 @@ SDLDisplay::SDLDisplay()
   }
   
   
-  // FIXME: abstract constants
   screen = SDL_CreateWindow("Aiie!",
 			    SDL_WINDOWPOS_UNDEFINED,
 			    SDL_WINDOWPOS_UNDEFINED,
-                            use8875 ? RA8875_WIDTH : ILI9341_WIDTH,
-                            use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT,
+                            use8875 ? RA8875_WIDTH : ILI9341_WIDTH*2,
+                            use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT*2,
 			    SDL_WINDOW_SHOWN|SDL_WINDOW_RESIZABLE);
 
   // SDL_RENDERER_SOFTWARE because, at least on my Mac, this has some
@@ -107,7 +203,8 @@ SDLDisplay::~SDLDisplay()
 void SDLDisplay::flush()
 {
   blit();
-  SDL_RenderPresent(renderer);
+  // blit() called SDL_RenderPresent already
+  //  SDL_RenderPresent(renderer);
 }
 
 void SDLDisplay::drawUIImage(uint8_t imageIdx)
@@ -145,10 +242,10 @@ void SDLDisplay::drawUIImage(uint8_t imageIdx)
 void SDLDisplay::drawDriveActivity(bool drive0, bool drive1)
 {
   if (drive0 != driveIndicator[0]) {
-    printf("change d0\n");
     for (int y=0; y<(use8875 ? LED_HEIGHT_8875 : LED_HEIGHT_9341); y++) {
       for (int x=0; x<(use8875 ? LED_WIDTH_8875 : LED_WIDTH_9341); x++) {
         // FIXME this isn't working, not sure why
+        // ... is it because nothing calls flush()?
         drawPixel(x+(use8875 ? LED1_X_8875 : LED1_X_9341), y+(use8875 ? LED1_Y_8875 : LED1_Y_9341), drive0 ? 0xFA00 : 0x0000);
       }
     }
@@ -211,27 +308,16 @@ inline void putpixel(SDL_Renderer *renderer, int x, int y, uint8_t r, uint8_t g,
 
 void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
 {
-  if (use8875 && (x >= RA8875_WIDTH || y >= RA8875_HEIGHT))
+  if (use8875 && (x >= RA8875_WIDTH || y >= RA8875_HEIGHT)) {
+    printf("err: out of bounds drawing\n");
     return;
-  if ((!use8875) && (x >= ILI9341_WIDTH || y >= ILI9341_HEIGHT))
+  }
+  if ((!use8875) && (x >= ILI9341_WIDTH || y >= ILI9341_HEIGHT)) {
+    printf("err: out of bounds drawing\n");
     return;
-  
-  uint8_t
-    r = (color & 0xF800) >> 8,
-    g = (color & 0x7E0) >> 3,
-    b = (color & 0x1F) << 3;
+  }
 
-  putpixel(renderer, x, y, r, g, b);
-}
-
-void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b)
-{
-  if (use8875 && (x >= RA8875_WIDTH || y >= RA8875_HEIGHT))
-    return;
-  if ((!use8875) && (x >= ILI9341_WIDTH || y >= ILI9341_HEIGHT))
-    return;
-
-  putpixel(renderer, x, y, r, g, b);
+  videoBuffer[y*(use8875 ? RA8875_WIDTH : ILI9341_WIDTH) + x] = color16To32(color);
 }
 
 void SDLDisplay::clrScr(uint8_t coloridx)
@@ -259,14 +345,15 @@ void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
   } else {
     if (x&1) {
       uint32_t origColor =videoBuffer[(y+SCREENINSET_9341_Y)*ILI9341_WIDTH+(x>>1)+SCREENINSET_9341_X];
+      uint32_t blendedColor = blendColors(origColor,
+                                          packColor32(loresPixelColors[color]));
       if (g_displayType == m_blackAndWhite) {
-        uint32_t blendedColor = blendColors(origColor, color);
         uint32_t luminance = luminanceFromRGB((blendedColor & 0xFF0000)>>16,
                                               (blendedColor & 0x00FF00)>> 8,
                                               (blendedColor & 0x0000FF));
         cacheDoubleWidePixel(x>>1,y,(uint32_t)((luminance >= g_luminanceCutoff) ? 0xFFFFFF : 0x000000));
       } else {
-        cacheDoubleWidePixel(x>>1, y, color);
+        cacheDoubleWidePixel(x>>1, y, blendedColor);
       }
       
     } else {

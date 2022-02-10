@@ -26,7 +26,7 @@ class SDLDisplay : public PhysicalDisplay {
   virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint16_t sizey, uint16_t wherex, uint16_t wherey);
 
   virtual void drawPixel(uint16_t x, uint16_t y, uint16_t color);
-  virtual void drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b);
+  //  virtual void drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b);
 
   virtual void clrScr(uint8_t coloridx);
 

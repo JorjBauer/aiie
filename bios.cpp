@@ -244,7 +244,7 @@ bool BIOS::loop()
       break;
     }
   }
-  
+
   switch (selectedMenu) {
   case BIOS_AIIE:
     rv = AiieMenuHandler(needsRedraw, hitReturn);
