@@ -113,8 +113,6 @@ uint32_t blendColors(uint32_t a, uint32_t b)
   return ret;
 }
 
-#define blendColors(a,b) (a | b)
-
 extern bool use8875;
 
 // RGB map of each of the lowres colors
