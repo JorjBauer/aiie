@@ -244,13 +244,19 @@ uint8_t DiskII::readSwitches(uint8_t s)
     select(1);
     break;
 
-  case 0x0C: // Q6 off: shift/read
+  case 0x0C: { // Q6 off: shift/read
+    // If Q6 was on (sense-WP) going into this access, the CPU is
+    // doing an E7-style cycle-counted read right after $C08D.
+    // Suppress the overshoot cheat so aiie's stream pointer stays
+    // where the protection code expects it.
+    bool comingFromSenseWP = q6;
     q6 = false;
-    readWriteLatch = readOrWriteByte();
+    readWriteLatch = readOrWriteByte(!comingFromSenseWP);
     if (readWriteLatch & 0x80) {
       sequencer = 0;
     }
     break;
+  }
 
   case 0x0D: // Q6 on: load (sense WP in read mode)
     q6 = true;
@@ -323,12 +329,14 @@ void DiskII::writeSwitches(uint8_t s, uint8_t v)
     select(1);
     break;
 
-  case 0x0C: // Q6 off: shift/write
+  case 0x0C: { // Q6 off: shift/write
+    bool comingFromSenseWP = q6;
     q6 = false;
-    if (readOrWriteByte() & 0x80) {
+    if (readOrWriteByte(!comingFromSenseWP) & 0x80) {
       sequencer = 0;
     }
     break;
+  }
 
   case 0x0D: // Q6 on: load
     q6 = true;
@@ -442,9 +450,6 @@ void DiskII::tickLSS()
 
   int64_t bitsToDeliver = calcExpectedBits();
   while (bitsToDeliver > 0) {
-    // Consume a bit from the WOZ stream either way — the disk keeps
-    // rotating regardless of Q6 state, so the track pointer must
-    // advance to stay in rotational sync.
     uint8_t bit = disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
     if (q6) {
       // Q6=1, Q7=0: sense write protect. LSS reloads the register
@@ -599,81 +604,72 @@ void DiskII::select(int8_t which)
   }
 }
 
-uint8_t DiskII::readOrWriteByte()
+uint8_t DiskII::readOrWriteByte(bool allowOvershoot)
 {
   if (!disk[selectedDisk]) {
     return 0xFF;
   }
 
-  int32_t bitsToDeliver;
-  
   if (diskIsSpinningUntil[selectedDisk] != SPINFOREVER &&
       diskIsSpinningUntil[selectedDisk] < g_cpu->cycles) {
-    // Uum, disk isn't spinning?
-    goto done;
+    return sequencer;
   }
   // Head parked between tracks (unmapped QT in TMAP). Real hardware would
-  // read noise here; return the sequencer as-is without touching the WOZ
-  // data (Woz::nextDiskBit would fault on datatrack 0xFF).
+  // read noise here; leave sequencer alone so Woz::nextDiskBit doesn't
+  // fault on datatrack 0xFF.
   if (curWozTrack[selectedDisk] == 0xFF) {
-    goto done;
+    return sequencer;
   }
 
-  bitsToDeliver = calcExpectedBits();
-  
-  if (writeMode && !writeProt) {
-    // It's a write request.
-
-    // Write requests from DOS 3.3 start with 40 self-sync bytes
-    // (cf. Beneath Apple DOS, p.3-8 and 3-9). These 0XFF bytes are
-    // written in a 40-cycle loop, where a bit is written every 4
-    // cycles; it intentionally lets 2 0-bits slip in there to
-    // provide the self-sync pattern.
-    //
-    // So the timing here is important. Figure out how many bits
-    // should have been laid down to the track, and those are 0s.
-
-    int64_t expectedBits = calcExpectedBits();
-    while (expectedBits > 0) {
-      disk[selectedDisk]->writeNextWozBit(curWozTrack[selectedDisk], 0);
-      expectedBits--;
-      deliveredDiskBits[selectedDisk]++;
+  if (writeMode) {
+    if (!writeProt) {
+      // Write requests from DOS 3.3 start with 40 self-sync bytes
+      // (cf. Beneath Apple DOS, p.3-8 and 3-9). These 0xFF bytes are
+      // written in a 40-cycle loop, where a bit is written every 4
+      // cycles; it intentionally lets 2 0-bits slip in there to
+      // provide the self-sync pattern. Lay down 0-bits for whatever
+      // time has passed, then the byte from the latch.
+      int64_t expectedBits = calcExpectedBits();
+      while (expectedBits > 0) {
+	disk[selectedDisk]->writeNextWozBit(curWozTrack[selectedDisk], 0);
+	expectedBits--;
+	deliveredDiskBits[selectedDisk]++;
+      }
+      disk[selectedDisk]->writeNextWozByte(curWozTrack[selectedDisk], readWriteLatch);
+      deliveredDiskBits[selectedDisk] += 8;
     }
-
-    disk[selectedDisk]->writeNextWozByte(curWozTrack[selectedDisk], readWriteLatch);
-    deliveredDiskBits[selectedDisk] += 8;
-    goto done;
+    // Write-protected writes do nothing (real hardware sees the write
+    // but the media rejects it); either way, don't fall through to the
+    // read path.
+    return sequencer;
   }
 
-  // With tickLSS running on every soft-switch access, bitsToDeliver is
-  // usually 0 or slightly negative by the time we get here. We still
-  // want the overshoot-until-bit-7 behavior so C08C returns a ready
-  // byte, so always run the < 16 branch.
-  if (bitsToDeliver < 16) {
-    // Shift until bit 7 is set, tolerating up to 16 bits of overshoot.
-    // This lets us always return a ready byte to callers polling C08C.
-    while (bitsToDeliver > -16 && ((sequencer & 0x80) == 0)) {
+  // Read mode. tickLSS() has already advanced the sequencer to the
+  // current cycle — but batch catch-up at soft-switch granularity
+  // can't model what real LSS does on the bit-7 boundary (it holds
+  // the nibble briefly so the CPU can sample it). If we return a
+  // partial byte here, standard RWTS sync loops read shifted
+  // non-nibble values, denibblize fails, and every sector retries
+  // through a full rotation — crushing boot speed by ~7x. So if
+  // bit 7 isn't set, shift a few more bits from the stream until it
+  // is, tolerating up to 16 bits of overshoot past the expected
+  // count. This is the cheat aiie used before tickLSS, and it's
+  // still the right cheat for this granularity.
+  //
+  // Caller can suppress the overshoot when it knows the read is
+  // cycle-counted copy protection (e.g. Miner 2049er II's E7
+  // resync: $C08D then $C08C at a precise offset). In that case we
+  // must report the sequencer as-is so the stream position stays
+  // where the protection code expects it.
+  if (allowOvershoot) {
+    int64_t bitsToDeliver = calcExpectedBits();
+    while (bitsToDeliver > -16 && !(sequencer & 0x80)) {
       sequencer <<= 1;
       sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
       bitsToDeliver--;
       deliveredDiskBits[selectedDisk]++;
     }
-    goto done;
   }
-
-  // If we reach here, we're throwing away a bunch of missed data.
-  // This might be normal (where the machine wasn't listening for the data),
-  // or it might be exceptional (something wrong with the tuning of data
-  // delivery, based on the magic constant in expectedDiskBits above)...
-  deliveredDiskBits[selectedDisk] += bitsToDeliver;
-  while (bitsToDeliver) {
-    sequencer <<= 1;
-    sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
-    bitsToDeliver--;
-  }
-
-    
- done:
   return sequencer;
 }
 

@@ -46,7 +46,7 @@ class DiskII : public Slot {
   bool isWriteProtected();
   void setWriteMode(bool enable);
   void select(int8_t which); // 0 or 1 for drives 1 and 2, respectively
-  uint8_t readOrWriteByte();
+  uint8_t readOrWriteByte(bool allowOvershoot);
 
   void driveOn();
   void driveOff();
