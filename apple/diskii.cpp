@@ -474,19 +474,20 @@ void DiskII::tickLSS()
   if (diskIsSpinningUntil[selectedDisk] != SPINFOREVER &&
       diskIsSpinningUntil[selectedDisk] < g_cpu->cycles) return;
 
-  // When the head is on an unmapped half-track (TMAP 0xFF), the real
-  // drive keeps spinning and the MC3470 keeps producing its analog
-  // signal — mostly noise because the head is off the written bands.
-  // Per the WOZ 2.0 spec, emulate this by feeding all-zero bits so
-  // the fake-bit logic kicks in naturally, and advance delivered-bit
-  // count so cross-track rotational sync isn't frozen during transit.
-  bool headParked = (curWozTrack[selectedDisk] == 0xFF);
+  // When the head is on an unmapped half-track (TMAP 0xFF), we bail
+  // out of the LSS loop — and crucially, we do NOT advance
+  // deliveredDiskBits. That way, when the head lands on a real track
+  // and tickLSS resumes, calcExpectedBits returns a backlog equal to
+  // the transit time's worth of bits, which tickLSS then consumes on
+  // the destination track. Combined with Woz::getNextWozBit's
+  // proportional cross-track scaling, this reproduces the real
+  // hardware's angular position after a seek: P_new = P_old_scaled +
+  // transit_bits. Blazing Paddles' cross-track check depends on this.
+  if (curWozTrack[selectedDisk] == 0xFF) return;
 
   int64_t bitsToDeliver = calcExpectedBits();
   while (bitsToDeliver > 0) {
-    uint8_t bit = headParked
-                    ? 0
-                    : disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
+    uint8_t bit = disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
     for (uint8_t sub = 0; sub < 8; sub++) {
       uint8_t rp = (sub == 0 && bit) ? 1 : 0;
       uint8_t qa = (sequencer & 0x80) ? 1 : 0;
