@@ -1576,6 +1576,38 @@ bool Woz::encodeWozTrackSector(uint8_t phystrack, uint8_t sector, uint8_t dataIn
 }
 
 
+bool Woz::isThirteenSectorDisk()
+{
+  return di.bootSectorFormat == 2;
+}
+
+bool Woz::decodeWozTrack13ToDsk(uint8_t phystrack, uint8_t sectorData[256*13])
+{
+  // 13-sector tracks can't reuse the 16-sector `nibSector[16]` staging
+  // buffer the 6-and-2 path builds: they have a different address
+  // prologue and a larger per-sector data field. Instead, pull the raw
+  // nib stream straight out of the WOZ bit data (re-using nextDiskByte,
+  // which already does the "wait for top bit" latch) and scan it with
+  // the 13-sector denibblizer.
+  uint8_t dataTrack = quarterTrackMap[phystrack*4];
+  if (!loadMissingTrackFromImage(dataTrack)) return false;
+
+  uint8_t *nibStream = (uint8_t *)calloc(NIBTRACKSIZE, 1);
+  if (!nibStream) return false;
+
+  for (uint32_t i = 0; i < NIBTRACKSIZE; i++) {
+    nibStream[i] = nextDiskByte(dataTrack);
+  }
+
+  nibErr rc = denibblizeTrack13(nibStream, sectorData);
+  free(nibStream);
+  if (rc != errorNone) {
+    fprintf(stderr, "failed to denib 13-sector track (err %d)\n", (int)rc);
+    return false;
+  }
+  return true;
+}
+
 bool Woz::decodeWozTrackToDsk(uint8_t phystrack, uint8_t subtype, uint8_t sectorData[256*16])
 {
   // Figure out which datatrack we need for the given physical track

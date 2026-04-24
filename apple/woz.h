@@ -65,6 +65,16 @@ class Woz {
   bool decodeWozTrackToDsk(uint8_t phystrack, uint8_t subtype, uint8_t sectorData[256*16]);
   bool decodeWozTrackSector(uint8_t phystrack, uint8_t sector, uint8_t dataOut[256]);
   bool encodeWozTrackSector(uint8_t phystrack, uint8_t sector, uint8_t dataIn[256]);
+
+  // 13-sector (DOS 3.2) decode path. Like decodeWozTrackToDsk but emits
+  // 13 logically-ordered 256-byte sectors and uses the 5-and-3 codec
+  // with the D5 AA B5 address prologue.
+  bool decodeWozTrack13ToDsk(uint8_t phystrack, uint8_t sectorData[256*13]);
+
+  // True when the WOZ INFO chunk advertises the disk as 13-sector only
+  // (bootSectorFormat = 2). "Both" (= 3) disks are treated as 16-sector
+  // by default; callers that care can sniff per-track.
+  bool isThirteenSectorDisk();
   
  protected:
   bool writeWozFile(const char *filename, uint8_t subtype);

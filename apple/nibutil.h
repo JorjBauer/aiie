@@ -49,11 +49,25 @@ typedef struct _bitPtr {
   bool _decode62Data(const uint8_t trackBuffer[343], uint8_t output[256]);
   void _encode62Data(uint8_t *outputBuffer, const uint8_t input[256]);
 
+  // 5-and-3 (DOS 3.2 / 13-sector) sector codec. 256 bytes of data encode
+  // to 411 disk bytes: 154 "aux" bytes holding the low 3 bits of every
+  // input byte, 256 "primary" bytes holding the high 5 bits, and one
+  // running-XOR checksum byte. The 32-value disk alphabet is fixed by
+  // the Apple disk controller's "no two adjacent zero bits, high bit
+  // set" constraints.
+  bool _decode53Data(const uint8_t trackBuffer[411], uint8_t output[256]);
+  void _encode53Data(uint8_t outputBuffer[411], const uint8_t input[256]);
+
 uint32_t nibblizeTrack(uint8_t outputBuffer[NIBTRACKSIZE], const uint8_t rawTrackBuffer[256*16],
 		       uint8_t diskType, int8_t track);
 
 nibErr denibblizeTrack(const uint8_t input[NIBTRACKSIZE], uint8_t rawTrackBuffer[256*16],
 		       uint8_t diskType);
+
+// 13-sector variant: decodes a 13-sector DOS 3.2 track. rawTrackBuffer
+// should be 256*13 bytes. Uses D5 AA B5 address prologue and the 5-and-3
+// codec for sector data.
+nibErr denibblizeTrack13(const uint8_t input[NIBTRACKSIZE], uint8_t rawTrackBuffer[256*13]);
 
 uint8_t de44(uint8_t nibs[2]);
 

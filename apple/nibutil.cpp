@@ -55,6 +55,32 @@ const static uint8_t dephys[16] = {
   0x00, 0x07, 0x0e, 0x06, 0x0d, 0x05, 0x0c, 0x04,
   0x0b, 0x03, 0x0a, 0x02, 0x09, 0x01, 0x08, 0x0f };
 
+// DOS 3.2 physical → logical sector. DOS 3.2 writes logical sector N to
+// physical sector (N*5) mod 13, so the inverse mapping (physical → logical)
+// is (phys*8) mod 13. Verified by catalog layout on DOS 3.2 System Master.
+const static uint8_t dephys13[13] = {
+  0,  1,  2,  3,  4,  5,  6,  7,  8,  9, 10, 11, 12 };
+
+// 5-and-3 disk alphabet: the 32 permissible 8-bit patterns on a
+// 13-sector Apple II floppy. Index i is the 5-bit logical value.
+static const uint8_t _diskBytes53[32] = {
+  0xAB, 0xAD, 0xAE, 0xAF, 0xB5, 0xB6, 0xB7, 0xBA,
+  0xBB, 0xBD, 0xBE, 0xBF, 0xD6, 0xD7, 0xDA, 0xDB,
+  0xDD, 0xDE, 0xDF, 0xEA, 0xEB, 0xED, 0xEE, 0xEF,
+  0xF5, 0xF6, 0xF7, 0xFA, 0xFB, 0xFD, 0xFE, 0xFF };
+
+// Inverse table: disk byte → 5-bit value, or 0xFF if invalid. Built at
+// startup from _diskBytes53 so we don't carry a second hand-maintained
+// copy that could drift.
+static uint8_t _invDiskBytes53[256];
+static bool _inv53Ready = false;
+static void _build53Inverse() {
+  if (_inv53Ready) return;
+  for (int i = 0; i < 256; i++) _invDiskBytes53[i] = 0xFF;
+  for (int i = 0; i < 32; i++) _invDiskBytes53[_diskBytes53[i]] = (uint8_t)i;
+  _inv53Ready = true;
+}
+
 // Prodos to physical sector conversion
 const uint8_t deProdosPhys[] = {
   0x00, 0x08, 0x01, 0x09, 0x02, 0x0a, 0x03, 0x0b,
@@ -268,6 +294,182 @@ bool _decode62Data(const uint8_t trackBuffer[343], uint8_t output[256])
   }
 
   return true;
+}
+
+// ----- 5-and-3 codec ------------------------------------------------
+//
+// Layout of an encoded sector body (411 bytes):
+//   [0..153]   aux bytes  (low 3 bits of each input byte, packed backwards)
+//   [154..409] primary    (high 5 bits of each input byte)
+//   [410]      checksum
+//
+// Both aux and primary are written through a running-XOR: each disk value
+// equals (previous-decoded ^ this-decoded). The first aux byte XORs with
+// the seed (always 0 on stock DOS). The receiver recovers the original
+// 5-bit value by XORing back against the running checksum.
+//
+// The aux section packs 51 "groups of 5 input bytes" into 51 triplets.
+// For a group (byteA, byteB, byteC, byteD, byteE), their low 3 bits are
+// split across three aux entries (at indices i, 51+i, 102+i):
+//   aux[i]      = (A_low3 << 2) | ((D_low3 & 0x4) >> 1) | ((E_low3 & 0x4) >> 2)
+//   aux[51+i]   = (B_low3 << 2) | ( D_low3 & 0x2)       | ((E_low3 & 0x2) >> 1)
+//   aux[102+i]  = (C_low3 << 2) | ((D_low3 & 0x1) << 1) | ( E_low3 & 0x1)
+// The 154th aux byte carries the low 3 bits of the 256th input byte
+// directly (no packing — it's a leftover).
+
+void _encode53Data(uint8_t outputBuffer[411], const uint8_t input[256])
+{
+  _build53Inverse(); // harmless here; keeps both paths self-initializing
+
+  uint8_t tops[256];      // high-5-bit values
+  uint8_t threes[154];    // packed aux values
+
+  // Fill tops[] in the layout the decoder will read (reversed per group).
+  const int CHUNK = 51;
+  for (int g = 0; g < CHUNK; g++) {
+    int chunk = (CHUNK - 1) - g;
+    uint8_t A = input[g*5 + 0], B = input[g*5 + 1], C = input[g*5 + 2];
+    uint8_t D = input[g*5 + 3], E = input[g*5 + 4];
+
+    tops[chunk + CHUNK*0] = A >> 3;
+    tops[chunk + CHUNK*1] = B >> 3;
+    tops[chunk + CHUNK*2] = C >> 3;
+    tops[chunk + CHUNK*3] = D >> 3;
+    tops[chunk + CHUNK*4] = E >> 3;
+
+    uint8_t a = A & 0x07, b = B & 0x07, c = C & 0x07;
+    uint8_t d = D & 0x07, e = E & 0x07;
+    threes[chunk + CHUNK*0] = (uint8_t)((a << 2) | ((d & 0x4) >> 1) | ((e & 0x4) >> 2));
+    threes[chunk + CHUNK*1] = (uint8_t)((b << 2) | ( d & 0x2)       | ((e & 0x2) >> 1));
+    threes[chunk + CHUNK*2] = (uint8_t)((c << 2) | ((d & 0x1) << 1) | ( e & 0x1));
+  }
+
+  // Straggler: the 256th input byte has no group companions.
+  tops[255]   = input[255] >> 3;
+  threes[153] = input[255] & 0x07;
+
+  // Emit through the running-XOR: first aux (reverse order), then primary,
+  // then final checksum nibble so the receiver can verify.
+  int chk = 0;
+  for (int i = 153; i >= 0; i--) {
+    outputBuffer[153 - i] = _diskBytes53[threes[i] ^ chk];
+    chk = threes[i];
+  }
+  for (int i = 0; i < 256; i++) {
+    outputBuffer[154 + i] = _diskBytes53[tops[i] ^ chk];
+    chk = tops[i];
+  }
+  outputBuffer[410] = _diskBytes53[chk];
+}
+
+bool _decode53Data(const uint8_t trackBuffer[411], uint8_t output[256])
+{
+  _build53Inverse();
+
+  uint8_t threes[154];    // aux 5-bit values, post-XOR
+  uint8_t tops[256];      // primary 5-bit values, post-XOR
+  uint8_t chk = 0;
+
+  // Aux section first — the encoder wrote it reversed, so index 153 down.
+  for (int i = 153; i >= 0; i--) {
+    uint8_t v = _invDiskBytes53[trackBuffer[153 - i]];
+    if (v == 0xFF) return false;
+    chk ^= v;
+    threes[i] = chk;
+  }
+  for (int i = 0; i < 256; i++) {
+    uint8_t v = _invDiskBytes53[trackBuffer[154 + i]];
+    if (v == 0xFF) return false;
+    chk ^= v;
+    tops[i] = chk;
+  }
+  uint8_t trailer = _invDiskBytes53[trackBuffer[410]];
+  if (trailer == 0xFF || trailer != chk) return false;
+
+  // Rebuild the 255 five-byte groups in reverse order (matching how they
+  // were laid out during encode). See the header comment for bit layout.
+  const int CHUNK = 51;
+  int outIdx = 0;
+  for (int g = CHUNK - 1; g >= 0; g--) {
+    uint8_t t1 = threes[g];
+    uint8_t t2 = threes[CHUNK + g];
+    uint8_t t3 = threes[CHUNK*2 + g];
+
+    uint8_t d = (uint8_t)(((t1 & 0x02) << 1) | (t2 & 0x02) | ((t3 & 0x02) >> 1));
+    uint8_t e = (uint8_t)(((t1 & 0x01) << 2) | ((t2 & 0x01) << 1) | (t3 & 0x01));
+
+    output[outIdx++] = (uint8_t)((tops[g]            << 3) | ((t1 >> 2) & 0x07));
+    output[outIdx++] = (uint8_t)((tops[CHUNK + g]    << 3) | ((t2 >> 2) & 0x07));
+    output[outIdx++] = (uint8_t)((tops[CHUNK*2 + g]  << 3) | ((t3 >> 2) & 0x07));
+    output[outIdx++] = (uint8_t)((tops[CHUNK*3 + g]  << 3) | (d & 0x07));
+    output[outIdx++] = (uint8_t)((tops[CHUNK*4 + g]  << 3) | (e & 0x07));
+  }
+  // Straggler byte.
+  output[outIdx++] = (uint8_t)((tops[255] << 3) | (threes[153] & 0x07));
+  return true;
+}
+
+// 13-sector track denibblizer. Largely parallel to denibblizeTrack but
+// keyed off the DOS 3.2 address prologue (D5 AA B5) and using the 5-and-3
+// sector-data codec. Data prologue is still D5 AA AD.
+nibErr denibblizeTrack13(const uint8_t input[NIBTRACKSIZE], uint8_t rawTrackBuffer[256*13])
+{
+  uint16_t sectorsUpdated = 0;
+
+  // Scan the track twice so a sector that wraps the end/start still
+  // matches. The upper bound generously covers 13 sectors * ~510 disk
+  // bytes/sector at max.
+  for (uint32_t i = 0; i < 2 * NIBTRACKSIZE; i++) {
+    if (input[i % NIBTRACKSIZE] != 0xD5) continue;
+    i++;
+    if (input[i % NIBTRACKSIZE] != 0xAA) continue;
+    i++;
+    if (input[i % NIBTRACKSIZE] != 0xB5) continue;
+    i++;
+
+    // 4-and-4 header: volume, track, sector, checksum.
+    uint8_t volumeID = denib(input[i % NIBTRACKSIZE], input[(i+1) % NIBTRACKSIZE]); i += 2;
+    uint8_t trackID  = denib(input[i % NIBTRACKSIZE], input[(i+1) % NIBTRACKSIZE]); i += 2;
+    uint8_t sectorNum= denib(input[i % NIBTRACKSIZE], input[(i+1) % NIBTRACKSIZE]); i += 2;
+    uint8_t hdrSum   = denib(input[i % NIBTRACKSIZE], input[(i+1) % NIBTRACKSIZE]); i += 2;
+    if (hdrSum != (volumeID ^ trackID ^ sectorNum)) continue;
+
+    // Address epilogue: DE AA EB (last byte only partially checked to
+    // match 6-and-2 tolerance above).
+    if (input[i % NIBTRACKSIZE] != 0xDE) continue; i++;
+    if (input[i % NIBTRACKSIZE] != 0xAA) continue; i++;
+
+    // Skip gap to data prologue.
+    while (input[i % NIBTRACKSIZE] != 0xD5) i++;
+    i++;
+    if (input[i % NIBTRACKSIZE] != 0xAA) continue; i++;
+    if (input[i % NIBTRACKSIZE] != 0xAD) continue; i++;
+
+    // Pull the 411 data bytes into a contiguous buffer (track may wrap).
+    uint8_t nibData[411];
+    for (int j = 0; j < 411; j++) {
+      nibData[j] = input[(i + j) % NIBTRACKSIZE];
+    }
+    uint8_t sectorOut[256];
+    if (!_decode53Data(nibData, sectorOut)) return errorBadData;
+    i += 411;
+
+    if (input[i % NIBTRACKSIZE] != 0xDE) continue; i++;
+    if (input[i % NIBTRACKSIZE] != 0xAA) continue; i++;
+    if (input[i % NIBTRACKSIZE] != 0xEB) continue; i++;
+
+    if (sectorNum >= 13) return errorBadData;
+    uint8_t logicalSector = dephys13[sectorNum];
+    memcpy(&rawTrackBuffer[logicalSector * 256], sectorOut, 256);
+    sectorsUpdated |= (uint16_t)(1 << sectorNum);
+    // Once every sector is accounted for, stop scanning. Otherwise a
+    // stray D5 AA B5 pattern that appears in gap data (or a misaligned
+    // re-match on the wraparound pass) can send us down a false data
+    // prologue and produce spurious decode errors.
+    if (sectorsUpdated == 0x1FFF) break;
+  }
+
+  return (sectorsUpdated == 0x1FFF) ? errorNone : errorMissingSectors;
 }
 
 // trackBuffer is input NIB data; rawTrackBuffer is output DSK/PO data
