@@ -202,6 +202,8 @@ void DiskII::driveOn()
 
 uint8_t DiskII::readSwitches(uint8_t s)
 {
+  tickLSS();
+
   switch (s) {
   case 0x00: // change stepper motor phase
     break;
@@ -278,6 +280,8 @@ uint8_t DiskII::readSwitches(uint8_t s)
 
 void DiskII::writeSwitches(uint8_t s, uint8_t v)
 {
+  tickLSS();
+
   switch (s) {
   case 0x00: // change stepper motor phase
     break;
@@ -410,6 +414,32 @@ void DiskII::setPhase(uint8_t phase)
 bool DiskII::isWriteProtected()
 {
   return (writeProt ? 0xFF : 0x00);
+}
+
+void DiskII::tickLSS()
+{
+  // In real hardware the LSS is clocked continuously; bits stream into
+  // the data latch whether or not the CPU is reading C08C. We
+  // approximate that by catching the sequencer up on every soft-switch
+  // access. Skip in write mode: sequencer is an input shift register
+  // and write-mode bit flow is handled in readOrWriteByte.
+  if (!disk[selectedDisk]) return;
+  if (writeMode) return;
+  if (diskIsSpinningUntil[selectedDisk] == NOTSPINNING) return;
+  if (diskIsSpinningUntil[selectedDisk] != SPINFOREVER &&
+      diskIsSpinningUntil[selectedDisk] < g_cpu->cycles) return;
+  // Head is parked between tracks (TMAP entry 0xFF for this quarter
+  // track). Woz::nextDiskBit would fault here; leave the sequencer
+  // alone and let the next valid track catch up when we land on one.
+  if (curWozTrack[selectedDisk] == 0xFF) return;
+
+  int64_t bitsToDeliver = calcExpectedBits();
+  while (bitsToDeliver > 0) {
+    sequencer <<= 1;
+    sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
+    bitsToDeliver--;
+    deliveredDiskBits[selectedDisk]++;
+  }
 }
 
 int64_t DiskII::calcExpectedBits()
@@ -564,6 +594,12 @@ uint8_t DiskII::readOrWriteByte()
     // Uum, disk isn't spinning?
     goto done;
   }
+  // Head parked between tracks (unmapped QT in TMAP). Real hardware would
+  // read noise here; return the sequencer as-is without touching the WOZ
+  // data (Woz::nextDiskBit would fault on datatrack 0xFF).
+  if (curWozTrack[selectedDisk] == 0xFF) {
+    goto done;
+  }
 
   bitsToDeliver = calcExpectedBits();
   
@@ -591,54 +627,31 @@ uint8_t DiskII::readOrWriteByte()
     goto done;
   }
 
-  if (bitsToDeliver > 0) {
-    // We're expected to deliver some bits to the Disk II sequencer.
-    // Instead of piecemeal delivering a small number of bits (which we
-    // could do, but it's kinda busywork) - instead, we'll do one of two
-    // possible things.
-    //
-    // The first: if we're expecting a small number of bits to be delivered,
-    // then we'll grab the next byte from the nibble stream and return it.
-    // This itself has three possible cases -
-    //   (a) we should be delivering less than a full byte, but we're
-    //       actually going to deliver a full byte. bitsToDeliver will
-    //       become negative, because we're delivering these too early.
-    //       The next call will probably see that it has nothing to deliver
-    //       and, as long as the disk image we're using doesn't have a
-    //       really fine tolerance on the delivery rate of the bits,
-    //       it will all come out in the wash.
-    //   (b) we should be delivering exactly a byte, and we're doing the
-    //       absolute right thing.
-    //   (c) we are more than 1 byte, but less than 2 bytes, behind. If
-    //       this is the case, we're probably making up for a timing
-    //       problem in this code - where the bits would now have been
-    //       lost. By returning the first byte that we found, we're hoping
-    //       that the next call will be closer to on time, and we will
-    //       eventually catch back up to the stream. Hopefully this makes
-    //       the stream a little more resilient - and the error isn't
-    //       so far off that the reader notices something is weird on the
-    //       timing. (Standard RWTS doesn't, but some copy protection
-    //       might.)
-    if (bitsToDeliver < 16) {
-      while (bitsToDeliver > -16 && ((sequencer & 0x80) == 0)) {
-	sequencer <<= 1;
-	sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
-	bitsToDeliver--;
-	deliveredDiskBits[selectedDisk]++;
-      }
-      goto done;
-    }
-
-    // If we reach here, we're throwing away a bunch of missed data.
-    // This might be normal (where the machine wasn't listening for the data),
-    // or it might be exceptional (something wrong with the tuning of data
-    // delivery, based on the magic constant in expectedDiskBits above)...
-    deliveredDiskBits[selectedDisk] += bitsToDeliver;
-    while (bitsToDeliver) {
+  // With tickLSS running on every soft-switch access, bitsToDeliver is
+  // usually 0 or slightly negative by the time we get here. We still
+  // want the overshoot-until-bit-7 behavior so C08C returns a ready
+  // byte, so always run the < 16 branch.
+  if (bitsToDeliver < 16) {
+    // Shift until bit 7 is set, tolerating up to 16 bits of overshoot.
+    // This lets us always return a ready byte to callers polling C08C.
+    while (bitsToDeliver > -16 && ((sequencer & 0x80) == 0)) {
       sequencer <<= 1;
       sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
       bitsToDeliver--;
+      deliveredDiskBits[selectedDisk]++;
     }
+    goto done;
+  }
+
+  // If we reach here, we're throwing away a bunch of missed data.
+  // This might be normal (where the machine wasn't listening for the data),
+  // or it might be exceptional (something wrong with the tuning of data
+  // delivery, based on the magic constant in expectedDiskBits above)...
+  deliveredDiskBits[selectedDisk] += bitsToDeliver;
+  while (bitsToDeliver) {
+    sequencer <<= 1;
+    sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
+    bitsToDeliver--;
   }
 
     

@@ -57,6 +57,12 @@ class DiskII : public Slot {
   
   int64_t calcExpectedBits();
 
+  // Advance the LSS sequencer based on CPU cycles elapsed since bits
+  // were last delivered. Called on every soft-switch access so the
+  // data latch reflects a continuously-running LSS, not one that only
+  // ticks on C08C reads.
+  void tickLSS();
+
  public:
   // debugging
   WozSerializer *disk[2];
