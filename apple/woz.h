@@ -153,6 +153,13 @@ class Woz {
   uint8_t trackLoopCounter;
   char *metaData;
   uint8_t randData, randPtr;
+
+  // MC3470 fake-bit emulation: 4-bit sliding window over the last
+  // four bits read. When it goes to zero (i.e. we've seen four 0s in
+  // a row) the real chip starts hallucinating pulses, so we inject
+  // random bits instead. Persisted across track switches — the real
+  // chip lives in the drive, not on the track.
+  uint8_t headWindow;
 };
 
 #endif

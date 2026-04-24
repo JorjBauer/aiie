@@ -57,6 +57,7 @@ Woz::Woz(bool verbose, uint8_t dumpflags)
   memset(&di, 0, sizeof(diskInfo));
   memset(&tracks, 0, sizeof(tracks));
   randPtr = 0;
+  headWindow = 0;
 }
 
 Woz::~Woz()
@@ -214,18 +215,27 @@ void Woz::advanceBitStream(uint8_t datatrack)
 
 uint8_t Woz::fakeBit()
 {
-  // 30% should be 1s, but I'm not biasing the data here, so this is
-  // more like 50% 1s.
-
+  // WOZ reference recommends roughly 30% ones. AND three independent
+  // 50/50 samples to get ~12.5% ones? That's too sparse. AND two
+  // gives 25%; OR of (AND of 2) with a 1/8 extra gets close to 30%
+  // without needing floating point. Simpler approach: keep the
+  // random buffer approach, but only count a bit as 1 if it and a
+  // second independent bit are both set — that gives 25%. Close
+  // enough; Print Shop just needs "long runs of fake bits don't
+  // consistently produce nibbles".
   if (randPtr == 0) {
     randPtr = 0x80;
     randData = (uint8_t) ((float)256 * rand() / (RAND_MAX + 1.0));
   }
-
-  uint8_t ret = (randData & randPtr) ? 1 : 0;
+  uint8_t a = (randData & randPtr) ? 1 : 0;
   randPtr >>= 1;
-  
-  return ret;
+  if (randPtr == 0) {
+    randPtr = 0x80;
+    randData = (uint8_t) ((float)256 * rand() / (RAND_MAX + 1.0));
+  }
+  uint8_t b = (randData & randPtr) ? 1 : 0;
+  randPtr >>= 1;
+  return a & b;
 }
 
 uint8_t Woz::nextDiskBit(uint8_t datatrack)
@@ -235,21 +245,19 @@ uint8_t Woz::nextDiskBit(uint8_t datatrack)
     return 0;
   }
 
-  /*
-
-FIXME: this needs evaluation. We want the fake bit work, but can't do it at the expense of being 1 bit behind -- b/c that would mean switching tracks drops a bit; and seek-and-write would leave an excess bit in place too...
-
-  static uint8_t head_window = 0;
-  head_window <<= 1;
-  head_window |= getNextWozBit(datatrack);
-  if ((head_window & 0x0f) != 0x00) {
-    return (head_window & 0x02) >> 1;
-  } else {
-    return fakeBit();
-    }*/
-
-  // Until the above is figured out, we're gonna just return what's on the datastream
-  return getNextWozBit(datatrack);
+  // MC3470 emulation per WOZ 2.0 reference: slide in the next bit,
+  // report bit 1 (one position behind) to model the chip's ~5µs
+  // real-transition latency. When the last four bits were all zero
+  // the chip's AGC hallucinates pulses, so we inject fakeBit() in
+  // place of bit 1. headWindow is a Woz member so it persists across
+  // track switches — the real chip lives in the drive, not on the
+  // track.
+  headWindow <<= 1;
+  headWindow |= getNextWozBit(datatrack);
+  if ((headWindow & 0x0f) != 0x00) {
+    return (headWindow & 0x02) >> 1;
+  }
+  return fakeBit();
 }
 
 uint8_t Woz::nextDiskByte(uint8_t datatrack)
