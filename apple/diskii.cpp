@@ -473,13 +473,20 @@ void DiskII::tickLSS()
   if (diskIsSpinningUntil[selectedDisk] == NOTSPINNING) return;
   if (diskIsSpinningUntil[selectedDisk] != SPINFOREVER &&
       diskIsSpinningUntil[selectedDisk] < g_cpu->cycles) return;
-  // Head parked between tracks (TMAP 0xFF). Woz::nextDiskBit would
-  // fault; let the next valid track catch up when we land.
-  if (curWozTrack[selectedDisk] == 0xFF) return;
+
+  // When the head is on an unmapped half-track (TMAP 0xFF), the real
+  // drive keeps spinning and the MC3470 keeps producing its analog
+  // signal — mostly noise because the head is off the written bands.
+  // Per the WOZ 2.0 spec, emulate this by feeding all-zero bits so
+  // the fake-bit logic kicks in naturally, and advance delivered-bit
+  // count so cross-track rotational sync isn't frozen during transit.
+  bool headParked = (curWozTrack[selectedDisk] == 0xFF);
 
   int64_t bitsToDeliver = calcExpectedBits();
   while (bitsToDeliver > 0) {
-    uint8_t bit = disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
+    uint8_t bit = headParked
+                    ? 0
+                    : disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
     for (uint8_t sub = 0; sub < 8; sub++) {
       uint8_t rp = (sub == 0 && bit) ? 1 : 0;
       uint8_t qa = (sequencer & 0x80) ? 1 : 0;
@@ -589,6 +596,12 @@ void DiskII::insertDisk(int8_t driveNum, const char *filename, bool drawIt)
     disk[driveNum] = NULL;
     return;
   }
+
+  // Honor the WOZ INFO chunk's write-protect flag. Several copy
+  // protections (e.g. Wings of Fury's $C08D handshake) check the
+  // WP bits shifted in by the LSS and fail on a writable emulation
+  // of an originally-protected disk.
+  writeProt = disk[driveNum]->isWriteProtected();
 
   curWozTrack[driveNum] = disk[driveNum]->dataTrackNumberForQuarterTrack(curHalfTrack[driveNum]*2);
 

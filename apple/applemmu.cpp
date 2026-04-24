@@ -1046,33 +1046,27 @@ void AppleMMU::updateMemoryPages()
   }
 
   if (switches & S_80STORE) {
-    // When S_80STORE is on, we switch 400-800 and 2000-4000 based on S_PAGE2.
-    // The behavior is different based on whether HIRESON/OFF is set.
-    if (switches & S_PAGE2) {
-      // Regardless of HIRESON/OFF, pages 0x400-0x7ff are switched on S_PAGE2
-      for (uint8_t idx = 0x04; idx < 0x08; idx++) {
-	readPages[idx] = writePages[idx] = _pageNumberForRam(idx, 1);
-      }
-
-      // but 2000-3fff switches based on S_PAGE2 only if HIRES is on.
-
-    // HIRESOFF: 400-7ff doesn't switch based on read/write flags
-    //           b/c it switches based on S_PAGE2 instead
-    // HIRESON: 400-800, 2000-3fff doesn't switch
-    //          b/c they switch based on S_PAGE2 instead
-
-      // If HIRES is on, then we honor the PAGE2 setting; otherwise, we don't
+    // Per UTA2E: when 80STORE is on, text page 1 ($0400-$07FF) always
+    // follows PAGE2 (overriding RAMRD/RAMWRT). HGR page 1 ($2000-$3FFF)
+    // only follows PAGE2 when HIRES is ALSO on; otherwise $2000-$3FFF
+    // continues to follow RAMRD/RAMWRT normally (set above).
+    //
+    // Wings of Fury depends on this: it turns on 80STORE + PAGE1 with
+    // HIRES off, then uses RAMWRT/RAMRD to load its demo code into AUX
+    // $2000+. The old code forced $2000-$3FFF to MAIN whenever 80STORE
+    // was on, which corrupted AUX access and crashed the game on
+    // JMP $2000.
+    uint8_t textBank = (switches & S_PAGE2) ? 1 : 0;
+    for (uint8_t idx = 0x04; idx < 0x08; idx++) {
+      readPages[idx] = writePages[idx] = _pageNumberForRam(idx, textBank);
+    }
+    if (switches & S_HIRES) {
+      uint8_t hgrBank = (switches & S_PAGE2) ? 1 : 0;
       for (uint8_t idx = 0x20; idx < 0x40; idx++) {
-	readPages[idx] = writePages[idx] = _pageNumberForRam(idx, (switches & S_HIRES) ? 1 : 0);
-      }
-    } else {
-      for (uint8_t idx = 0x04; idx < 0x08; idx++) {
-	readPages[idx] = writePages[idx] = _pageNumberForRam(idx, 0);
-      }
-      for (uint8_t idx = 0x20; idx < 0x40; idx++) {
-	readPages[idx] = writePages[idx] = _pageNumberForRam(idx, 0);
+        readPages[idx] = writePages[idx] = _pageNumberForRam(idx, hgrBank);
       }
     }
+    // else: $2000-$3FFF already set by the RAMRD/RAMWRT block above.
   }
 
   if (intcxrom) {

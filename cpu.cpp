@@ -1166,6 +1166,7 @@ uint8_t Cpu::step()
   // And finally update our executed cycle count with the runtime
   cycles += cyclesThisStep;
 
+
   return cyclesThisStep;
 }
 
