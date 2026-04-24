@@ -121,10 +121,20 @@ static void cpuWrite(DiskII &d, uint8_t reg, uint8_t val, int cyclesSpent = 4) {
 // same byte. ~16 cycles between bytes matches DOS 3.3's tighter
 // header-reading loops.
 static uint8_t pollForByte(DiskII &d, int maxPolls = 200) {
+#ifdef DISKII_READ_TRACE
+  int polls = 0;
+#endif
   for (int i = 0; i < maxPolls; i++) {
+#ifdef DISKII_READ_TRACE
+    polls++;
+#endif
     uint8_t b = cpuRead(d, 0x0C, 4);   // LDA $C08C,X
     if (b & 0x80) {                    // BPL falls through
       g_cpu->cycles += 12;             // post-BPL processing
+#ifdef DISKII_READ_TRACE
+      fprintf(stderr, "RD cyc=%lld polls=%d -> %02X\n",
+              (long long)g_cpu->cycles, polls, b);
+#endif
       return b;
     }
     g_cpu->cycles += 3;                // BPL taken, loop again
@@ -375,20 +385,31 @@ static void testWriteSectorHeaderRoundTrip(const char *diskPath) {
   for (int i = 0; i < 64; i++) writeSyncByte(d, 0xFF);
   cpuRead(d, 0x0E);   // back to read mode
 
-  // Scan for D5 AA 96 and decode.
+  // `insertDisk` nibblizes the blank DSK into a full DOS 3.3 layout
+  // (sectors 0..15, all with vol=FE). Our writes overlay only a tiny
+  // region, so the first D5 AA 96 the read path encounters is usually
+  // one of the pre-existing nibblized sectors. Keep scanning across up
+  // to two full rotations' worth of bytes until we find a sector with
+  // *our* sector number, which doesn't appear anywhere on the blank.
   uint8_t p2 = 0, p1 = 0, c = 0;
   bool found = false;
-  for (int i = 0; i < 3000 && !found; i++) {
+  uint8_t v1=0, v2=0, t1=0, t2=0, s1=0, s2=0, c1=0, c2=0;
+  for (int i = 0; i < 20000 && !found; i++) {
     p2 = p1; p1 = c;
     c = pollForByte(d);
-    if (p2 == 0xD5 && p1 == 0xAA && c == 0x96) found = true;
+    if (p2 == 0xD5 && p1 == 0xAA && c == 0x96) {
+      v1 = pollForByte(d); v2 = pollForByte(d);
+      t1 = pollForByte(d); t2 = pollForByte(d);
+      s1 = pollForByte(d); s2 = pollForByte(d);
+      c1 = pollForByte(d); c2 = pollForByte(d);
+      uint8_t decoded_sec = ((s1 << 1) | 1) & s2;
+      if (decoded_sec == sec) { found = true; break; }
+      // Not ours — keep scanning for another prolog.
+      p2 = p1 = c = 0;
+    }
   }
-  CHECK(found, "D5 AA 96 not found after write — write path broken");
+  CHECK(found, "our sector (sec=%02X) not found after write", sec);
   if (found) {
-    uint8_t v1 = pollForByte(d), v2 = pollForByte(d);
-    uint8_t t1 = pollForByte(d), t2 = pollForByte(d);
-    uint8_t s1 = pollForByte(d), s2 = pollForByte(d);
-    uint8_t c1 = pollForByte(d), c2 = pollForByte(d);
     fprintf(stderr, "  raw header bytes read back: "
                     "%02X %02X %02X %02X %02X %02X %02X %02X\n",
             v1, v2, t1, t2, s1, s2, c1, c2);

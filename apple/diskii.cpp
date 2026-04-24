@@ -517,18 +517,19 @@ int64_t DiskII::calcExpectedBits()
     return 0;
 
   int64_t cyclesPassed = g_cpu->cycles - driveSpinupCycles[selectedDisk];
-  // This constant defines how fast the disk drive "spins".
-  // 4.0 is good for DOS 3.3 writes, and reads as 205ms in
-  //   Copy 2+'s drive speed verifier.
-  // 3.99: 204.5ms
-  // 3.90: 199.9ms
-  // 3.91: 200.5ms
-  // 3.51: 176ms, and is too fast for DOS to write properly.
+  // CPU cycles per disk bit. 4.0 makes DOS 3.3's standard cadences
+  // (40-cycle sync loops, 32-cycle data loops) divide exactly, so
+  // writes don't accumulate rounding drift — every 32-cycle byte
+  // write produces exactly 8 bits on the track, every 40-cycle sync
+  // byte produces 10 bits (8 ONE-bits + 2 timing ZEROs), matching
+  // the bit patterns RWTS expects to read back.
   //
-  // As-is, this won't read NIB files for some reason I haven't
-  // fully understood; but if you slow the disk down to /5.0,
-  // then they load?
-  int64_t expectedDiskBits = (float)cyclesPassed / 3.90;
+  // Copy 2+'s drive-speed verifier reads this as ~205 ms per rev
+  // (real-hardware tolerance is 200 ± a few ms), which is close
+  // enough. Earlier values in the range 3.90-3.99 read closer to
+  // 200 ms but don't divide evenly and cause measurable LSB flips
+  // in written nibble streams.
+  int64_t expectedDiskBits = cyclesPassed / 4;
 
   return expectedDiskBits - deliveredDiskBits[selectedDisk];
 }
@@ -675,6 +676,10 @@ uint8_t DiskII::readOrWriteByte(bool allowOvershoot)
       // provide the self-sync pattern. Lay down 0-bits for whatever
       // time has passed, then the byte from the latch.
       int64_t expectedBits = calcExpectedBits();
+#ifdef DISKII_WRITE_TRACE
+      fprintf(stderr, "WR cyc=%lld zeros=%lld data=%02X\n",
+              (long long)g_cpu->cycles, (long long)expectedBits, readWriteLatch);
+#endif
       while (expectedBits > 0) {
 	disk[selectedDisk]->writeNextWozBit(curWozTrack[selectedDisk], 0);
 	expectedBits--;
