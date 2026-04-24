@@ -1,10 +1,10 @@
-LDFLAGS=-L/usr/local/lib 
+LDFLAGS=-L/usr/local/lib -L/opt/homebrew/lib
 
 SDLLIBS=-lSDL2 -lpthread
 FBLIBS=-lpthread
 
-CFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -g -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE
-CXXFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -g -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE
+CFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE
+CXXFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE
 
 TSRC=cpu.cpp util/testharness.cpp
 

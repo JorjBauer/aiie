@@ -60,6 +60,7 @@ class Woz {
   uint8_t dataTrackNumberForQuarterTrack(uint16_t qt);
   
   bool flush();
+  bool isDirty();
 
   bool decodeWozTrackToDsk(uint8_t phystrack, uint8_t subtype, uint8_t sectorData[256*16]);
   bool decodeWozTrackSector(uint8_t phystrack, uint8_t sector, uint8_t dataOut[256]);
