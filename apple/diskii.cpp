@@ -41,6 +41,7 @@ DiskII::DiskII(AppleMMU *mmu)
   curWozTrack[0] = curWozTrack[1] = 0xFF;
 
   writeMode = false;
+  q6 = false;
   writeProt = false; // FIXME: expose an interface to this
   readWriteLatch = 0x00;
   sequencer = 0;
@@ -65,9 +66,10 @@ bool DiskII::Serialize(int8_t fd)
   serialize8(sequencer);
   serialize8(dataRegister);
   serialize8(writeMode);
+  serialize8(q6);
   serialize8(writeProt);
   serialize8(selectedDisk);
-  
+
   for (int i=0; i<2; i++) {
     serialize8(curHalfTrack[i]);
     serialize8(curWozTrack[i]);
@@ -109,6 +111,7 @@ bool DiskII::Deserialize(int8_t fd)
   deserialize8(sequencer);
   deserialize8(dataRegister);
   deserialize8(writeMode);
+  deserialize8(q6);
   deserialize8(writeProt);
   deserialize8(selectedDisk);
 
@@ -163,6 +166,7 @@ void DiskII::Reset()
   curHalfTrack[0] = curHalfTrack[1] = 0;
 
   writeMode = false;
+  q6 = false;
   writeProt = false; // FIXME: expose an interface to this
   readWriteLatch = 0x00;
 
@@ -240,29 +244,22 @@ uint8_t DiskII::readSwitches(uint8_t s)
     select(1);
     break;
 
-  case 0x0C: // shift one read or write byte
+  case 0x0C: // Q6 off: shift/read
+    q6 = false;
     readWriteLatch = readOrWriteByte();
     if (readWriteLatch & 0x80) {
-      if (!(sequencer & 0x80)) {
-	//	printf("SEQ RESET EARLY [1]\n");
-      }
       sequencer = 0;
     }
     break;
 
-  case 0x0D: // load data register (latch)
-    // This is complex and incomplete. cf. Logic State Sequencer, 
-    // UTA2E, p. 9-14
+  case 0x0D: // Q6 on: load (sense WP in read mode)
+    q6 = true;
     if (!writeMode) {
-      if (isWriteProtected())
-	readWriteLatch |= 0x80;
-      else
-	readWriteLatch &= 0x7F;
+      // LSS in Q6=1,Q7=0 continuously loads the WP bit into the data
+      // register. The continuous-load behavior while Q6 stays on is
+      // handled in tickLSS(); seed the initial value here.
+      sequencer = isWriteProtected() ? 0x80 : 0x00;
     }
-    if (!(sequencer & 0x80)) {
-      //      printf("SEQ RESET EARLY [2]\n");
-    }
-    sequencer = 0;
     break;
 
   case 0x0E: // set read mode
@@ -274,7 +271,15 @@ uint8_t DiskII::readSwitches(uint8_t s)
   }
 
   // Any even address read returns the readWriteLatch (UTA2E Table 9.1,
-  // p. 9-12, note 2)
+  // p. 9-12, note 2). In real hardware that value is the current LSS
+  // shift register, gated onto the bus via !A0. tickLSS() above has
+  // already caught the sequencer up to the current cycle, so mirror
+  // it into readWriteLatch here for every access except $C08C, which
+  // populates readWriteLatch itself (including the overshoot-until-
+  // bit-7 guarantee that the standard DOS read loop depends on).
+  if (s != 0x0C) {
+    readWriteLatch = sequencer;
+  }
   return (s & 1) ? _FLOATINGBUS : readWriteLatch;
 }
 
@@ -318,16 +323,18 @@ void DiskII::writeSwitches(uint8_t s, uint8_t v)
     select(1);
     break;
 
-  case 0x0C: // shift one read or write byte
+  case 0x0C: // Q6 off: shift/write
+    q6 = false;
     if (readOrWriteByte() & 0x80) {
-      if (!(sequencer & 0x80)) {
-	//	printf("SEQ RESET EARLY [3]\n");
-      }
       sequencer = 0;
     }
     break;
 
-  case 0x0D: // drive write
+  case 0x0D: // Q6 on: load
+    q6 = true;
+    if (!writeMode) {
+      sequencer = isWriteProtected() ? 0x80 : 0x00;
+    }
     break;
 
   case 0x0E: // set read mode
@@ -435,8 +442,19 @@ void DiskII::tickLSS()
 
   int64_t bitsToDeliver = calcExpectedBits();
   while (bitsToDeliver > 0) {
-    sequencer <<= 1;
-    sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
+    // Consume a bit from the WOZ stream either way — the disk keeps
+    // rotating regardless of Q6 state, so the track pointer must
+    // advance to stay in rotational sync.
+    uint8_t bit = disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
+    if (q6) {
+      // Q6=1, Q7=0: sense write protect. LSS reloads the register
+      // with the WP bit every cycle while Q6 stays asserted.
+      sequencer = isWriteProtected() ? 0x80 : 0x00;
+    } else {
+      // Q6=0, Q7=0: normal shift-in.
+      sequencer <<= 1;
+      sequencer |= bit;
+    }
     bitsToDeliver--;
     deliveredDiskBits[selectedDisk]++;
   }

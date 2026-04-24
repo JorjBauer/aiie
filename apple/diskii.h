@@ -75,7 +75,8 @@ private:
   volatile int64_t driveSpinupCycles[2];
   volatile int64_t deliveredDiskBits[2];
   
-  bool writeMode;
+  bool writeMode;   // Q7: false=read, true=write
+  bool q6;          // Q6: false (toggled by $C08C)=shift/write, true ($C08D)=load
   bool writeProt;
   AppleMMU *mmu;
 
