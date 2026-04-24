@@ -39,6 +39,20 @@ test: $(TSRC)
 	./testharness -f tests/65C02_extended_opcodes_test.bin -s 0x400 && \
 	./testharness -f tests/65c02-all.bin -s 0x200
 
+# Characterize DiskII's LSS read path and exercise the write path by
+# round-tripping bytes through the LSS. Build with AIIE off so woz.cpp
+# uses POSIX file I/O directly instead of the filemanager wrapper.
+DISKIITEST_SRCS = tests/test-diskii.cpp \
+                  apple/diskii.cpp apple/woz.cpp apple/woz-serializer.cpp \
+                  apple/nibutil.cpp apple/crc32.c \
+                  LRingBuffer.cpp vmram.cpp cpu.cpp lcg.cpp
+DISKIITEST_FLAGS = -Wall -g -I .. -I . -I apple -I nix -I sdl \
+                   -DSUPPRESSREALTIME -DSTATICALLOC
+
+test-diskii: roms $(DISKIITEST_SRCS) tests/test-diskii.cpp
+	g++ $(DISKIITEST_FLAGS) $(DISKIITEST_SRCS) -o tests/test-diskii
+	./tests/test-diskii
+
 roms: apple2e.rom disk.rom parallel.rom HDDRVR.BIN mouse.rom
 	./util/genrom.pl apple2e.rom disk.rom parallel.rom HDDRVR.BIN mouse.rom
 
