@@ -149,11 +149,27 @@ uint8_t Woz::getNextWozBit(uint8_t datatrack)
   }
 
   if (trackByteFromDataTrack != datatrack) {
-    // FIXME what if trackPointer is out of bounds for this track
+    // Cross-track sync per WOZ 2.0 reference: when moving to a new
+    // track, scale the bit pointer so the head stays over the same
+    // rotational position. new_pos = old_pos * new_len / old_len.
+    // Without this, games with custom-encoded tracks (e.g. Miner
+    // 2049er II track 1 is a solid 0xA5 pattern) read at the wrong
+    // 8-bit alignment and fail their protection checks.
+    if (trackByteFromDataTrack < 160 &&
+        tracks[trackByteFromDataTrack].bitCount > 0 &&
+        tracks[datatrack].bitCount > 0 &&
+        trackBitCounter < tracks[trackByteFromDataTrack].bitCount) {
+      uint64_t scaled =
+        (uint64_t)trackBitCounter * tracks[datatrack].bitCount /
+        tracks[trackByteFromDataTrack].bitCount;
+      trackBitCounter = (uint32_t)scaled;
+      trackPointer = trackBitCounter / 8;
+      trackBitIdx = 0x80 >> (trackBitCounter & 7);
+    }
     trackByte = tracks[datatrack].trackData[trackPointer];
     trackByteFromDataTrack = datatrack;
   }
-  
+
   // It's assumed that trackByte is set properly when we get here. It
   // should be set when we load image or change tracks, and it's
   // changed again when we advanceBitStream.
@@ -176,7 +192,7 @@ void Woz::advanceBitStream(uint8_t datatrack)
     // trackBitCounter after, but we want to not load from out of
     // bounds here, so unless we always set trackByte after the bit
     // range check below I'm not sure we can get rid of this one
-    if ((di.version == 2 && trackPointer < tracks[datatrack].blockCount*512) ||
+    if ((di.version >= 2 && trackPointer < tracks[datatrack].blockCount*512) ||
 	(di.version == 1 && trackPointer < NIBTRACKSIZE)
 	) {
       trackByte = tracks[datatrack].trackData[trackPointer];
@@ -889,10 +905,14 @@ bool Woz::readWozFile(const char *filename, bool preloadTracks)
       isOk = parseMetaChunk(chunkDataSize);
       break;
     default:
-      printf("Unknown chunk type 0x%X\n", chunkType);
-      if (preloadTracks && fd != -1)
-	close(fd);
-      return false;
+      // The spec requires unknown chunks to be skipped for forward
+      // compatibility. fpos is advanced past the chunk at the bottom
+      // of the loop, so we just mark this chunk as "handled ok".
+      if (verbose) {
+        printf("Skipping unknown chunk type 0x%X (%d bytes)\n",
+               chunkType, chunkDataSize);
+      }
+      isOk = true;
       break;
     }
 
@@ -976,7 +996,9 @@ bool Woz::readFile(const char *filename, bool preloadTracks, uint8_t forceType)
 
 bool Woz::parseTRKSChunk(uint32_t chunkSize)
 {
-  if (di.version == 2) {
+  // WOZ 2.x (versions 2 and 3) use the same block-based TRKS layout;
+  // WOZ 1 uses the older packed-6656-byte format.
+  if (di.version >= 2) {
     for (int i=0; i<160; i++) {
       if (!read16(fd, &tracks[i].startingBlock))
 	return false;
@@ -1052,8 +1074,13 @@ bool Woz::parseInfoChunk(uint32_t chunkSize)
 
   if (!read8(fd, &di.version))
     return false;
-  if (di.version > 2) {
-    fprintf(stderr, "Incorrect version header; aborting\n");
+  // Per the spec: "use >= when checking the INFO Version field. The INFO
+  // chunk will always be upgraded in a safe way for older consumers."
+  // So we don't reject unknown future versions — we just don't try to
+  // parse fields that weren't defined yet in the version we know about.
+  if (di.version < 1) {
+    fprintf(stderr, "INFO version %d is below minimum (1); aborting\n",
+            di.version);
     return false;
   }
 
@@ -1101,6 +1128,20 @@ bool Woz::parseInfoChunk(uint32_t chunkSize)
 			  // padded to 6646 (yes, 6646, not 6656)bytes
 			  // in the v1 image.
     di.optimalBitTiming = 32; // "standard" disk bit timing for a 5.25" disk (4us per bit)
+  }
+
+  // INFO v3 added the FLUX chunk locator. If both fluxBlock and
+  // largestFluxTrack come back zero, there's no FLUX chunk; otherwise
+  // this WOZ carries flux-timing data for some tracks (we don't decode
+  // those yet, but we at least know not to trip on the chunk itself).
+  if (di.version >= 3) {
+    if (!read16(fd, &di.fluxBlock))
+      return false;
+    if (!read16(fd, &di.largestFluxTrack))
+      return false;
+  } else {
+    di.fluxBlock = 0;
+    di.largestFluxTrack = 0;
   }
 
   return true;
@@ -1581,23 +1622,30 @@ bool Woz::isThirteenSectorDisk()
   return di.bootSectorFormat == 2;
 }
 
+bool Woz::readRawNibStream(uint8_t phystrack, uint8_t out[])
+{
+  uint8_t dataTrack = quarterTrackMap[phystrack*4];
+  // Only fall through to loadMissingTrackFromImage if the track isn't
+  // already resident — otherwise on a preload-loaded DSK the fd has
+  // been closed and the re-read would fail.
+  if (!tracks[dataTrack].trackData) {
+    if (!loadMissingTrackFromImage(dataTrack)) return false;
+  }
+  for (uint32_t i = 0; i < NIBTRACKSIZE; i++) {
+    out[i] = nextDiskByte(dataTrack);
+  }
+  return true;
+}
+
 bool Woz::decodeWozTrack13ToDsk(uint8_t phystrack, uint8_t sectorData[256*13])
 {
   // 13-sector tracks can't reuse the 16-sector `nibSector[16]` staging
   // buffer the 6-and-2 path builds: they have a different address
   // prologue and a larger per-sector data field. Instead, pull the raw
-  // nib stream straight out of the WOZ bit data (re-using nextDiskByte,
-  // which already does the "wait for top bit" latch) and scan it with
-  // the 13-sector denibblizer.
-  uint8_t dataTrack = quarterTrackMap[phystrack*4];
-  if (!loadMissingTrackFromImage(dataTrack)) return false;
-
+  // nib stream and scan it with the 13-sector denibblizer.
   uint8_t *nibStream = (uint8_t *)calloc(NIBTRACKSIZE, 1);
   if (!nibStream) return false;
-
-  for (uint32_t i = 0; i < NIBTRACKSIZE; i++) {
-    nibStream[i] = nextDiskByte(dataTrack);
-  }
+  if (!readRawNibStream(phystrack, nibStream)) { free(nibStream); return false; }
 
   nibErr rc = denibblizeTrack13(nibStream, sectorData);
   free(nibStream);

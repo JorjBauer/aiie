@@ -46,6 +46,7 @@ DiskII::DiskII(AppleMMU *mmu)
   readWriteLatch = 0x00;
   sequencer = 0;
   dataRegister = 0;
+  lssState = 0;
   driveSpinupCycles[0] = driveSpinupCycles[1] = 0; // CPU cycle number when the disk drive spins up
   deliveredDiskBits[0] = deliveredDiskBits[1] = 0;
 
@@ -67,6 +68,7 @@ bool DiskII::Serialize(int8_t fd)
   serialize8(dataRegister);
   serialize8(writeMode);
   serialize8(q6);
+  serialize8(lssState);
   serialize8(writeProt);
   serialize8(selectedDisk);
 
@@ -112,6 +114,7 @@ bool DiskII::Deserialize(int8_t fd)
   deserialize8(dataRegister);
   deserialize8(writeMode);
   deserialize8(q6);
+  deserialize8(lssState);
   deserialize8(writeProt);
   deserialize8(selectedDisk);
 
@@ -169,6 +172,7 @@ void DiskII::Reset()
   q6 = false;
   writeProt = false; // FIXME: expose an interface to this
   readWriteLatch = 0x00;
+  lssState = 0;
 
   ejectDisk(0);
   ejectDisk(1);
@@ -244,28 +248,21 @@ uint8_t DiskII::readSwitches(uint8_t s)
     select(1);
     break;
 
-  case 0x0C: { // Q6 off: shift/read
-    // If Q6 was on (sense-WP) going into this access, the CPU is
-    // doing an E7-style cycle-counted read right after $C08D.
-    // Suppress the overshoot cheat so aiie's stream pointer stays
-    // where the protection code expects it.
-    bool comingFromSenseWP = q6;
+  case 0x0C: // Q6 off: shift/read
     q6 = false;
-    readWriteLatch = readOrWriteByte(!comingFromSenseWP);
-    if (readWriteLatch & 0x80) {
-      sequencer = 0;
-    }
+    readWriteLatch = readOrWriteByte(true);
+    // The LSS auto-clears the data register at state C (A0-CLR) or
+    // state F (E0-CLR) on its own timing — no need to force a reset
+    // here. Doing so would leave lssState out of sync with what real
+    // hardware would be in at this point.
     break;
-  }
 
   case 0x0D: // Q6 on: load (sense WP in read mode)
     q6 = true;
-    if (!writeMode) {
-      // LSS in Q6=1,Q7=0 continuously loads the WP bit into the data
-      // register. The continuous-load behavior while Q6 stays on is
-      // handled in tickLSS(); seed the initial value here.
-      sequencer = isWriteProtected() ? 0x80 : 0x00;
-    }
+    // Don't pre-load sequencer with WP. Once Q6 is asserted, tickLSS
+    // runs the LOAD column of the LSS ROM (all 0A-SR entries), which
+    // shifts the write-protect bit in from the MSB on every clock.
+    // After 8 LSS clocks the register naturally becomes 0x00 or 0xFF.
     break;
 
   case 0x0E: // set read mode
@@ -329,20 +326,13 @@ void DiskII::writeSwitches(uint8_t s, uint8_t v)
     select(1);
     break;
 
-  case 0x0C: { // Q6 off: shift/write
-    bool comingFromSenseWP = q6;
+  case 0x0C: // Q6 off: shift/write
     q6 = false;
-    if (readOrWriteByte(!comingFromSenseWP) & 0x80) {
-      sequencer = 0;
-    }
+    readOrWriteByte(true);
     break;
-  }
 
   case 0x0D: // Q6 on: load
     q6 = true;
-    if (!writeMode) {
-      sequencer = isWriteProtected() ? 0x80 : 0x00;
-    }
     break;
 
   case 0x0E: // set read mode
@@ -431,34 +421,89 @@ bool DiskII::isWriteProtected()
   return (writeProt ? 0xFF : 0x00);
 }
 
+// DOS 3.3 Logic State Sequencer ROM, transcribed from UTA2E Fig 9.11
+// (p.9-20). Each entry is (next_state << 4) | command. Column index
+// encodes the three ROM address inputs:
+//   col = (Q6 ? 4 : 0) | (QA << 1) | (RP ? 0 : 1)
+// so col 0..3 are the SHIFT (Q6=0) quadrant and col 4..7 are LOAD
+// (Q6=1). Within each quadrant QA' (=0) comes before QA (=1), and
+// within each QA pair RP comes before NO RP.
+// Commands (low nibble): 0-7 CLR, 8/C NOP, 9 SL0, A/E SR (shift
+// write-protect right), B/F LD (load from data bus), D SL1.
+//
+// Key path from UTA2E p.9-29 narrative: after QA sets, the read
+// pulse transitions state 2 (QA WAIT) to state 0 via 08-NOP, then
+// "3 CP NOP" walks states 0, 1, 3 using col 3 (SHIFT, QA, NO RP).
+// That requires row 0, col 3 = 0x18 so state 0 advances to state 1
+// rather than looping back — this is the DOS 3.3 change from DOS
+// 3.2's 0x08 that makes tight-packed bytes eventually CLR at state
+// C. Get that one cell wrong and the whole read sequence deadlocks
+// on the first complete byte.
+static const uint8_t lssReadRom[16][8] = {
+  {0x18, 0x18, 0x18, 0x18, 0x0A, 0x0A, 0x0A, 0x0A}, // State 0
+  {0x2D, 0x2D, 0x38, 0x38, 0x0A, 0x0A, 0x0A, 0x0A}, // State 1
+  {0xD8, 0x38, 0x08, 0x28, 0x0A, 0x0A, 0x0A, 0x0A}, // State 2 (QA WAIT at col 3)
+  {0xD8, 0x48, 0xD8, 0x48, 0x0A, 0x0A, 0x0A, 0x0A}, // State 3
+  {0xD8, 0x58, 0xD8, 0x58, 0x0A, 0x0A, 0x0A, 0x0A}, // State 4
+  {0xD8, 0x68, 0xD8, 0x68, 0x0A, 0x0A, 0x0A, 0x0A}, // State 5
+  {0xD8, 0x78, 0xD8, 0x78, 0x0A, 0x0A, 0x0A, 0x0A}, // State 6
+  {0xD8, 0x88, 0xD8, 0x88, 0x0A, 0x0A, 0x0A, 0x0A}, // State 7
+  {0xD8, 0x98, 0xD8, 0x98, 0x0A, 0x0A, 0x0A, 0x0A}, // State 8
+  {0xD8, 0x29, 0xD8, 0xA8, 0x0A, 0x0A, 0x0A, 0x0A}, // State 9
+  {0xCD, 0xBD, 0xD8, 0xB8, 0x0A, 0x0A, 0x0A, 0x0A}, // State A
+  {0xD9, 0x59, 0xD8, 0xC8, 0x0A, 0x0A, 0x0A, 0x0A}, // State B
+  {0xD9, 0xD9, 0xD8, 0xA0, 0x0A, 0x0A, 0x0A, 0x0A}, // State C (A0-CLR at col 3)
+  {0xD8, 0x08, 0xE8, 0xE8, 0x0A, 0x0A, 0x0A, 0x0A}, // State D
+  {0xFD, 0xFD, 0xF8, 0xF8, 0x0A, 0x0A, 0x0A, 0x0A}, // State E
+  {0xDD, 0x4D, 0xE0, 0xE0, 0x0A, 0x0A, 0x0A, 0x0A}  // State F
+};
+
 void DiskII::tickLSS()
 {
-  // In real hardware the LSS is clocked continuously; bits stream into
-  // the data latch whether or not the CPU is reading C08C. We
-  // approximate that by catching the sequencer up on every soft-switch
-  // access. Skip in write mode: sequencer is an input shift register
-  // and write-mode bit flow is handled in readOrWriteByte.
+  // Full LSS simulation per UTA2E Chapter 9. The sequencer ROM is
+  // clocked at ~2 MHz — eight LSS clocks per WOZ bit (which is 4 µs
+  // wide). Within a bit, a '1' produces a read pulse on the first
+  // LSS clock and no pulse on the remaining seven; a '0' has no
+  // pulse at all. Each clock looks up (state, Q6, QA, RP) in the
+  // ROM and runs the returned command, which naturally produces the
+  // MSB "byte flag" hold-and-auto-clear behavior described in UTA2E
+  // p.9-26/9-29.
   if (!disk[selectedDisk]) return;
   if (writeMode) return;
   if (diskIsSpinningUntil[selectedDisk] == NOTSPINNING) return;
   if (diskIsSpinningUntil[selectedDisk] != SPINFOREVER &&
       diskIsSpinningUntil[selectedDisk] < g_cpu->cycles) return;
-  // Head is parked between tracks (TMAP entry 0xFF for this quarter
-  // track). Woz::nextDiskBit would fault here; leave the sequencer
-  // alone and let the next valid track catch up when we land on one.
+  // Head parked between tracks (TMAP 0xFF). Woz::nextDiskBit would
+  // fault; let the next valid track catch up when we land.
   if (curWozTrack[selectedDisk] == 0xFF) return;
 
   int64_t bitsToDeliver = calcExpectedBits();
   while (bitsToDeliver > 0) {
     uint8_t bit = disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
-    if (q6) {
-      // Q6=1, Q7=0: sense write protect. LSS reloads the register
-      // with the WP bit every cycle while Q6 stays asserted.
-      sequencer = isWriteProtected() ? 0x80 : 0x00;
-    } else {
-      // Q6=0, Q7=0: normal shift-in.
-      sequencer <<= 1;
-      sequencer |= bit;
+    for (uint8_t sub = 0; sub < 8; sub++) {
+      uint8_t rp = (sub == 0 && bit) ? 1 : 0;
+      uint8_t qa = (sequencer & 0x80) ? 1 : 0;
+      uint8_t col = (q6 ? 4 : 0) | (qa << 1) | (rp ? 0 : 1);
+      uint8_t rom = lssReadRom[lssState][col];
+      lssState = rom >> 4;
+      uint8_t cmd = rom & 0x0F;
+      if (!(cmd & 0x08)) {
+	sequencer = 0;                                // CLR
+      } else {
+	switch (cmd & 0x07) {
+	case 0: case 4: break;                        // NOP (8, C)
+	case 1: sequencer <<= 1; break;               // SL0 (9)
+	case 5: sequencer = (sequencer << 1) | 1;     // SL1 (D)
+	  break;
+	case 2: case 6:                               // SR (A, E)
+	  sequencer = (sequencer >> 1) |
+	              (isWriteProtected() ? 0x80 : 0x00);
+	  break;
+	case 3: case 7:                               // LD (B, F)
+	  sequencer = readWriteLatch;
+	  break;
+	}
+      }
     }
     bitsToDeliver--;
     deliveredDiskBits[selectedDisk]++;
@@ -644,32 +689,12 @@ uint8_t DiskII::readOrWriteByte(bool allowOvershoot)
     return sequencer;
   }
 
-  // Read mode. tickLSS() has already advanced the sequencer to the
-  // current cycle — but batch catch-up at soft-switch granularity
-  // can't model what real LSS does on the bit-7 boundary (it holds
-  // the nibble briefly so the CPU can sample it). If we return a
-  // partial byte here, standard RWTS sync loops read shifted
-  // non-nibble values, denibblize fails, and every sector retries
-  // through a full rotation — crushing boot speed by ~7x. So if
-  // bit 7 isn't set, shift a few more bits from the stream until it
-  // is, tolerating up to 16 bits of overshoot past the expected
-  // count. This is the cheat aiie used before tickLSS, and it's
-  // still the right cheat for this granularity.
-  //
-  // Caller can suppress the overshoot when it knows the read is
-  // cycle-counted copy protection (e.g. Miner 2049er II's E7
-  // resync: $C08D then $C08C at a precise offset). In that case we
-  // must report the sequencer as-is so the stream position stays
-  // where the protection code expects it.
-  if (allowOvershoot) {
-    int64_t bitsToDeliver = calcExpectedBits();
-    while (bitsToDeliver > -16 && !(sequencer & 0x80)) {
-      sequencer <<= 1;
-      sequencer |= disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
-      bitsToDeliver--;
-      deliveredDiskBits[selectedDisk]++;
-    }
-  }
+  // tickLSS() has run the LSS state machine up to the current cycle;
+  // sequencer already holds what real hardware would have on the data
+  // bus. The allowOvershoot parameter is vestigial (retained for the
+  // interface) — the LSS's natural byte-flag hold-and-clear replaces
+  // the old overshoot cheat.
+  (void)allowOvershoot;
   return sequencer;
 }
 

@@ -31,6 +31,8 @@ typedef struct _diskInfo {
   uint16_t compatHardware;  // 0=unknown compatability
   uint16_t requiredRam;     // value in K. 0 = unknown
   uint16_t largestTrack;    // # of 512-byte blocks used for largest track
+  uint16_t fluxBlock;       // INFO v3: 0 if no FLUX chunk
+  uint16_t largestFluxTrack;// INFO v3: 0 if no FLUX chunk
 } diskInfo;
 
 typedef struct _trackInfo {
@@ -75,6 +77,13 @@ class Woz {
   // (bootSectorFormat = 2). "Both" (= 3) disks are treated as 16-sector
   // by default; callers that care can sniff per-track.
   bool isThirteenSectorDisk();
+
+  // Dump the raw latched-nibble byte stream for one physical track —
+  // one `NIBTRACKSIZE` revolution's worth of bytes straight out of
+  // nextDiskByte(). No sector framing, no checksums, no remapping;
+  // exactly what a dumb nib-reader would see. Useful for analyzing
+  // non-standard disk formats (rwts18, copy-protected variants).
+  bool readRawNibStream(uint8_t phystrack, uint8_t out[/* NIBTRACKSIZE */]);
   
  protected:
   bool writeWozFile(const char *filename, uint8_t subtype);

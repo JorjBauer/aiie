@@ -72,6 +72,7 @@ private:
   volatile int8_t curPhase[2];
   volatile uint8_t readWriteLatch;
   volatile uint8_t sequencer, dataRegister; // diskII logic state sequencer vars
+  volatile uint8_t lssState;                // LSS state machine (0-F), UTA2E Fig 9.11
   volatile int64_t driveSpinupCycles[2];
   volatile int64_t deliveredDiskBits[2];
   
