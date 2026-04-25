@@ -757,7 +757,7 @@ uint16_t BIOS::AboutScreenHandler(bool needsRedraw, bool performAction)
     
     g_display->drawString(M_NORMAL, 
 			  15, 20,
-			  "(c) 2017-2020 Jorj Bauer");
+			  "(c) 2017-2026 Jorj Bauer");
     
     g_display->drawString(M_NORMAL,
 			  15, 38,
@@ -788,7 +788,7 @@ uint16_t BIOS::AboutScreenHandler(bool needsRedraw, bool performAction)
     "                                   "
     "                                   "
     "                                   "
-    "  (c) 2017-2021 Jorj Bauer         "
+    "  (c) 2017-2026 Jorj Bauer         "
     "                                   "
     "                                   "
     " Source code is available at       "
