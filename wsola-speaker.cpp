@@ -49,6 +49,7 @@
 // polyphonic music whose audible content lives in the sequence of
 // constant-block polarities. WSOLA's crossfade smears those.
 #define RATIO_WSOLA_ON      1.50
+#define WSOLA_ENGAGE_CHUNKS 50
 
 #define MAX_RATIO           5
 
@@ -65,6 +66,7 @@ static int64_t           lastFilledTime = 0;
 static int16_t prevTail[WSOLA_OVERLAP];
 static bool    prevTailValid = false;
 static int     silenceChunks = 0;
+static int     wsolaEngageCount = 0;
 
 static int16_t pendingBuf[PENDING_BUF_SAMPLES];
 static int     pendingFill = 0;
@@ -76,6 +78,13 @@ static int     pendingFill = 0;
 // parity, which is what the physical speaker / ear chain expects
 // for Apple II PWM-based polyphonic music.
 static bool    internalToggleState = false;
+static int16_t lastWrittenLevel = 0;
+
+// Last sample value output — used for sample-and-hold when the audio
+// callback outruns the emulator (no toggle has arrived yet). A real
+// speaker holds its position between toggles; outputting zero would
+// create audible clicks.
+static int16_t lastOutputSample = 0;
 
 // --- Public API ---
 
@@ -89,8 +98,11 @@ void wsola_reset()
   lastFilledTime = 0;
   prevTailValid = false;
   silenceChunks = 0;
+  wsolaEngageCount = 0;
   pendingFill = 0;
   internalToggleState = false;
+  lastWrittenLevel = 0;
+  lastOutputSample = 0;
 }
 
 void wsola_toggle(int64_t cycles, int16_t highLevel, int16_t lowLevel)
@@ -103,11 +115,11 @@ void wsola_toggle(int64_t cycles, int16_t highLevel, int16_t lowLevel)
 
   int64_t delta = sampleIdx - lastFilledTime;
   if (delta <= 0) {
-    // Sub-sample toggle — the physical speaker DOES flip here, but
-    // at rates above our output Nyquist we can't represent the
-    // individual transitions. Match pre-WSOLA behavior: leave the
-    // internal toggle state alone; the subsequent write will pick
-    // up whichever parity actually landed at the sample boundary.
+    // Zero-width gap: no samples to write, but the speaker still
+    // flips. Two sub-sample toggles cancel each other out (correct);
+    // a flush-then-toggle at the same sample still registers the flip.
+    internalToggleState = !internalToggleState;
+    lastWrittenLevel = internalToggleState ? highLevel : lowLevel;
     return;
   }
 
@@ -126,13 +138,43 @@ void wsola_toggle(int64_t cycles, int16_t highLevel, int16_t lowLevel)
     }
   }
 
-  // Flip INTERNAL state — we only flip when we actually write,
-  // matching pre-WSOLA behavior.
-  internalToggleState = !internalToggleState;
+  // Fill the gap with the CURRENT level (pre-flip) — this is what the
+  // speaker was doing until this toggle. Then flip state for next time.
   int16_t level = internalToggleState ? highLevel : lowLevel;
 
   for (int64_t i = 0; i < delta; i++) {
     emuBuf[(emuWriteIdx + i) & EMU_BUF_MASK] = level;
+  }
+  emuWriteIdx += (uint64_t)delta;
+  lastFilledTime = sampleIdx;
+
+  internalToggleState = !internalToggleState;
+  lastWrittenLevel = internalToggleState ? highLevel : lowLevel;
+}
+
+void wsola_flush(int64_t cycles)
+{
+  if (lastFilledTime == 0) return;
+
+  int64_t sampleIdx = cycles * (int64_t)AUDIO_SAMPLE_RATE / 1023000;
+  int64_t delta = sampleIdx - lastFilledTime;
+  if (delta <= 0) return;
+
+  if ((uint64_t)delta > EMU_BUF_SAMPLES) {
+    emuReadIdx = emuWriteIdx + (uint64_t)delta - EMU_BUF_SAMPLES;
+    delta = EMU_BUF_SAMPLES;
+    prevTailValid = false;
+  } else {
+    uint64_t available = emuWriteIdx - emuReadIdx;
+    if (available + (uint64_t)delta > EMU_BUF_SAMPLES) {
+      uint64_t drop = (available + (uint64_t)delta) - EMU_BUF_SAMPLES + 1;
+      emuReadIdx += drop;
+      prevTailValid = false;
+    }
+  }
+
+  for (int64_t i = 0; i < delta; i++) {
+    emuBuf[(emuWriteIdx + i) & EMU_BUF_MASK] = lastWrittenLevel;
   }
   emuWriteIdx += (uint64_t)delta;
   lastFilledTime = sampleIdx;
@@ -243,19 +285,19 @@ static void appendOneChunk()
   if ((uint64_t)desired > available) desired = (int64_t)available;
   double ratio = (double)desired / (double)WSOLA_SYNHOP;
 
-  // Fast path: bit-exact passthrough from emuBuf to pendingBuf. This
-  // is the ONLY path taken at 1× emulation, and it produces exactly
-  // what the pre-WSOLA SDL speaker did — essential for fake-
-  // polyphonic music whose audible content is the sequence of
-  // constant-block polarities.
-  if (ratio < RATIO_WSOLA_ON) {
+  if (ratio >= RATIO_WSOLA_ON) {
+    if (wsolaEngageCount < WSOLA_ENGAGE_CHUNKS) wsolaEngageCount++;
+  } else {
+    wsolaEngageCount = 0;
+  }
+
+  if (ratio < RATIO_WSOLA_ON || wsolaEngageCount < WSOLA_ENGAGE_CHUNKS) {
     int n = WSOLA_SYNHOP;
     if ((uint64_t)n > available) n = (int)available;
     for (int j = 0; j < n; j++) {
       pendingBuf[pendingFill + j] = emuBuf[(readIdx + j) & EMU_BUF_MASK];
     }
-    // Pad with the last sample (or silence) if we ran short.
-    int16_t hold = (n > 0) ? pendingBuf[pendingFill + n - 1] : 0;
+    int16_t hold = (n > 0) ? pendingBuf[pendingFill + n - 1] : lastOutputSample;
     for (int j = n; j < WSOLA_SYNHOP; j++) pendingBuf[pendingFill + j] = hold;
     // Keep prevTail populated in case we transition up to WSOLA.
     for (int j = 0; j < WSOLA_OVERLAP; j++) {
@@ -280,7 +322,7 @@ static void appendOneChunk()
     for (int j = 0; j < n; j++) {
       pendingBuf[pendingFill + j] = emuBuf[(readIdx + j) & EMU_BUF_MASK];
     }
-    int16_t hold = (n > 0) ? pendingBuf[pendingFill + n - 1] : 0;
+    int16_t hold = (n > 0) ? pendingBuf[pendingFill + n - 1] : lastOutputSample;
     for (int j = n; j < WSOLA_SYNHOP; j++) pendingBuf[pendingFill + j] = hold;
     pendingFill += WSOLA_SYNHOP;
     emuReadIdx = readIdx + (uint64_t)n;
@@ -309,6 +351,7 @@ void wsola_produce(int16_t *output, int count)
                 (pendingFill - take) * sizeof(int16_t));
       }
       pendingFill -= take;
+      lastOutputSample = output[written - 1];
       if (written >= count) break;
     }
 
@@ -317,7 +360,7 @@ void wsola_produce(int16_t *output, int count)
       appendOneChunk();
     }
     if (pendingFill == 0) {
-      while (written < count) output[written++] = 0;
+      while (written < count) output[written++] = lastOutputSample;
       break;
     }
   }

@@ -8,6 +8,7 @@ class PhysicalSpeaker {
   virtual ~PhysicalSpeaker() {}
 
   virtual void begin() = 0;
+  virtual void reset() = 0;
 
   virtual void toggle(int64_t c) = 0;
   virtual void maintainSpeaker(int64_t c, uint64_t microseconds) = 0;

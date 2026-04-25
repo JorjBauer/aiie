@@ -105,6 +105,13 @@ SDLSpeaker::SDLSpeaker()
 
 SDLSpeaker::~SDLSpeaker() {}
 
+void SDLSpeaker::reset()
+{
+  pthread_mutex_lock(&togmutex);
+  wsola_reset();
+  pthread_mutex_unlock(&togmutex);
+}
+
 void SDLSpeaker::begin()
 {
   SDL_AudioSpec audioDevice, audioActual;
@@ -135,6 +142,11 @@ void SDLSpeaker::toggle(int64_t c)
   pthread_mutex_unlock(&togmutex);
 }
 
-void SDLSpeaker::maintainSpeaker(int64_t c, uint64_t microseconds) {}
+void SDLSpeaker::maintainSpeaker(int64_t c, uint64_t microseconds)
+{
+  pthread_mutex_lock(&togmutex);
+  wsola_flush(c);
+  pthread_mutex_unlock(&togmutex);
+}
 void SDLSpeaker::beginMixing() {}
 void SDLSpeaker::mixOutput(uint8_t v) {}

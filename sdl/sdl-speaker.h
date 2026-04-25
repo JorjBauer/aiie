@@ -11,6 +11,7 @@ class SDLSpeaker : public PhysicalSpeaker {
   virtual ~SDLSpeaker();
 
   virtual void begin();
+  virtual void reset();
 
   virtual void toggle(int64_t c);
   virtual void maintainSpeaker(int64_t c, uint64_t microseconds);

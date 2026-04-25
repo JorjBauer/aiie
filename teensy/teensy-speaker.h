@@ -17,6 +17,7 @@ class TeensySpeaker : public PhysicalSpeaker {
   virtual ~TeensySpeaker();
 
   virtual void begin();
+  virtual void reset();
 
   virtual void toggle(int64_t c);
   virtual void maintainSpeaker();

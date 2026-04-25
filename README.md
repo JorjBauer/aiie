@@ -303,8 +303,6 @@ release as of this writing. There are two sets of functionality needed
 here: first, SdFat with long file name support that works with the
 Teensy 4; and second, raw USB keyboard scancode support.
 
-Suspend/Restore is untested with the Teensy 4.1 hardware.
-
 The Audio channel needs antialiasing and downsampling support for
 cleaner audio. This wasn't a problem on the Teensy 3.6 because the
 code was live toggling an actual speaker, just like the Apple did, in
@@ -313,17 +311,7 @@ we're experiencing real analog/digital conversion issues in some
 situations (particularly code that exploits the physical hardware to
 make really sophisticsated sounds).
 
-CPU speed regulation isn't working at the moment; no matter what speed
-you pick, you'll get normal full speed.
-
-NIB disks are completely broken at the moment due to the Woz disk
-format implementation. Internally, the NIB is converted to a WOZ and
-apparently there's a bug somewhere.
-
 The LinuxFB build is currently unmaintained, and definitely broken.
-
-Many, but not all, copy-protected Woz disks work. There appears to be
-a subtle timing bug in my disk driver code.
 
 Disk write protection isn't implemented.
 
@@ -333,5 +321,3 @@ initialized on hardware startup.)
 
 While I do have an ESP-01 wired in to the hardware, I don't have a
 working driver written yet.
-
-

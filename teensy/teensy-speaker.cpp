@@ -45,11 +45,15 @@ void TeensySpeaker::begin()
   audioRunning = 0;
 }
 
+void TeensySpeaker::reset()
+{
+  __disable_irq();
+  wsola_reset();
+  __enable_irq();
+}
+
 void TeensySpeaker::toggle(int64_t c)
 {
-  // Let WSOLA manage the flip state — it must only flip on writes
-  // that actually produce a sample, or polyphonic PWM music comes
-  // out with the wrong parity.
   __disable_irq();
   wsola_toggle(c, HIGHVAL, LOWVAL);
   __enable_irq();
@@ -57,7 +61,9 @@ void TeensySpeaker::toggle(int64_t c)
 
 void TeensySpeaker::maintainSpeaker(int64_t c, uint64_t microseconds)
 {
-  begin(); // flush! Hack. FIXME.
+  __disable_irq();
+  wsola_flush(c);
+  __enable_irq();
 }
 
 void TeensySpeaker::maintainSpeaker() {}

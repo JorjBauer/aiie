@@ -154,12 +154,14 @@ void AppleVM::cpuMaintenance(int64_t cycles)
   disk6->maintenance(cycles);
   if (mouse) mouse->maintainMouse(cycles);
   if (mockingboard) mockingboard->update(cycles);
+  g_speaker->maintainSpeaker(cycles, 0);
 }
 
 void AppleVM::Reset()
 {
   disk6->Reset();
   if (mockingboard) mockingboard->Reset();
+  g_speaker->reset();
   mmu->Reset();
 
   g_cpu->pc = (((AppleMMU *)mmu)->read(0xFFFD) << 8) | ((AppleMMU *)mmu)->read(0xFFFC);

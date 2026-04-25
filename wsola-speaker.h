@@ -29,6 +29,11 @@ void wsola_reset();
 // for PWM-based polyphonic music.
 void wsola_toggle(int64_t cycles, int16_t highLevel, int16_t lowLevel);
 
+// Fill emuBuf with the current speaker level up to the given CPU
+// cycle. Call periodically (e.g., from cpuMaintenance or the audio
+// callback) so the buffer stays populated between toggles.
+void wsola_flush(int64_t cycles);
+
 // Drain `count` wall-clock samples out of the pipeline into
 // `output[]`. Never blocks. If the emu hasn't produced enough
 // samples yet (underrun), holds the last level (silence) to pad.
