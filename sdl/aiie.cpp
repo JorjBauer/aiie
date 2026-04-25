@@ -407,11 +407,34 @@ int main(int argc, char *argv[])
   // paddles have to be created after g_display created the window
   g_paddles = new SDLPaddles();
 
+  // Read prefs early so slot assignments are correct before the VM is created.
+  // Disk/HD image loading happens later in readPrefs() once g_vm exists.
+  {
+    NixPrefs np;
+    prefs_t p;
+    if (np.readPrefs(&p)) {
+      g_volume = p.volume;
+      g_displayType = p.displayType;
+      g_luminanceCutoff = p.luminanceCutoff;
+      g_debugMode = p.debug;
+      g_speed = (p.speed * (1023000/2));
+      if (g_speed < (1023000/2))
+        g_speed = (1023000/2);
+      if (p.version >= 6) {
+        g_slotDiskII = p.slotDiskII;
+        g_slotParallel = p.slotParallel;
+        g_slotHD32 = p.slotHD32;
+        g_slotMouse = p.slotMouse;
+        g_slotMockingboard = p.slotMockingboard;
+      }
+    }
+  }
+
   // Next create the virtual CPU. This needs the VM's MMU in order to run, but we don't have that yet.
   g_cpu = new Cpu();
 
   // Create the virtual machine. This may read from g_filemanager to get ROMs if necessary.
-  // (The actual Apple VM we've built has them compiled in, though.) It will create its virutal 
+  // (The actual Apple VM we've built has them compiled in, though.) It will create its virutal
   // hardware (MMU, video driver, floppy, paddles, whatever).
   g_vm = new AppleVM();
 
@@ -428,9 +451,8 @@ int main(int argc, char *argv[])
   //  g_display->blit();
   g_display->redraw();
 
-  /* Load prefs & reset globals appropriately now */
+  /* Load remaining prefs (disk images, window size) now that the VM exists */
   readPrefs();
-
   if (argc >= 2) {
     printf("Inserting disk %s\n", argv[1]);
     ((AppleVM *)g_vm)->insertDisk(0, argv[1]);
@@ -474,6 +496,14 @@ void readPrefs()
     g_speed = (p.speed * (1023000/2)); // steps of half normal speed
     if (g_speed < (1023000/2))
       g_speed = (1023000/2);
+
+    if (p.version >= 6) {
+      g_slotDiskII = p.slotDiskII;
+      g_slotParallel = p.slotParallel;
+      g_slotHD32 = p.slotHD32;
+      g_slotMouse = p.slotMouse;
+      g_slotMockingboard = p.slotMockingboard;
+    }
     if (p.disk1[0]) {
       ((AppleVM *)g_vm)->insertDisk(0, p.disk1);
       strcpy(disk1name, p.disk1);
@@ -512,6 +542,13 @@ void writePrefs()
 
   p.debug = g_debugMode;
   p.speed = g_speed / (1023000/2);
+
+  p.slotDiskII = g_slotDiskII;
+  p.slotParallel = g_slotParallel;
+  p.slotHD32 = g_slotHD32;
+  p.slotMouse = g_slotMouse;
+  p.slotMockingboard = g_slotMockingboard;
+
   strcpy(p.disk1, ((AppleVM *)g_vm)->DiskName(0));
   strcpy(p.disk2, ((AppleVM *)g_vm)->DiskName(1));
   strcpy(p.hd1, ((AppleVM *)g_vm)->HDName(0));

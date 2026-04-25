@@ -43,12 +43,13 @@ enum {
   BIOS_AIIE = 0,
   BIOS_VM = 1,
   BIOS_HARDWARE = 2,
-  BIOS_DISKS = 3,
-  
-  BIOS_ABOUT = 4,
-  BIOS_PADDLES = 5,
-  BIOS_SELECTFILE = 6,
-  
+  BIOS_CARDS = 3,
+  BIOS_DISKS = 4,
+
+  BIOS_ABOUT = 5,
+  BIOS_PADDLES = 6,
+  BIOS_SELECTFILE = 7,
+
   BIOS_DONE = 99,
 };
   
@@ -76,11 +77,17 @@ enum {
   ACT_PADDLES = 20,
   ACT_SPEED = 21,
   ACT_ABOUT = 22,
+  ACT_SLOT_DISKII = 23,
+  ACT_SLOT_PARALLEL = 24,
+  ACT_SLOT_HD32 = 25,
+  ACT_SLOT_MOUSE = 26,
+  ACT_SLOT_MOCKINGBOARD = 27,
+  ACT_SLOT_DEFAULTS = 28,
 };
 
-#define NUM_TITLES 4
-const char *menuTitles[NUM_TITLES] = { "Aiie", "VM", "Hardware", "Disks" };
-const uint8_t titleWidths[NUM_TITLES] = {45, 28, 80, 45 };
+#define NUM_TITLES 5
+const char *menuTitles[NUM_TITLES] = { "Aiie", "VM", "Hardware", "Cards", "Disks" };
+const uint8_t titleWidths[NUM_TITLES] = {45, 28, 80, 48, 45 };
 
 const uint8_t aiieActions[] = { ACT_ABOUT };
 
@@ -91,8 +98,19 @@ const uint8_t hardwareActions[] = { ACT_DISPLAYTYPE,  ACT_LUMINANCEUP,
                                     ACT_LUMINANCEDOWN, ACT_SPEED,
 				    ACT_PADX_INV, ACT_PADY_INV,
 				    ACT_PADDLES, ACT_VOLPLUS, ACT_VOLMINUS };
-const uint8_t diskActions[] = { ACT_DISK1, ACT_DISK2, 
+const uint8_t cardsActions[] = { ACT_SLOT_DISKII, ACT_SLOT_PARALLEL,
+				 ACT_SLOT_HD32, ACT_SLOT_MOUSE,
+				 ACT_SLOT_MOCKINGBOARD, ACT_SLOT_DEFAULTS };
+const uint8_t diskActions[] = { ACT_DISK1, ACT_DISK2,
 				ACT_HD1, ACT_HD2 };
+
+static uint8_t savedSlotDiskII;
+static uint8_t savedSlotParallel;
+static uint8_t savedSlotHD32;
+static uint8_t savedSlotMouse;
+static uint8_t savedSlotMockingboard;
+static bool cardsConfigChanged = false;
+static bool cardsConfigSaved = false;
 
 #define CPUSPEED_HALF 0
 #define CPUSPEED_FULL 1
@@ -118,6 +136,14 @@ BIOS::BIOS()
     // Put end terminators in place; strncpy won't copy over them
     fileDirectory[i][BIOS_MAXPATH] = '\0';
   }
+
+  savedSlotDiskII = g_slotDiskII;
+  savedSlotParallel = g_slotParallel;
+  savedSlotHD32 = g_slotHD32;
+  savedSlotMouse = g_slotMouse;
+  savedSlotMockingboard = g_slotMockingboard;
+  cardsConfigChanged = false;
+  cardsConfigSaved = false;
 }
 
 BIOS::~BIOS()
@@ -167,6 +193,13 @@ bool BIOS::loop()
     // We're returning to the bios a second time
     selectedMenu = BIOS_VM;
     needsRedraw = true;
+
+    savedSlotDiskII = g_slotDiskII;
+    savedSlotParallel = g_slotParallel;
+    savedSlotHD32 = g_slotHD32;
+    savedSlotMouse = g_slotMouse;
+    savedSlotMockingboard = g_slotMockingboard;
+    cardsConfigChanged = false;
   }
 
 #ifdef TEENSYDUINO
@@ -180,11 +213,13 @@ bool BIOS::loop()
 #endif
 
   bool hitReturn = false;
-  
+  int8_t lastKey = PK_NONE;
+
   uint16_t rv = BIOS_DONE;
   bool changingMenu = false;
   if (g_keyboard->kbhit()) {
-    switch (g_keyboard->read()) {
+    lastKey = g_keyboard->read();
+    switch (lastKey) {
     case PK_DARR:
       selectedMenuItem++; // modded by current action
       needsRedraw = true;
@@ -255,6 +290,9 @@ bool BIOS::loop()
   case BIOS_HARDWARE:
     rv = HardwareMenuHandler(needsRedraw, hitReturn);
     break;
+  case BIOS_CARDS:
+    rv = CardsMenuHandler(needsRedraw, hitReturn, lastKey);
+    break;
   case BIOS_DISKS:
     rv = DisksMenuHandler(needsRedraw, hitReturn);
     break;
@@ -276,6 +314,14 @@ bool BIOS::loop()
   }
   else
     needsRedraw = false; // assume the handler drew
+
+  if (selectedMenu == BIOS_DONE && cardsConfigChanged) {
+    g_display->clrScr(c_darkblue);
+    g_display->drawString(M_SELECTED, 80, 100, "Reconfiguring slots...");
+    g_display->flush();
+    ((AppleVM *)g_vm)->reassignSlots();
+    cardsConfigChanged = false;
+  }
 
   return ((selectedMenu == BIOS_DONE) ? false : true);
 }
@@ -326,16 +372,35 @@ uint16_t BIOS::VmMenuHandler(bool needsRedraw, bool performAction)
     if (isActionActive(vmActions[selectedMenuItem])) {
       switch (vmActions[selectedMenuItem]) {
       case ACT_EXIT:
+	if (cardsConfigChanged) {
+	  g_display->clrScr(c_darkblue);
+	  g_display->drawString(M_SELECTED, 80, 100, "Reconfiguring slots...");
+	  g_display->flush();
+	  ((AppleVM *)g_vm)->reassignSlots();
+	  cardsConfigChanged = false;
+	}
 	return BIOS_DONE;
       case ACT_RESET:
+	if (cardsConfigChanged) {
+	  ((AppleVM *)g_vm)->reassignSlots();
+	  cardsConfigChanged = false;
+	}
 	WarmReset();
 	return BIOS_DONE;
       case ACT_REBOOT:
 	// Reboot, but don't eject disks
+	if (cardsConfigChanged) {
+	  ((AppleVM *)g_vm)->reassignSlots();
+	  cardsConfigChanged = false;
+	}
 	RebootAsIs();
 	return BIOS_DONE;
       case ACT_REBOOTANDEJECT:
 	// Power off and on, ejecting disks
+	if (cardsConfigChanged) {
+	  ((AppleVM *)g_vm)->reassignSlots();
+	  cardsConfigChanged = false;
+	}
 	ColdReboot();
 	return BIOS_DONE;
       case ACT_MONITOR:
@@ -467,6 +532,136 @@ uint16_t BIOS::HardwareMenuHandler(bool needsRedraw, bool performAction)
   }
 
   return BIOS_HARDWARE;
+}
+
+static uint8_t *slotVarForAction(uint8_t action)
+{
+  switch (action) {
+  case ACT_SLOT_DISKII: return &g_slotDiskII;
+  case ACT_SLOT_PARALLEL: return &g_slotParallel;
+  case ACT_SLOT_HD32: return &g_slotHD32;
+  case ACT_SLOT_MOUSE: return &g_slotMouse;
+  case ACT_SLOT_MOCKINGBOARD: return &g_slotMockingboard;
+  }
+  return NULL;
+}
+
+static void resolveSlotConflict(uint8_t *changedVar)
+{
+  uint8_t *allSlots[] = { &g_slotDiskII, &g_slotParallel, &g_slotHD32,
+                          &g_slotMouse, &g_slotMockingboard };
+  uint8_t newSlot = *changedVar;
+  if (newSlot == 0) return;
+
+  for (int i = 0; i < 5; i++) {
+    if (allSlots[i] == changedVar) continue;
+    if (*allSlots[i] == newSlot) {
+      // Find an available slot for the displaced card
+      uint8_t validSlots[] = { 1, 2, 4, 5, 6, 7 };
+      bool found = false;
+      for (int s = 0; s < 6 && !found; s++) {
+        uint8_t candidate = validSlots[s];
+        bool taken = false;
+        for (int j = 0; j < 5; j++) {
+          if (allSlots[j] != allSlots[i] && *allSlots[j] == candidate) {
+            taken = true;
+            break;
+          }
+        }
+        if (!taken) {
+          *allSlots[i] = candidate;
+          found = true;
+        }
+      }
+      if (!found) {
+        *allSlots[i] = 0;
+      }
+    }
+  }
+}
+
+static bool slotsMatchSaved()
+{
+  return (g_slotDiskII == savedSlotDiskII &&
+          g_slotParallel == savedSlotParallel &&
+          g_slotHD32 == savedSlotHD32 &&
+          g_slotMouse == savedSlotMouse &&
+          g_slotMockingboard == savedSlotMockingboard);
+}
+
+uint16_t BIOS::CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key)
+{
+  static bool localRedraw = true;
+
+  if (selectedMenuItem < 0)
+    selectedMenuItem = sizeof(cardsActions)-1;
+  selectedMenuItem %= sizeof(cardsActions);
+
+  if (key >= '0' && key <= '7' && key != '3') {
+    uint8_t newSlot = key - '0';
+    uint8_t action = cardsActions[selectedMenuItem];
+    uint8_t *var = slotVarForAction(action);
+    if (var) {
+      g_display->clrScr(c_darkblue);
+      g_display->drawString(M_SELECTED, 80, 100, "Updating slots...");
+      g_display->flush();
+      *var = newSlot;
+      if (newSlot != 0) resolveSlotConflict(var);
+      cardsConfigChanged = !slotsMatchSaved();
+      localRedraw = true;
+    }
+  }
+
+  if (needsRedraw || localRedraw) {
+    g_display->clrScr(c_darkblue);
+    DrawMenuBar();
+    DrawCardsMenu();
+    g_display->flush();
+    localRedraw = false;
+  }
+
+  if (performAction) {
+    if (isActionActive(cardsActions[selectedMenuItem])) {
+      switch (cardsActions[selectedMenuItem]) {
+      case ACT_SLOT_DISKII:
+      case ACT_SLOT_PARALLEL:
+      case ACT_SLOT_HD32:
+      case ACT_SLOT_MOUSE:
+      case ACT_SLOT_MOCKINGBOARD:
+        {
+          uint8_t *var = slotVarForAction(cardsActions[selectedMenuItem]);
+          if (var) {
+            g_display->clrScr(c_darkblue);
+            g_display->drawString(M_SELECTED, 80, 100, "Updating slots...");
+            g_display->flush();
+            uint8_t validSlots[] = { 0, 1, 2, 4, 5, 6, 7 };
+            uint8_t cur = *var;
+            int idx = 0;
+            for (int i = 0; i < 7; i++) {
+              if (validSlots[i] == cur) { idx = i; break; }
+            }
+            idx = (idx + 1) % 7;
+            *var = validSlots[idx];
+            if (*var != 0) resolveSlotConflict(var);
+            cardsConfigChanged = !slotsMatchSaved();
+          }
+          localRedraw = true;
+        }
+        break;
+      case ACT_SLOT_DEFAULTS:
+        g_slotDiskII = 6;
+        g_slotParallel = 1;
+        g_slotHD32 = 7;
+        g_slotMouse = 2;
+        g_slotMockingboard = 4;
+        cardsConfigChanged = !slotsMatchSaved();
+        localRedraw = true;
+        break;
+      }
+    }
+  }
+
+  return BIOS_CARDS;
 }
 
 uint16_t BIOS::DisksMenuHandler(bool needsRedraw, bool performAction)
@@ -845,6 +1040,12 @@ bool BIOS::isActionActive(int8_t action)
   case ACT_PADX_INV:
   case ACT_PADY_INV:
   case ACT_PADDLES:
+  case ACT_SLOT_DISKII:
+  case ACT_SLOT_PARALLEL:
+  case ACT_SLOT_HD32:
+  case ACT_SLOT_MOUSE:
+  case ACT_SLOT_MOCKINGBOARD:
+  case ACT_SLOT_DEFAULTS:
     return true;
 
   case ACT_LUMINANCEUP:
@@ -1055,6 +1256,68 @@ void BIOS::DrawHardwareMenu()
   }
 }
 
+void BIOS::DrawCardsMenu()
+{
+  if (selectedMenuItem < 0)
+    selectedMenuItem = sizeof(cardsActions)-1;
+  selectedMenuItem %= sizeof(cardsActions);
+
+  char buf[50];
+  for (size_t i=0; i<sizeof(cardsActions); i++) {
+    uint8_t slot = 0;
+    const char *name = "";
+    switch (cardsActions[i]) {
+    case ACT_SLOT_DISKII:
+      name = "Disk II";
+      slot = g_slotDiskII;
+      break;
+    case ACT_SLOT_PARALLEL:
+      name = "Parallel";
+      slot = g_slotParallel;
+      break;
+    case ACT_SLOT_HD32:
+      name = "HD32";
+      slot = g_slotHD32;
+      break;
+    case ACT_SLOT_MOUSE:
+      name = "Mouse";
+      slot = g_slotMouse;
+      break;
+    case ACT_SLOT_MOCKINGBOARD:
+      name = "Mockingboard";
+      slot = g_slotMockingboard;
+      break;
+    case ACT_SLOT_DEFAULTS:
+      strcpy(buf, "Reset to defaults");
+      goto drawit;
+    }
+
+    if (slot == 0)
+      snprintf(buf, sizeof(buf), "%-14s Disabled", name);
+    else
+      snprintf(buf, sizeof(buf), "%-14s Slot %d", name, slot);
+
+  drawit:
+    if (isActionActive(cardsActions[i])) {
+      g_display->drawString(selectedMenuItem == (int8_t)i ? M_SELECTED : M_NORMAL, MENUINDENT, 20 + LINEHEIGHT * i, buf);
+    } else {
+      g_display->drawString(selectedMenuItem == (int8_t)i ? M_SELECTDISABLED : M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * i, buf);
+    }
+  }
+
+  if (cardsConfigChanged) {
+    g_display->drawString(M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * (sizeof(cardsActions) + 1),
+                          "Card changes require reboot.");
+    g_display->drawString(M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * (sizeof(cardsActions) + 2),
+                          "Machine will cold restart on exit.");
+  }
+
+  g_display->drawString(M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * (sizeof(cardsActions) + 4),
+                        "Type 0-7 to set slot (not 3)");
+  g_display->drawString(M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * (sizeof(cardsActions) + 5),
+                        "Return cycles through slots");
+}
+
 void BIOS::DrawDisksMenu()
 {
   if (selectedMenuItem < 0)
@@ -1130,7 +1393,10 @@ void BIOS::DrawCurrentMenu()
   case 2: // Hardware
     DrawHardwareMenu();
     break;
-  case 3: // Disks
+  case 3: // Cards
+    DrawCardsMenu();
+    break;
+  case 4: // Disks
     DrawDisksMenu();
     break;
   }

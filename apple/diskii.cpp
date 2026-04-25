@@ -283,7 +283,8 @@ uint8_t DiskII::readSwitches(uint8_t s)
   if (s != 0x0C) {
     readWriteLatch = sequencer;
   }
-  return (s & 1) ? _FLOATINGBUS : readWriteLatch;
+  uint8_t retval = (s & 1) ? _FLOATINGBUS : readWriteLatch;
+  return retval;
 }
 
 void DiskII::writeSwitches(uint8_t s, uint8_t v)

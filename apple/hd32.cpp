@@ -265,6 +265,17 @@ void HD32::loadROM(uint8_t *toWhere)
   printf("loading HD32 rom\n");
   memcpy(toWhere, romData, 256);
 #endif
+
+  // The ROM has a hardcoded JMP $C600 at offset $5C as a fallback when
+  // the HD can't boot (fall back to Disk II). Patch the target to
+  // point to wherever the Disk II actually is, or loop forever if
+  // there is no Disk II.
+  if (g_slotDiskII) {
+    toWhere[0x5E] = 0xC0 + g_slotDiskII;
+  } else {
+    toWhere[0x5D] = 0x5C;
+    toWhere[0x5E] = 0xC0 + g_slotHD32;
+  }
 }
 
 uint8_t HD32::readNextByteFromSelectedDrive()

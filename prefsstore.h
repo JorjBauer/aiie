@@ -6,7 +6,7 @@
 // Fun trivia: the Apple //e was in production from January 1983 to
 // November 1993. And the 65C02 in them supported weird BCD math modes.
 #define PREFSMAGIC 0x01831093
-#define PREFSVERSION 5
+#define PREFSVERSION 6
 
 #ifndef MAXPATH
 #define MAXPATH 255
@@ -32,7 +32,13 @@ typedef struct _prefs {
   uint16_t windowWidth;
   uint16_t windowHeight;
 
-  char reserved[MAXPATH - 4]; // 255 is the Teensy MAXPATH size (less fields above)
+  uint8_t slotDiskII;
+  uint8_t slotParallel;
+  uint8_t slotHD32;
+  uint8_t slotMouse;
+  uint8_t slotMockingboard;
+
+  char reserved[MAXPATH - 4 - 5]; // 255 is the Teensy MAXPATH size (less fields above)
 
   char disk1[MAXPATH];
   char disk2[MAXPATH];

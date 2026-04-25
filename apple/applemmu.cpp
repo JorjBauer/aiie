@@ -1071,6 +1071,16 @@ void AppleMMU::setSlot(int8_t slotnum, Slot *peripheral)
   }
 }
 
+void AppleMMU::clearSlotRom(int8_t slotnum)
+{
+  if (slotnum >= 1 && slotnum <= 7) {
+    uint16_t page0 = _pageNumberForRam(0xC0 + slotnum, 0);
+    for (int i = 0; i < 256; i++) {
+      g_ram.writeByte((page0 << 8) + i, 0);
+    }
+  }
+}
+
 void AppleMMU::updateMemoryPages()
 {
   if (auxRamRead) {

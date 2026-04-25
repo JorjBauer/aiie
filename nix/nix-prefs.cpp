@@ -43,7 +43,7 @@ bool NixPrefs::readPrefs(prefs_t *readTo)
   if (readTo->prefsSize != sizeof(prefs_t)) {
     return false;
   }
-  if (readTo->version != PREFSVERSION) {
+  if (readTo->version != PREFSVERSION && readTo->version != PREFSVERSION - 1) {
     return false;
   }
 

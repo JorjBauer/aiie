@@ -89,7 +89,7 @@ class Woz {
   // exactly what a dumb nib-reader would see. Useful for analyzing
   // non-standard disk formats (rwts18, copy-protected variants).
   bool readRawNibStream(uint8_t phystrack, uint8_t out[/* NIBTRACKSIZE */]);
-  
+
  protected:
   bool writeWozFile(const char *filename, uint8_t subtype);
   bool writeWozFile(int fdout, uint8_t subtype);

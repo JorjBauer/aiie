@@ -62,6 +62,12 @@ extern bool g_invertPaddleY;
 
 extern uint8_t g_luminanceCutoff;
 
+extern uint8_t g_slotDiskII;
+extern uint8_t g_slotParallel;
+extern uint8_t g_slotHD32;
+extern uint8_t g_slotMouse;
+extern uint8_t g_slotMockingboard;
+
 extern char debugBuf[255];
 
 #ifdef TEENSYDUINO

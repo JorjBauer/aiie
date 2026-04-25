@@ -53,6 +53,7 @@ class AppleMMU : public MMU {
   void resetRAM(); // used by BIOS on cold boot
 
   void setSlot(int8_t slotnum, Slot *peripheral);
+  void clearSlotRom(int8_t slotnum);
 
   void setAppleKey(int8_t which, bool isDown);
 

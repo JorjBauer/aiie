@@ -26,11 +26,13 @@ class BIOS {
   void DrawAiieMenu();
   void DrawVMMenu();
   void DrawHardwareMenu();
+  void DrawCardsMenu();
   void DrawDisksMenu();
 
   uint16_t AiieMenuHandler(bool needsRedraw, bool performAction);
   uint16_t VmMenuHandler(bool needsRedraw, bool performAction);
   uint16_t HardwareMenuHandler(bool needsRedraw, bool performAction);
+  uint16_t CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key);
   uint16_t DisksMenuHandler(bool needsRedraw, bool performAction);
   uint16_t AboutScreenHandler(bool needsRedraw, bool performAction);
   uint16_t PaddlesScreenHandler(bool needsRedraw, bool performAction);

@@ -25,22 +25,35 @@ AppleVM::AppleVM()
   mmu = new AppleMMU((AppleDisplay *)vmdisplay);
   vmdisplay->SetMMU((AppleMMU *)mmu);
 
-  disk6 = new DiskII((AppleMMU *)mmu);
-  ((AppleMMU *)mmu)->setSlot(6, disk6);
-
   keyboard = new AppleKeyboard((AppleMMU *)mmu);
 
+  disk6 = new DiskII((AppleMMU *)mmu);
   parallel = new ParallelCard();
-  ((AppleMMU *)mmu)->setSlot(1, parallel);
-
   hd32 = new HD32((AppleMMU *)mmu);
-  ((AppleMMU *)mmu)->setSlot(7, hd32);
-
   mouse = new Mouse();
-  ((AppleMMU *)mmu)->setSlot(2, mouse);
-
   mockingboard = new Mockingboard();
-  ((AppleMMU *)mmu)->setSlot(4, mockingboard);
+
+  if (g_slotDiskII) ((AppleMMU *)mmu)->setSlot(g_slotDiskII, disk6);
+  if (g_slotParallel) ((AppleMMU *)mmu)->setSlot(g_slotParallel, parallel);
+  if (g_slotHD32) ((AppleMMU *)mmu)->setSlot(g_slotHD32, hd32);
+  if (g_slotMouse) ((AppleMMU *)mmu)->setSlot(g_slotMouse, mouse);
+  if (g_slotMockingboard) ((AppleMMU *)mmu)->setSlot(g_slotMockingboard, mockingboard);
+}
+
+void AppleVM::reassignSlots()
+{
+  // Clear slot pointers and zero their ROM pages so stale ROM data
+  // doesn't make the boot scan think a card is still present.
+  for (int i = 1; i <= 7; i++) {
+    ((AppleMMU *)mmu)->slots[i] = NULL;
+    ((AppleMMU *)mmu)->clearSlotRom(i);
+  }
+
+  if (g_slotDiskII) ((AppleMMU *)mmu)->setSlot(g_slotDiskII, disk6);
+  if (g_slotParallel) ((AppleMMU *)mmu)->setSlot(g_slotParallel, parallel);
+  if (g_slotHD32) ((AppleMMU *)mmu)->setSlot(g_slotHD32, hd32);
+  if (g_slotMouse) ((AppleMMU *)mmu)->setSlot(g_slotMouse, mouse);
+  if (g_slotMockingboard) ((AppleMMU *)mmu)->setSlot(g_slotMockingboard, mockingboard);
 }
 
 AppleVM::~AppleVM()
@@ -147,7 +160,6 @@ void AppleVM::Reset()
 {
   disk6->Reset();
   if (mockingboard) mockingboard->Reset();
-  ((AppleMMU *)mmu)->resetRAM();
   mmu->Reset();
 
   g_cpu->pc = (((AppleMMU *)mmu)->read(0xFFFD) << 8) | ((AppleMMU *)mmu)->read(0xFFFC);

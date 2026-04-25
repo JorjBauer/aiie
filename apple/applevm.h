@@ -38,6 +38,8 @@ class AppleVM : public VM {
 
   bool isMouseEnabled();
 
+  void reassignSlots();
+
   DiskII *disk6;
   HD32 *hd32;
   Mockingboard *mockingboard;
