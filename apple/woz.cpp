@@ -1,5 +1,6 @@
 #include "woz.h"
 #include <string.h>
+#include <sys/stat.h>
 #include "crc32.h"
 #include "nibutil.h"
 #include "version.h"
@@ -58,6 +59,8 @@ Woz::Woz(bool verbose, uint8_t dumpflags)
   memset(&tracks, 0, sizeof(tracks));
   randPtr = 0;
   headWindow = 0;
+  hdvData = NULL;
+  hdvByteSize = 0;
 }
 
 Woz::~Woz()
@@ -66,7 +69,7 @@ Woz::~Woz()
     close(fd);
     fd = -1;
   }
-  
+
   for (int i=0; i<160; i++) {
     if (tracks[i].trackData) {
       free(tracks[i].trackData);
@@ -76,6 +79,10 @@ Woz::~Woz()
   if (metaData) {
     free(metaData);
     metaData = NULL;
+  }
+  if (hdvData) {
+    free(hdvData);
+    hdvData = NULL;
   }
 }
 
@@ -238,6 +245,28 @@ uint8_t Woz::fakeBit()
   return a & b;
 }
 
+void Woz::dumpTrackState(uint8_t datatrack)
+{
+  fprintf(stderr, "TRACK DUMP: trk=%d bitCount=%d trackPointer=%d trackBitCounter=%d trackBitIdx=%02X headWindow=%02X\n",
+          datatrack,
+          tracks[datatrack].trackData ? (int)tracks[datatrack].bitCount : -1,
+          (int)trackPointer,
+          (int)trackBitCounter,
+          trackBitIdx, headWindow);
+  if (tracks[datatrack].trackData) {
+    int ptr = trackPointer;
+    fprintf(stderr, "TRACK DATA @ptr(%d):", ptr);
+    for (int dd = 0; dd < 32; dd++) {
+      fprintf(stderr, " %02X", tracks[datatrack].trackData[ptr + dd]);
+    }
+    fprintf(stderr, "\nTRACK DATA @0:");
+    for (int dd = 0; dd < 64; dd++) {
+      fprintf(stderr, " %02X", tracks[datatrack].trackData[dd]);
+    }
+    fprintf(stderr, "\n");
+  }
+}
+
 uint8_t Woz::nextDiskBit(uint8_t datatrack)
 {
   if (!tracks[datatrack].trackData) {
@@ -364,10 +393,21 @@ bool Woz::writeFile(const char *filename, uint8_t forceType)
       forceType = T_PO;
     } else if (strcasecmp(p, ".nib") == 0) {
       forceType = T_NIB;
+    } else if (strcasecmp(p, ".hdv") == 0 ||
+               strcasecmp(p, ".2mg") == 0 ||
+               strcasecmp(p, ".img") == 0) {
+      forceType = T_HDV;
     } else {
       fprintf(stderr, "Unable to determine file type of '%s'\n", filename);
       return false;
     }
+  }
+
+  // HDV images can't be represented in any floppy-oriented format. Let
+  // the caller know, rather than silently producing truncated garbage.
+  if (imageType == T_HDV && forceType != T_HDV) {
+    fprintf(stderr, "ERROR: can't convert a hard-disk image to a floppy format\n");
+    return false;
   }
 
   switch (forceType) {
@@ -378,6 +418,8 @@ bool Woz::writeFile(const char *filename, uint8_t forceType)
     return writeDskFile(filename, forceType);
   case T_NIB:
     return writeNibFile(filename);
+  case T_HDV:
+    return writeHdvFile(filename);
   default:
     fprintf(stderr, "Unknown disk type; unable to write\n");
     return false;
@@ -709,6 +751,12 @@ bool Woz::loadMissingTrackFromImage(uint8_t datatrack)
     return true;
   }
   
+  if (imageType == T_HDV) {
+    // HDVs have no floppy tracks, and nothing in the HDV path calls
+    // this routine for anything useful — silently fail so probes and
+    // stray `decodeWozTrackToDsk` callers don't spam errors.
+    return false;
+  }
   printf("ERROR: don't know how we reached this point\n");
   return false;
 }
@@ -760,6 +808,77 @@ bool Woz::readDskFile(const char *filename, bool preloadTracks, uint8_t subtype)
   }
 #endif
   return retval;
+}
+
+bool Woz::readHdvFile(const char *filename)
+{
+  // ProDOS hard-disk images are raw block-sequential ProDOS data, no
+  // floppy-track structure. We slurp the whole file into a heap buffer
+  // that higher layers (ProdosSpector) read blocks out of directly.
+  imageType = T_HDV;
+  autoFlushTrackData = false;
+
+  if (fd != -1) close(fd);
+  fd = open(filename, O_RDONLY, S_IRUSR);
+  if (fd == -1) {
+    perror("Unable to open input file");
+    return false;
+  }
+  struct stat st;
+  if (fstat(fd, &st) != 0) {
+    perror("Unable to stat input file");
+    close(fd); fd = -1;
+    return false;
+  }
+  if (st.st_size == 0 || (st.st_size % 512) != 0) {
+    fprintf(stderr, "HDV image '%s' has a bad size (%lld bytes)\n",
+            filename, (long long)st.st_size);
+    close(fd); fd = -1;
+    return false;
+  }
+
+  if (hdvData) { free(hdvData); hdvData = NULL; }
+  hdvByteSize = (uint32_t)st.st_size;
+  hdvData = (uint8_t *)malloc(hdvByteSize);
+  if (!hdvData) {
+    fprintf(stderr, "Out of memory loading HDV (%u bytes)\n", hdvByteSize);
+    close(fd); fd = -1;
+    return false;
+  }
+  ssize_t got = read(fd, hdvData, hdvByteSize);
+  close(fd); fd = -1;
+  if (got != (ssize_t)hdvByteSize) {
+    fprintf(stderr, "Short read on HDV (%zd of %u bytes)\n",
+            got, hdvByteSize);
+    free(hdvData); hdvData = NULL;
+    return false;
+  }
+
+  _initInfo(); // sensible defaults — info fields don't really apply to HDV
+  di.diskType = 1; // 5.25 isn't meaningful here but keeps other code happy
+
+  return true;
+}
+
+bool Woz::writeHdvFile(const char *filename)
+{
+  if (!hdvData || !hdvByteSize) {
+    fprintf(stderr, "No HDV buffer to write\n");
+    return false;
+  }
+  int fdout = open(filename, O_TRUNC|O_CREAT|O_WRONLY, S_IRUSR|S_IWUSR);
+  if (fdout == -1) {
+    perror("Unable to open output HDV file");
+    return false;
+  }
+  ssize_t wrote = write(fdout, hdvData, hdvByteSize);
+  close(fdout);
+  if (wrote != (ssize_t)hdvByteSize) {
+    fprintf(stderr, "Short write on HDV (%zd of %u bytes)\n",
+            wrote, hdvByteSize);
+    return false;
+  }
+  return true;
 }
 
 bool Woz::readNibFile(const char *filename, bool preloadTracks)
@@ -983,9 +1102,28 @@ bool Woz::readFile(const char *filename, bool preloadTracks, uint8_t forceType)
       forceType = T_PO;
     } else if (strcasecmp(p, ".nib") == 0) {
       forceType = T_NIB;
+    } else if (strcasecmp(p, ".hdv") == 0 ||
+               strcasecmp(p, ".2mg") == 0 ||
+               strcasecmp(p, ".img") == 0) {
+      forceType = T_HDV;
     } else {
       printf("Unable to determine file type of '%s'\n", filename);
       return false;
+    }
+  }
+
+  // A .po or .dsk file larger than one floppy (> 140 KB) can't fit the
+  // 35-track geometry the other paths assume; promote it to T_HDV so the
+  // raw-block path is used instead.
+  if (forceType == T_PO || forceType == T_DSK) {
+    struct stat st;
+    if (stat(filename, &st) == 0 && st.st_size > 35 * 16 * 256) {
+      if (verbose) {
+        printf("Input file is larger than a floppy (%lld bytes); "
+               "treating as ProDOS hard-disk image.\n",
+               (long long)st.st_size);
+      }
+      forceType = T_HDV;
     }
   }
 
@@ -997,6 +1135,8 @@ bool Woz::readFile(const char *filename, bool preloadTracks, uint8_t forceType)
     return readDskFile(filename, preloadTracks, forceType);
   case T_NIB:
     return readNibFile(filename, preloadTracks);
+  case T_HDV:
+    return readHdvFile(filename);
   default:
     printf("Unknown disk type; unable to read\n");
     return false;

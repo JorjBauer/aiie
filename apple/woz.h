@@ -89,6 +89,15 @@ class Woz {
   // exactly what a dumb nib-reader would see. Useful for analyzing
   // non-standard disk formats (rwts18, copy-protected variants).
   bool readRawNibStream(uint8_t phystrack, uint8_t out[/* NIBTRACKSIZE */]);
+  void dumpTrackState(uint8_t datatrack);
+
+  // ProDOS hard-drive image accessors. Valid only when imageType == T_HDV.
+  // The buffer is owned by Woz and sized to hdvByteCount(); callers can
+  // read freely and may also write in place (writeFile will flush the
+  // modified buffer back to disk).
+  bool isHdv() const { return imageType == T_HDV; }
+  uint32_t hdvByteCount() const { return hdvByteSize; }
+  uint8_t *hdvBuffer() { return hdvData; }
 
  protected:
   bool writeWozFile(const char *filename, uint8_t subtype);
@@ -107,6 +116,8 @@ class Woz {
   bool readWozFile(const char *filename, bool preloadTracks);
   bool readDskFile(const char *filename, bool preloadTracks, uint8_t subtype);
   bool readNibFile(const char *filename, bool preloadTracks);
+  bool readHdvFile(const char *filename);
+  bool writeHdvFile(const char *filename);
 
   bool decodeWozTrackToNibFromDataTrack(uint8_t dataTrack, nibSector sectorData[16]);
 
@@ -165,6 +176,12 @@ class Woz {
   // random bits instead. Persisted across track switches — the real
   // chip lives in the drive, not on the track.
   uint8_t headWindow;
+
+  // HDV-backed state. Only populated when imageType == T_HDV.
+  // hdvData owns a heap buffer the size of the loaded image; the
+  // destructor frees it.
+  uint8_t *hdvData;
+  uint32_t hdvByteSize;
 };
 
 #endif
