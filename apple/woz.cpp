@@ -405,10 +405,11 @@ bool Woz::writeWozFile(int fdout, uint8_t subtype)
   int version = 2; // FIXME figure out from subtype
   bool retval = false;
   uint32_t tmp32; // scratch 32-bit value
-  off_t crcPos, endPos;
   off_t curpos; // used in macros to dynamically tell what size the chunks are
-  uint32_t crcDataSize;
+  off_t crcPos = 0, endPos = 0;
+  uint32_t crcDataSize = 0;
   uint8_t *crcData = NULL;
+  (void)crcPos; (void)endPos; (void)crcDataSize; (void)crcData;
 
 
   if (version > 2 || !version) {
@@ -465,7 +466,7 @@ bool Woz::writeWozFile(int fdout, uint8_t subtype)
   // Write the metadata if we have any
   if (metaData) {
     PREP_SECTION(fdout, 0x4154454D); // 'META'
-    if (write(fdout, metaData, strlen(metaData)) != strlen(metaData)) {
+    if ((size_t)write(fdout, metaData, strlen(metaData)) != strlen(metaData)) {
       fprintf(stderr, "ERROR: failed to write META chunk\n");
       goto done;
     }
@@ -493,7 +494,7 @@ bool Woz::writeWozFile(int fdout, uint8_t subtype)
 
   tmp32 = read(fdout, crcData, crcDataSize);
   if (tmp32 != crcDataSize) {
-    fprintf(stderr, "ERROR: failed to read in data for checksum [read %d, wanted %d]\n", tmp32, crcDataSize);
+    fprintf(stderr, "ERROR: failed to read in data for checksum [read %lu, wanted %lu]\n", (unsigned long)tmp32, (unsigned long)crcDataSize);
     goto done;
   }
     
@@ -733,7 +734,7 @@ bool Woz::readDskFile(const char *filename, bool preloadTracks, uint8_t subtype)
     for (int phystrack=0; phystrack<35; phystrack++) {
       uint32_t bytesRead = read(fd, sectorData, 256*16);
       if (bytesRead != 256*16) {
-	fprintf(stderr, "Failed to read DSK data; got %d bytes, wanted %d\n", bytesRead, 256);
+	fprintf(stderr, "Failed to read DSK data; got %lu bytes, wanted %d\n", (unsigned long)bytesRead, 256);
 	goto done;
       }
       uint8_t datatrack = quarterTrackMap[phystrack*4];
@@ -781,7 +782,7 @@ bool Woz::readNibFile(const char *filename, bool preloadTracks)
     for (int phystrack=0; phystrack<35; phystrack++) {
       uint32_t bytesRead = read(fd, nibData, NIBTRACKSIZE);
       if (bytesRead != NIBTRACKSIZE) {
-	printf("Failed to read NIB data; got %d bytes, wanted %d\n", bytesRead, NIBTRACKSIZE);
+	printf("Failed to read NIB data; got %lu bytes, wanted %d\n", (unsigned long)bytesRead, NIBTRACKSIZE);
 	return false;
       }
       uint8_t datatrack = quarterTrackMap[phystrack * 4];
@@ -823,7 +824,7 @@ bool Woz::readWozFile(const char *filename, bool preloadTracks)
   read32(fd, &h);
   if (h == 0x325A4F57 || h == 0x315A4F57) {
     if (verbose) {
-      printf("WOZ%c disk image\n", (h & 0xFF000000)>>24);
+      printf("WOZ%c disk image\n", (int)((h & 0xFF000000)>>24));
     }
   } else {
     printf("Unknown disk image type; can't continue\n");
@@ -851,7 +852,7 @@ bool Woz::readWozFile(const char *filename, bool preloadTracks)
   if (crc32) {
     // FIXME: check CRC
     if (verbose) {
-      printf("Disk crc32 should be 0x%X\n", crc32);
+      printf("Disk crc32 should be 0x%lX\n", (unsigned long)crc32);
     }
   }
   
@@ -917,15 +918,15 @@ bool Woz::readWozFile(const char *filename, bool preloadTracks)
       // compatibility. fpos is advanced past the chunk at the bottom
       // of the loop, so we just mark this chunk as "handled ok".
       if (verbose) {
-        printf("Skipping unknown chunk type 0x%X (%d bytes)\n",
-               chunkType, chunkDataSize);
+        printf("Skipping unknown chunk type 0x%lX (%lu bytes)\n",
+               (unsigned long)chunkType, (unsigned long)chunkDataSize);
       }
       isOk = true;
       break;
     }
 
     if (!isOk) {
-      printf("Chunk parsing [0x%X] failed; exiting\n", chunkType);
+      printf("Chunk parsing [0x%lX] failed; exiting\n", (unsigned long)chunkType);
       if (preloadTracks && fd != -1)
 	close(fd);
       return false;
@@ -1161,7 +1162,7 @@ bool Woz::parseMetaChunk(uint32_t chunkSize)
   if (!metaData)
     return false;
 
-  if (read(fd, metaData, chunkSize) != chunkSize)
+  if ((uint32_t)read(fd, metaData, chunkSize) != chunkSize)
     return false;
 
   metaData[chunkSize] = 0;
@@ -1201,9 +1202,9 @@ bool Woz::readWozDataTrack(uint8_t datatrack)
 
   if (di.version == 1) {
     if (verbose) {
-      printf("Reading datatrack %d starting at byte 0x%X\n",
+      printf("Reading datatrack %d starting at byte 0x%lX\n",
 	     datatrack,
-	     tracks[datatrack].startingByte);
+	     (unsigned long)tracks[datatrack].startingByte);
     }
     if (lseek(fd, tracks[datatrack].startingByte, SEEK_SET) == -1) {
       perror("Failed to seek to start of block");
@@ -1211,9 +1212,9 @@ bool Woz::readWozDataTrack(uint8_t datatrack)
     }
   } else {
     if (verbose) {
-      printf("Reading datatrack %d starting at byte 0x%X\n",
+      printf("Reading datatrack %d starting at byte 0x%lX\n",
 	     datatrack,
-	     bitsStartBlock*512);
+	     (unsigned long)(bitsStartBlock*512));
     }
     if (lseek(fd, bitsStartBlock*512, SEEK_SET) == -1) {
       perror("Failed to seek to start of block");
@@ -1222,7 +1223,7 @@ bool Woz::readWozDataTrack(uint8_t datatrack)
   }
   uint32_t didRead = read(fd, tracks[datatrack].trackData, count);
   if (didRead != count) {
-    printf("Failed to read all track data for track [read %d, wanted %d]\n", didRead, count);
+    printf("Failed to read all track data for track [read %lu, wanted %lu]\n", (unsigned long)didRead, (unsigned long)count);
     return false;
   }
 
@@ -1545,7 +1546,7 @@ bool Woz::writeTRKSChunk(uint8_t version, int fdout)
       // since it would have been calloc'd initially.
       ssize_t numWritten = write(fdout, tracks[i].trackData, NIBTRACKSIZE);
       if (numWritten != NIBTRACKSIZE) {
-	fprintf(stderr, "Failed to write track [%ld]\n", numWritten);
+	fprintf(stderr, "Failed to write track [%d]\n", (int)numWritten);
 	perror("error writing");
 	return false;
       }
@@ -1745,7 +1746,7 @@ void Woz::dumpInfo()
     memset(parts, 0, sizeof(parts));
     int idx = 0;
     while ((token = strsep(&string, "\n")) != NULL) {
-      if (idx >= sizeof(parts)) {
+      if ((size_t)idx >= sizeof(parts)) {
 	printf("ERROR: too many metadata keys\n");
 	return;
       }
@@ -1792,7 +1793,7 @@ void Woz::dumpInfo()
       if (tracks[i].trackData) {
         uint32_t crc=0;
         checksumWozDataTrack(i, &crc);
-        printf("Woz track %d CRC32: 0x%X\n", i, crc);
+        printf("Woz track %d CRC32: 0x%lX\n", i, (unsigned long)crc);
       }
     }
   }
@@ -1801,19 +1802,19 @@ void Woz::dumpInfo()
     for (int i=0; i<40; i++) {
       printf("Track %d:\n", i);
       if (di.version == 1) {
-	printf("  Starts at byte %d\n", tracks[i].startingByte);
+	printf("  Starts at byte %lu\n", (unsigned long)tracks[i].startingByte);
       } else {
 	printf("  Starts at block %d\n", tracks[i].startingBlock);
       }
       printf("  Number of blocks: %d\n", tracks[i].blockCount);
-      printf("  Number of bits: %d\n", tracks[i].bitCount);
+      printf("  Number of bits: %lu\n", (unsigned long)tracks[i].bitCount);
       if (tracks[i].bitCount && tracks[i].trackData) {
 	if (dumpflags & DUMP_RAWTRACK) {
 	  // Raw track dump
 	  printf("    Raw track data:\n");
-	  for (int k=0; k<(tracks[i].bitCount/8)+((tracks[i].bitCount%8)?1:0); k+=16) {
-	    printf("    0x%.4X :", k);
-	    for (int j=0; j<16; j++) {
+	  for (uint32_t k=0; k<(tracks[i].bitCount/8)+((tracks[i].bitCount%8)?1:0); k+=16) {
+	    printf("    0x%.4lX :", (unsigned long)k);
+	    for (uint32_t j=0; j<16; j++) {
 	      if (k+j < (tracks[i].bitCount/8)+((tracks[i].bitCount%8)?1:0)) {
 		printf(" %.2X", tracks[i].trackData[k+j]);
 	      }

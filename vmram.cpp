@@ -76,7 +76,7 @@ bool VMRam::Deserialize(int8_t fd)
   uint32_t size;
   deserialize32(size);
 
-  if (g_filemanager->read(fd, preallocatedRam, size) != size)
+  if ((uint32_t)g_filemanager->read(fd, preallocatedRam, size) != size)
     goto err;
 
   deserializeMagic(RAMMAGIC);

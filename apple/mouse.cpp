@@ -71,7 +71,7 @@ void Mouse::performHack()
   static bool prevButton = false;
   bool isKeyPressed = ((AppleMMU *)(g_vm->getMMU()))->readDirect(0xC010, 0) & 0x80 ? true : false;
   uint8_t buttonPressData = (curButton ? 1 : 3) + (prevButton ? 0 : 1);
-  sprintf(buf, "%d,%d,%s%d\015", xpos, ypos,
+  snprintf(buf, sizeof(buf), "%d,%d,%s%d\015", xpos, ypos,
 	  isKeyPressed ? "-" : "",
 	  buttonPressData);
   for (size_t i=0; i<strlen(buf); i++) {

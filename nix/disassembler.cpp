@@ -165,19 +165,19 @@ uint8_t Disassembler::instructionToMnemonic(uint16_t addr, uint8_t *p, char *out
   switch (instructionBytes(*p)) {
   case 1:
     // no arguments
-    sprintf(bytes, "      %.2X ", *(uint8_t *)p);
+    snprintf(bytes, sizeof(bytes), "      %.2X ", *(uint8_t *)p);
     break;
   case 2:
-    sprintf(arg, "%s$%X%s", om.prefix, target, om.suffix);
-    sprintf(bytes, "   %.2X %.2X ", *(uint8_t *)p, *(uint8_t *)(p+1));
+    snprintf(arg, sizeof(arg), "%s$%X%s", om.prefix, target, om.suffix);
+    snprintf(bytes, sizeof(bytes), "   %.2X %.2X ", *(uint8_t *)p, *(uint8_t *)(p+1));
     break;
   case 3:
-    sprintf(arg, "%s$%X%s", om.prefix, target, om.suffix);
-    sprintf(bytes, "%.2X %.2X %.2X ", *(uint8_t *)p, *(uint8_t *)(p+1), *(uint8_t *)(p+2));
+    snprintf(arg, sizeof(arg), "%s$%X%s", om.prefix, target, om.suffix);
+    snprintf(bytes, sizeof(bytes), "%.2X %.2X %.2X ", *(uint8_t *)p, *(uint8_t *)(p+1), *(uint8_t *)(p+2));
     break;
   }
-   
-  sprintf(outp, "$%.4X %s  %s    %s", addr, bytes, mn, arg);
+
+  snprintf(outp, outpSize, "$%.4X %s  %s    %s", addr, bytes, mn, arg);
 
   return instructionBytes(*p);
 }

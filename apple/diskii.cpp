@@ -138,7 +138,7 @@ bool DiskII::Deserialize(int8_t fd)
       char fn[MAXPATH];
       deserializeString(fn);
       if (fn[0]) {
-	printf("Restoring disk image named '%s'\n", fn);
+	printf("Restoring disk: %.160s\n", fn);
 	disk[i]->readFile((char *)fn, true, T_AUTO); // FIXME error checking    
       } else {
 	// ERROR: there's a disk but we don't have the path to its image?
@@ -418,7 +418,7 @@ void DiskII::setPhase(uint8_t phase)
 
 bool DiskII::isWriteProtected()
 {
-  return (writeProt ? 0xFF : 0x00);
+  return writeProt;
 }
 
 // DOS 3.3 Logic State Sequencer ROM, transcribed from UTA2E Fig 9.11
@@ -571,12 +571,13 @@ static uint8_t _lc(char c)
   return c;
 }
 
+__attribute__((unused))
 static bool _endsWithI(const char *s1, const char *s2)
 {
   if (strlen(s2) > strlen(s1)) {
     return false;
   }
-  
+
   const char *p = &s1[strlen(s1)-1];
   int16_t l = strlen(s2)-1;
   while (l >= 0) {

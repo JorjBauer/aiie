@@ -320,10 +320,6 @@ void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
 
 void SDLDisplay::clrScr(uint8_t coloridx)
 {
-  const uint8_t *rgbptr = &loresPixelColors[0][0];
-  if (coloridx <= 16)
-    rgbptr = loresPixelColors[coloridx];
-
   uint32_t packedColor = packColor32(loresPixelColors[coloridx]);
 
   for (uint16_t y=0; y<(use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT); y++) {

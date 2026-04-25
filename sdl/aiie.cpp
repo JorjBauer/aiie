@@ -159,17 +159,16 @@ static struct timespec runCPU(struct timespec now)
   }
 
   // Run the CPU
-  uint8_t executed = 0;
   bool debuggerWasActive = false;
   if (debugger.active()) {
     // With the debugger running, we need to single-step through
     // instructions.
-    executed = g_cpu->Run(1);
+    (void)g_cpu->Run(1);
     debuggerWasActive = true;
   } else {
     // Otherwise we can run a bunch of instructions at once to
     // save on the overhead.
-    executed = g_cpu->Run(24);
+    (void)g_cpu->Run(24);
     if (debuggerWasActive) {
       cpuClockInitialized = false;
       g_cpu->cycles = 0;
@@ -253,7 +252,7 @@ void doDebugging()
       loopCount++;
       uint32_t lenSecs = time(NULL) - startAt;
       if (lenSecs >= 5) {
-	sprintf(buf, "%u FPS", loopCount / lenSecs);
+	snprintf(buf, sizeof(buf), "%u FPS", loopCount / lenSecs);
 	g_display->debugMsg(buf);
 	startAt = time(NULL);
 	loopCount = 0;
@@ -265,15 +264,15 @@ void doDebugging()
     //    g_display->debugMsg(buf);
     break;
   case D_SHOWPADDLES:
-    sprintf(buf, "%u %u", g_paddles->paddle0(), g_paddles->paddle1());
+    snprintf(buf, sizeof(buf), "%u %u", g_paddles->paddle0(), g_paddles->paddle1());
     g_display->debugMsg(buf);
     break;
   case D_SHOWPC:
-    sprintf(buf, "%X", g_cpu->pc);
+    snprintf(buf, sizeof(buf), "%X", g_cpu->pc);
     g_display->debugMsg(buf);
     break;
   case D_SHOWCYCLES:
-    sprintf(buf, "%llX", g_cpu->cycles);
+    snprintf(buf, sizeof(buf), "%llX", g_cpu->cycles);
     g_display->debugMsg(buf);
     break;
     /*

@@ -178,7 +178,7 @@ void Debugger::step()
 
   doover:
     // Show a prompt
-    sprintf(buf, "debug [$%X]> ", g_cpu->pc);
+    snprintf(buf, sizeof(buf), "debug [$%X]> ", g_cpu->pc);
     if (write(cd, buf, strlen(buf)) != strlen(buf)) {
       close(cd);
       cd=-1;
@@ -215,7 +215,7 @@ void Debugger::step()
 	struct _history *h = history;
 	uint32_t i = 0;
 	while (h) {
-	  sprintf(buf, "%d ", i++);
+	  snprintf(buf, sizeof(buf), "%d ", i++);
 	  write(cd, buf, strlen(buf));
 	  write(cd, h->msg, strlen(h->msg));
 	  h = h->next;
@@ -306,21 +306,21 @@ void Debugger::step()
         unsigned int val2;
         GETLN;
         if (getTwoAddresses(buf, &val, &val2)) {
-          sprintf(buf, "Memory dump at 0x%X, length 0x%X:\r\n", val, val2);
+          snprintf(buf, sizeof(buf), "Memory dump at 0x%X, length 0x%X:\r\n", val, val2);
           write(cd, buf, strlen(buf));
           for (uint32_t i=val; i<val+val2; i+=16) {
-            sprintf(buf, "$%.4X  ", i);
+            snprintf(buf, sizeof(buf), "$%.4X  ", i);
             write(cd, buf, strlen(buf));
             for (uint8_t j=0; j<16 && (i+j)<(val+val2); j++) {
               uint8_t v = g_vm->getMMU()->read(i+j);
-              sprintf(buf, "%.2X ", v);
+              snprintf(buf, sizeof(buf), "%.2X ", v);
             write(cd, buf, strlen(buf));
             }
-            sprintf(buf, "\r\n");
+            snprintf(buf, sizeof(buf), "\r\n");
             write(cd, buf, strlen(buf));
           }
         } else {
-          sprintf(buf, "Syntax error\12\15");
+          snprintf(buf, sizeof(buf), "Syntax error\12\15");
           write(cd, buf, strlen(buf));
         }
       }
@@ -330,13 +330,13 @@ void Debugger::step()
       {
 	GETLN;
 	if (getAddress(buf, &val)) {
-	  sprintf(buf, "Memory location 0x%X: ", val);
+	  snprintf(buf, sizeof(buf), "Memory location 0x%X: ", val);
 	  write(cd, buf, strlen(buf));
 	  val = g_vm->getMMU()->read(val);
-	  sprintf(buf, "0x%.2X\012\015", val);
+	  snprintf(buf, sizeof(buf), "0x%.2X\012\015", val);
 	  write(cd, buf, strlen(buf));
 	} else {
-	  sprintf(buf, "Invalid read\012\015");
+	  snprintf(buf, sizeof(buf), "Invalid read\012\015");
 	  write(cd, buf, strlen(buf));
 	}
       }
@@ -463,8 +463,7 @@ void Debugger::addCurrentPCToHistory()
   while (strlen(buf) < 35) {
     strcat(buf, " ");
   }
-  // FIXME snprintf
-  sprintf(&buf[strlen(buf)], " ;; OP: $%02x A: %02x  X: %02x  Y: %02x  PC: $%04x SP: %02x S: %.2x Flags: %c%cx%c%c%c%c%c\012\015",
+  snprintf(&buf[strlen(buf)], sizeof(buf) - strlen(buf), " ;; OP: $%02x A: %02x  X: %02x  Y: %02x  PC: $%04x SP: %02x S: %.2x Flags: %c%cx%c%c%c%c%c\012\015",
            g_vm->getMMU()->read(g_cpu->pc),
            g_cpu->a, g_cpu->x, g_cpu->y, g_cpu->pc, g_cpu->sp,
 	  p,

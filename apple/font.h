@@ -336,6 +336,7 @@ const unsigned char interface_glyphs[256] =
 
 // Generic utility for anything trying to turn those glyph maps into
 // characters based on ASCII input
+__attribute__((unused))
 static const unsigned char *asciiToAppleGlyph(unsigned char c)
 {
   if (c < 32) {

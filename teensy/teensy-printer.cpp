@@ -23,7 +23,6 @@ TeensyPrinter::TeensyPrinter()
 
 TeensyPrinter::~TeensyPrinter()
 {
-  delete ser;
 }
 
 void TeensyPrinter::update()

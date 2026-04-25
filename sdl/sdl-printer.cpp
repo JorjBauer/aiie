@@ -121,7 +121,7 @@ void SDLPrinter::savePageAsBitmap(uint32_t pageno)
   SDL_Surface* saveSurface = NULL;
 
   char buf[255];
-  sprintf(buf, "page-%d.bmp", pageno);
+  snprintf(buf, sizeof(buf), "page-%d.bmp", pageno);
 
   saveSurface = SDL_CreateRGBSurfaceFrom((void *)_hackyBitmap, 
 					 WIDTH,

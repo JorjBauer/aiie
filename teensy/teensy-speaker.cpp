@@ -21,7 +21,6 @@ AudioConnection         patchCord4(mixer1, 0, i2s, 0);
 #define LOWVAL  ((int16_t)-0x4FFF)
 
 static volatile uint8_t audioRunning = 0;
-static bool toggleState = false;
 
 TeensySpeaker::TeensySpeaker(uint8_t sda, uint8_t scl) : PhysicalSpeaker()
 {

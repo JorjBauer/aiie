@@ -377,7 +377,7 @@ inline void AppleDisplay::Draw14HiresPixelsAt(uint16_t addr)
 
 void AppleDisplay::redraw80ColumnText(uint8_t startingY)
 {
-  uint8_t row, col;
+  uint8_t row = 0, col;
   col = -1; // will force us to deinterlaceAddress()
   bool invert;
   const uint8_t *cptr;

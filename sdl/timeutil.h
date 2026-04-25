@@ -45,7 +45,7 @@ static void timespec_add_cycles(struct timespec *start,
   }
 }
 
-static unsigned long cycles_since_time(struct timespec *start)
+__attribute__((unused)) static unsigned long cycles_since_time(struct timespec *start)
 {
   unsigned long ret = start->tv_sec * CYCLES_PER_SECOND;
   ret += (double)((double)start->tv_nsec * (double)0.001023 + (double) 0.01); // 0.01 for rounding error; one cycle ~= 977517nS, and 977517 * .000001023 is only 0.999999891.
@@ -71,7 +71,7 @@ static void timespec_add_us(struct timespec *start,
   }
 }
 
-static void timespec_diff(struct timespec *start, 
+__attribute__((unused)) static void timespec_diff(struct timespec *start,
 		   struct timespec *end,
 		   struct timespec *diff,
 		   bool *negative) {

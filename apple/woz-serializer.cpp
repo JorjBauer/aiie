@@ -112,7 +112,7 @@ bool WozSerializer::flush()
   }
   g_filemanager->flush();
 
-  return true;
+  return ret;
 }
 
 bool WozSerializer::writeNextWozBit(uint8_t datatrack, uint8_t bit)

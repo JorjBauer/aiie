@@ -175,7 +175,7 @@ bool BIOS::loop()
     while (resetButtonDebouncer.read() == LOW)
       runDebouncer();
     delay(100); // wait long enough for it to debounce
-    return BIOS_DONE;
+    return (BIOS_DONE != 0);
   }
 #endif
 
@@ -673,9 +673,9 @@ uint16_t BIOS::PaddlesScreenHandler(bool needsRedraw, bool performAction)
   if (needsRedraw || localRedraw) {
     char buf[50];
     g_display->clrScr(c_darkblue);
-    sprintf(buf, "Paddle X: %d    ", lastPaddleX);
+    snprintf(buf, sizeof(buf), "Paddle X: %d    ", lastPaddleX);
     g_display->drawString(M_NORMAL, 0, 12, buf);
-    sprintf(buf, "Paddle Y: %d    ", lastPaddleY);
+    snprintf(buf, sizeof(buf), "Paddle Y: %d    ", lastPaddleY);
     g_display->drawString(M_NORMAL, 0, 42, buf);
     g_display->drawString(M_NORMAL, 0, 132, "Press return to exit");
 
@@ -869,17 +869,17 @@ void BIOS::DrawAiieMenu()
   selectedMenuItem %= sizeof(aiieActions);
 
   char buf[40];
-  for (int i=0; i<sizeof(aiieActions); i++) {
+  for (size_t i=0; i<sizeof(aiieActions); i++) {
     switch (aiieActions[i]) {
     case ACT_ABOUT:
-      sprintf(buf, "About...");
+      snprintf(buf, sizeof(buf), "About...");
       break;
     }
 
     if (isActionActive(aiieActions[i])) {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, MENUINDENT, 20 + LINEHEIGHT * i, buf);
+      g_display->drawString(selectedMenuItem == (int8_t)i ? M_SELECTED : M_NORMAL, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     } else {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * i,
+      g_display->drawString(selectedMenuItem == (int8_t)i ? M_SELECTDISABLED : M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * i,
 			    buf);
     }
   }
@@ -893,38 +893,38 @@ void BIOS::DrawVMMenu()
   selectedMenuItem %= sizeof(vmActions);
 
   char buf[40];
-  for (int i=0; i<sizeof(vmActions); i++) {
+  for (size_t i=0; i<sizeof(vmActions); i++) {
     switch (vmActions[i]) {
     case ACT_DEBUG:
       {
 	const char *templateString = "Debug: %s";
 	switch (g_debugMode) {
 	case D_NONE:
-	  sprintf(buf, templateString, "off");
+	  snprintf(buf, sizeof(buf), templateString, "off");
 	  break;
 	case D_SHOWFPS:
-	  sprintf(buf, templateString, "Show FPS");
+	  snprintf(buf, sizeof(buf), templateString, "Show FPS");
 	  break;
 	case D_SHOWMEMFREE:
-	  sprintf(buf, templateString, "Show mem free");
+	  snprintf(buf, sizeof(buf), templateString, "Show mem free");
 	  break;
 	case D_SHOWPADDLES:
-	  sprintf(buf, templateString, "Show paddles");
+	  snprintf(buf, sizeof(buf), templateString, "Show paddles");
 	  break;
 	case D_SHOWPC:
-	  sprintf(buf, templateString, "Show PC");
+	  snprintf(buf, sizeof(buf), templateString, "Show PC");
 	  break;
 	case D_SHOWCYCLES:
-	  sprintf(buf, templateString, "Show cycles");
+	  snprintf(buf, sizeof(buf), templateString, "Show cycles");
 	  break;
 	case D_SHOWBATTERY:
-	  sprintf(buf, templateString, "Show battery");
+	  snprintf(buf, sizeof(buf), templateString, "Show battery");
 	  break;
 	case D_SHOWTIME:
-	  sprintf(buf, templateString, "Show time");
+	  snprintf(buf, sizeof(buf), templateString, "Show time");
 	  break;
 	case D_SHOWDSK:
-	  sprintf(buf, templateString, "Show Disk");
+	  snprintf(buf, sizeof(buf), templateString, "Show Disk");
 	  break;
 	}
       }
@@ -953,9 +953,9 @@ void BIOS::DrawVMMenu()
     }
 
     if (isActionActive(vmActions[i])) {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, MENUINDENT, 20 + LINEHEIGHT * i, buf);
+      g_display->drawString(selectedMenuItem == (int8_t)i ? M_SELECTED : M_NORMAL, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     } else {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * i, buf);
+      g_display->drawString(selectedMenuItem == (int8_t)i ? M_SELECTDISABLED : M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     }
   }
 }
@@ -968,33 +968,33 @@ void BIOS::DrawHardwareMenu()
   selectedMenuItem %= sizeof(hardwareActions);
 
   char buf[40];
-  for (int i=0; i<sizeof(hardwareActions); i++) {
+  for (size_t i=0; i<sizeof(hardwareActions); i++) {
     switch (hardwareActions[i]) {
     case ACT_DISPLAYTYPE:
       {
 	const char *templateString = "Display: %s";
 	switch (g_displayType) {
 	case m_blackAndWhite:
-	  sprintf(buf, templateString, "B&W");
+	  snprintf(buf, sizeof(buf), templateString, "B&W");
 	  break;
 	case m_monochrome:
-	  sprintf(buf, templateString, "Mono");
+	  snprintf(buf, sizeof(buf), templateString, "Mono");
 	  break;
 	case m_ntsclike:
-	  sprintf(buf, templateString, "NTSC-like");
+	  snprintf(buf, sizeof(buf), templateString, "NTSC-like");
 	  break;
 	case m_perfectcolor:
-	  sprintf(buf, templateString, "RGB");
+	  snprintf(buf, sizeof(buf), templateString, "RGB");
 	  break;
 	}
       }
       break;
       
     case ACT_LUMINANCEUP:
-      sprintf(buf, "Luminance+: %d", g_luminanceCutoff);
+      snprintf(buf, sizeof(buf), "Luminance+: %d", g_luminanceCutoff);
       break;
     case ACT_LUMINANCEDOWN:
-      sprintf(buf, "Luminance-: %d", g_luminanceCutoff);
+      snprintf(buf, sizeof(buf), "Luminance-: %d", g_luminanceCutoff);
       break;
       
     case ACT_SPEED:
@@ -1002,16 +1002,16 @@ void BIOS::DrawHardwareMenu()
 	const char *templateString = "CPU Speed: %s";
 	switch (currentCPUSpeedIndex) {
 	case CPUSPEED_HALF:
-	  sprintf(buf, templateString, "Half [511.5 kHz]");
+	  snprintf(buf, sizeof(buf), templateString, "Half [511.5 kHz]");
 	  break;
 	case CPUSPEED_DOUBLE:
-	  sprintf(buf, templateString, "Double (2.046 MHz)");
+	  snprintf(buf, sizeof(buf), templateString, "Double (2.046 MHz)");
 	  break;
 	case CPUSPEED_QUAD:
-	  sprintf(buf, templateString, "Quad (4.092 MHz)");
+	  snprintf(buf, sizeof(buf), templateString, "Quad (4.092 MHz)");
 	  break;
 	default:
-	  sprintf(buf, templateString, "Normal (1.023 MHz)");
+	  snprintf(buf, sizeof(buf), templateString, "Normal (1.023 MHz)");
 	  break;
 	}
       }
@@ -1040,12 +1040,12 @@ void BIOS::DrawHardwareMenu()
     }
 
     if (isActionActive(hardwareActions[i])) {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, MENUINDENT, 20 + LINEHEIGHT * i, buf);
+      g_display->drawString(selectedMenuItem == (int8_t)i ? M_SELECTED : M_NORMAL, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     } else {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * i, buf);
+      g_display->drawString(selectedMenuItem == (int8_t)i ? M_SELECTDISABLED : M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     }
   }
-  
+
   // draw the volume bar                                                                            
   uint16_t volCutoff = 300.0 * (float)((float) g_volume / 15.0);
   for (uint8_t y=234; y<=235; y++) {
@@ -1063,7 +1063,7 @@ void BIOS::DrawDisksMenu()
   selectedMenuItem %= sizeof(diskActions);
 
   char buf[80];
-  for (int i=0; i<sizeof(diskActions); i++) {
+  for (size_t i=0; i<sizeof(diskActions); i++) {
     switch (diskActions[i]) {
     case ACT_DISK1:
     case ACT_DISK2:
@@ -1082,7 +1082,7 @@ void BIOS::DrawDisksMenu()
 	if (insertedDiskName[0]) {
 	  snprintf(buf, sizeof(buf), "Eject Disk %d [%s]", diskActions[i]==ACT_DISK2 ? 2 : 1, endPtr);
 	} else {
-	  sprintf(buf, "Insert Disk %d", diskActions[i]==ACT_DISK2 ? 2 : 1);
+	  snprintf(buf, sizeof(buf), "Insert Disk %d", diskActions[i]==ACT_DISK2 ? 2 : 1);
 	}
       }
       break;
@@ -1103,16 +1103,16 @@ void BIOS::DrawDisksMenu()
 	if (insertedDiskName[0]) {
 	  snprintf(buf, sizeof(buf), "Remove HD %d [%s]", diskActions[i]==ACT_HD2 ? 2 : 1, endPtr);
 	} else {
-	  sprintf(buf, "Connect HD %d", diskActions[i]==ACT_HD2 ? 2 : 1);
+	  snprintf(buf, sizeof(buf), "Connect HD %d", diskActions[i]==ACT_HD2 ? 2 : 1);
 	}
       }
       break;
     }
 
     if (isActionActive(diskActions[i])) {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTED : M_NORMAL, MENUINDENT, 20 + LINEHEIGHT * i, buf);
+      g_display->drawString(selectedMenuItem == (int8_t)i ? M_SELECTED : M_NORMAL, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     } else {
-      g_display->drawString(selectedMenuItem == i ? M_SELECTDISABLED : M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * i, buf);
+      g_display->drawString(selectedMenuItem == (int8_t)i ? M_SELECTDISABLED : M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     }
   }
 }
@@ -1158,7 +1158,7 @@ uint16_t BIOS::DrawDiskNames(uint8_t page, int8_t selection, const char *filter)
   const char *title="BIOS Configuration - pick disk image";
   g_display->drawString(M_NORMAL, 0, 0, title);
   
-  for (int x=0; x<strlen(title)*8; x++) {
+  for (size_t x=0; x<strlen(title)*8; x++) {
       g_display->drawPixel(x, LINEHEIGHT-1, 0xFFFF);
   }
 

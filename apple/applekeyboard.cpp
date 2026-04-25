@@ -168,7 +168,7 @@ void AppleKeyboard::keyReleased(uint8_t k)
 
   if (anyKeyIsDown) {
     anyKeyIsDown = false;
-    for (int i=0; i<sizeof(keysDown); i++) {
+    for (size_t i=0; i<sizeof(keysDown); i++) {
       if (keysDown[i] && !isVirtualKey(i)) {
 	anyKeyIsDown = true;
 	break;
