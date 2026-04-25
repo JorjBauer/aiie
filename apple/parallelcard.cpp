@@ -33,7 +33,7 @@ void ParallelCard::Reset()
 
 uint8_t ParallelCard::readSwitches(uint8_t s)
 {
-  return 0xFF;
+  return 0x7F; // bit 7 clear = printer ready
 }
 
 void ParallelCard::writeSwitches(uint8_t s, uint8_t v)

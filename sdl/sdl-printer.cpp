@@ -47,7 +47,7 @@ void SDLPrinter::update()
 				SDL_WINDOWPOS_UNDEFINED,
 				WIDTH, HEIGHT,
 				SDL_WINDOW_SHOWN);
-      
+
       renderer = SDL_CreateRenderer(window, -1, 0);
     }
 

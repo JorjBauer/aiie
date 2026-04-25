@@ -122,7 +122,11 @@ void Fx80::handleEscape(uint8_t c)
   case 35: // FIXME: enable 8-bit reception from computer
   case 37: // FIXME: pick charset from ROM
   case 38: // FIXME: define chars in RAM
-  case 42: // FIXME: ESC * master graphics mode (mode byte + 2-byte length + data)
+    break;
+  case 42: // ESC *: master graphics mode (mode byte + 2-byte length + data)
+    escapeModeActive = 42;
+    escapeModeExpectingBytes = 1;
+    escapeModeLengthByteCount = 0;
     break;
   case 45: // ESC -: underline on/off (1-byte param)
     escapeModeActive = c;
@@ -220,6 +224,20 @@ void Fx80::handleEscape(uint8_t c)
 void Fx80::handleActiveEscapeMode(uint8_t c)
 {
   switch (escapeModeActive) {
+  case 42: // ESC *: mode byte selects density, then switch to length+data
+    switch (c) {
+    case 0: graphicsWidth = 480;  escapeModeActive = 75; break;
+    case 1: graphicsWidth = 960;  escapeModeActive = 76; break;
+    case 2: graphicsWidth = 960;  escapeModeActive = 89; break;
+    case 3: graphicsWidth = 1920; escapeModeActive = 90; break;
+    case 4: graphicsWidth = 640;  escapeModeActive = 75; break;
+    case 5: graphicsWidth = 576;  escapeModeActive = 76; break;
+    case 6: graphicsWidth = 720;  escapeModeActive = 76; break;
+    default: graphicsWidth = 960; escapeModeActive = 76; break;
+    }
+    escapeModeExpectingBytes = -1;
+    escapeModeLengthByteCount = 0;
+    break;
   case 75: // single-density: each graphics dot spans 2 horizontal dots
   case 76: // double-density
   case 89: // high-speed double-density
