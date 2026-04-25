@@ -568,7 +568,22 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
     return ( (switches & S_80COL) ? 0x80 : 0x00 );
 
 
-  case 0xC030: // SPEAKER
+  case 0xC030: // SPEAKER ($C030-$C03F all toggle the speaker)
+  case 0xC031:
+  case 0xC032:
+  case 0xC033:
+  case 0xC034:
+  case 0xC035:
+  case 0xC036:
+  case 0xC037:
+  case 0xC038:
+  case 0xC039:
+  case 0xC03A:
+  case 0xC03B:
+  case 0xC03C:
+  case 0xC03D:
+  case 0xC03E:
+  case 0xC03F:
     g_speaker->toggle(g_cpu->cycles);
 #ifndef SUPPRESSREALTIME
     g_cpu->realtime(); // cause the CPU to stop processing its outer
@@ -727,7 +742,22 @@ void AppleMMU::writeSwitches(uint16_t address, uint8_t v)
 		    g_ram.readByte((readPages[0xC0] << 8) | 0x10) & 0x7F);
     return;
 
-  case 0xC030: // SPEAKER
+  case 0xC030: // SPEAKER ($C030-$C03F all toggle the speaker)
+  case 0xC031:
+  case 0xC032:
+  case 0xC033:
+  case 0xC034:
+  case 0xC035:
+  case 0xC036:
+  case 0xC037:
+  case 0xC038:
+  case 0xC039:
+  case 0xC03A:
+  case 0xC03B:
+  case 0xC03C:
+  case 0xC03D:
+  case 0xC03E:
+  case 0xC03F:
     // Writes toggle the speaker twice
     g_speaker->toggle(g_cpu->cycles);
     g_speaker->toggle(g_cpu->cycles);

@@ -166,8 +166,7 @@ void TeensyDisplay::drawImageOfSizeAt(const uint8_t *img,
 				      uint16_t sizex, uint16_t sizey, 
 				      uint16_t wherex, uint16_t wherey)
 {
-  uint8_t r, g, b;
-  uint8_t *p = img;
+  const uint8_t *p = img;
   for (uint16_t y=0; y<sizey; y++) {
     for (uint16_t x=0; x<sizex; x++) {
       uint16_t v = pgm_read_byte(p++);
@@ -187,8 +186,6 @@ void TeensyDisplay::blit()
   if (!tft->asyncUpdateActive())
     tft->updateScreenAsync(true);
 
-  static uint32_t ctr = 0;
-  
   // draw overlay, if any, occasionally
   {
     static uint32_t nextMessageTime = 0;

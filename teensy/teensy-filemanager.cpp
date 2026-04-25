@@ -14,11 +14,22 @@ static FsFile outerDir;
 TeensyFileManager::TeensyFileManager()
 {
   numCached = 0;
+  cacheFd = -1;
 
-  // FIXME: used to have 'enabled = sd.begin()' here, but we weren't
-  // using the enabled flag, so I've removed it to save the RAM for
-  // now; but eventually we need better error handling here
-  sd.begin(SdioConfig(FIFO_SDIO));
+  // sd.begin returning false means no card / wrong format / wiring
+  // problem. Without this diagnostic the BIOS just shows an empty
+  // file list, which looks identical to "no disks installed".
+  if (!sd.begin(SdioConfig(FIFO_SDIO))) {
+    println("ERROR: SD card init failed (sd.begin returned false).");
+    println("  Check that the card is seated, formatted FAT32/exFAT,");
+    println("  and that /A2DISKS/ exists on it.");
+    if (sd.sdErrorCode()) {
+      print("  SdFat errorCode=0x");
+      println(make_pair((int)sd.sdErrorCode(), HEX));
+      print("  SdFat errorData=0x");
+      println(make_pair((int)sd.sdErrorData(), HEX));
+    }
+  }
 }
 
 TeensyFileManager::~TeensyFileManager()
@@ -93,6 +104,13 @@ int16_t TeensyFileManager::readDir(const char *where, const char *suffix, char *
 {
   // First entry is always "../" if we're in a subdir of the root
   if (startIdx == 0 || !outerDir) {
+    print("readDir(where='");
+    print(where);
+    print("', suffix='");
+    print(suffix ? suffix : "(null)");
+    print("', startIdx=");
+    print((int)startIdx);
+    println(")");
     if (outerDir)
       closeDir();
     char buf[255];
@@ -101,8 +119,22 @@ int16_t TeensyFileManager::readDir(const char *where, const char *suffix, char *
       buf[strlen(buf)-1] = 0;
     }
     if (!outerDir.open(buf, O_RDONLY)) {
+      print("readDir: failed to open '");
+      print(buf);
+      print("' — sd.errorCode=0x");
+      println(make_pair((int)sd.sdErrorCode(), HEX));
       return -1;
     }
+    if (!outerDir.isDir()) {
+      print("readDir: '");
+      print(buf);
+      println("' opened but is NOT a directory.");
+      outerDir.close();
+      return -1;
+    }
+    print("readDir: opened '");
+    print(buf);
+    println("' OK");
     if (strcmp(where, "/")) { // FIXME: is this correct for the root?
       strcpy(outputFN, "../");
       return 0;
@@ -114,8 +146,18 @@ int16_t TeensyFileManager::readDir(const char *where, const char *suffix, char *
   FsFile e;
   while (e.openNext(&outerDir, O_RDONLY)) {
 
-    // Skip MAC fork files
-    e.getName(outputFN, maxlen-1); // -1 for trailing '/' on directories
+    // getName returns the number of bytes written (or 0 on failure).
+    // Newer SdFat may fail rather than truncate when the LFN doesn't
+    // fit — without this check we'd silently emit empty entries.
+    outputFN[0] = '\0';
+    size_t got = e.getName(outputFN, maxlen-1); // -1 for trailing '/' on dirs
+    if (got == 0 || outputFN[0] == '\0') {
+      print("readDir: getName failed (LFN > ");
+      print((int)(maxlen-1));
+      println(" bytes? skipping)");
+      e.close();
+      continue;
+    }
 
     if (outputFN[0] == '.') {
       e.close();

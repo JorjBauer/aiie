@@ -52,7 +52,7 @@ void PhysicalDisplay::drawString(uint8_t mode, uint16_t x, uint16_t y, const cha
 {
   int8_t xsize = 8; // width of a char in this font
 
-  for (int8_t i=0; i<strlen(str); i++) {
+  for (size_t i=0; i<strlen(str); i++) {
     drawCharacter(mode, x, y, str[i]);
     x += xsize;
     if (x >= 320-xsize) break; // FIXME needs to know the actual display size?

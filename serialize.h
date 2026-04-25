@@ -59,7 +59,8 @@
 }
 
 #define serializeString(s) { \
-  if (g_filemanager->write(fd, s, strlen(s)+1) != strlen(s)+1) { \
+  size_t _slen = strlen(s) + 1; \
+  if ((size_t)g_filemanager->write(fd, s, _slen) != _slen) { \
     printf("Failed to write string '%s'\n", s); \
     goto err; \
   } \

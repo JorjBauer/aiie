@@ -22,11 +22,14 @@ ILI9341_Wrap::ILI9341_Wrap(const uint8_t cs_pin, const uint8_t rst_pin, const ui
 
 ILI9341_Wrap::~ILI9341_Wrap()
 {
-  if (tft)
-    delete tft;
+  // The upstream ILI9341_t3n class has virtual methods but no virtual
+  // destructor, so `delete tft` would warn (and is technically UB
+  // through the base pointer). ILI9341_Wrap lives for the lifetime
+  // of the program on Teensy, so this destructor is effectively
+  // never reached — leaking the tft instance here is academic.
 }
 
-void ILI9341_Wrap::begin(uint32_t spi_clock=30000000u, uint32_t spi_clock_read=2000000)
+void ILI9341_Wrap::begin(uint32_t spi_clock, uint32_t spi_clock_read)
 {
   if (!tft) {
     tft = new ILI9341_t3n(_cs, _dc, _rst, _mosi, _sck, _miso);
@@ -35,7 +38,7 @@ void ILI9341_Wrap::begin(uint32_t spi_clock=30000000u, uint32_t spi_clock_read=2
   }
 }
 
-void ILI9341_Wrap::fillWindow(uint8_t coloridx = 0x00)
+void ILI9341_Wrap::fillWindow(uint8_t coloridx)
 {
   tft->fillScreen(palette16[coloridx]);
 }

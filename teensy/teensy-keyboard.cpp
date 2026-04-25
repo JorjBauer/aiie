@@ -47,6 +47,7 @@ bool TeensyKeyboard::addEvent(uint8_t kc, bool pressed)
   keyboardEvents[kbEventPtr++].pressedIfTrue = pressed;
   if (kbEventPtr >= MAXKBEVENTS) kbEventPtr = 0;
   kbEventCount++;
+  return true;
 }
 
 bool TeensyKeyboard::popEvent(uint8_t *kc, bool *pressed)

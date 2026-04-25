@@ -74,7 +74,7 @@ void Mouse::performHack()
   sprintf(buf, "%d,%d,%s%d\015", xpos, ypos,
 	  isKeyPressed ? "-" : "",
 	  buttonPressData);
-  for (int i=0; i<strlen(buf); i++) {
+  for (size_t i=0; i<strlen(buf); i++) {
     g_vm->getMMU()->write(0x200 + i, buf[i] | 0x80);
   }
 

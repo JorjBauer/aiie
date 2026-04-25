@@ -37,15 +37,20 @@ class TeensyDisplay : public PhysicalDisplay {
   bool driveIndicator[2];
 
 private:
-  const uint8_t *shellImage;
-  const uint16_t shellWidth, shellHeight;
-  const uint8_t *d1OpenImage;
-  const uint16_t driveWidth, driveHeight; // assume all the latches are the same width/height no matter what position
-  const uint8_t *d1ClosedImage;
-  const uint8_t *d2OpenImage;
-  const uint8_t *d2ClosedImage;
-  const uint8_t *appleImage;
-  const uint16_t appleImageWidth, appleImageHeight;
+  // These were declared const but are populated in the constructor
+  // body via getImageInfoAndData(). With strict modern compilers
+  // that's UB (writing to const) and can cause the optimizer to
+  // assume they're whatever zero-init value they had — leading to
+  // bogus zero widths and out-of-bounds buffer math at runtime.
+  uint8_t *shellImage;
+  uint16_t shellWidth, shellHeight;
+  uint8_t *d1OpenImage;
+  uint16_t driveWidth, driveHeight; // assume all the latches are the same width/height
+  uint8_t *d1ClosedImage;
+  uint8_t *d2OpenImage;
+  uint8_t *d2ClosedImage;
+  uint8_t *appleImage;
+  uint16_t appleImageWidth, appleImageHeight;
 
   bool use8875;
   
