@@ -442,10 +442,10 @@ void runCPU(uint32_t now)
     cpuClockInitialized = true;
   }
   
-  if (now >= microsForNext) {
-    countSinceLast += g_cpu->Run(24); // The CPU runs in bursts of cycles. This '24' is the max burst we perform.
+  while (now >= microsForNext) {
+    countSinceLast += g_cpu->Run(24);
     ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
-    
+
     microsForNext = microsAtStart + (countSinceLast * SPEEDCTL);
   }
   

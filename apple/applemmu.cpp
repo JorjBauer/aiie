@@ -776,8 +776,6 @@ void AppleMMU::writeSwitches(uint16_t address, uint8_t v)
   case 0xC03D:
   case 0xC03E:
   case 0xC03F:
-    // Writes toggle the speaker twice
-    g_speaker->toggle(g_cpu->cycles);
     g_speaker->toggle(g_cpu->cycles);
 #ifndef SUPPRESSREALTIME
     g_cpu->realtime(); // cause the CPU to stop processing its outer

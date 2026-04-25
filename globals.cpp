@@ -25,7 +25,7 @@ uint8_t g_slotDiskII = 6;
 uint8_t g_slotParallel = 1;
 uint8_t g_slotHD32 = 7;
 uint8_t g_slotMouse = 2;
-uint8_t g_slotMockingboard = 4; // reasonable values are 127 and 128 for 32-bit (SDL); and 122/123 for 16-bit (teensy) depending on whether we're talking about white-on-black or black-on-white
+uint8_t g_slotMockingboard = 4;
 
 #ifdef TEENSYDUINO
 EXTMEM

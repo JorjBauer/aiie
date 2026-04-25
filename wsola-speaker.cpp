@@ -71,20 +71,17 @@ static int     wsolaEngageCount = 0;
 static int16_t pendingBuf[PENDING_BUF_SAMPLES];
 static int     pendingFill = 0;
 
-// Internal speaker flip-state. Matches the pre-WSOLA semantics
-// exactly: the state only flips when a sample actually gets written
-// to emuBuf (i.e., when delta > 0). Sub-sample toggles leave it
-// alone — they're effectively folded into the next real write's
-// parity, which is what the physical speaker / ear chain expects
-// for Apple II PWM-based polyphonic music.
 static bool    internalToggleState = false;
 static int16_t lastWrittenLevel = 0;
-
-// Last sample value output — used for sample-and-hold when the audio
-// callback outruns the emulator (no toggle has arrived yet). A real
-// speaker holds its position between toggles; outputting zero would
-// create audible clicks.
 static int16_t lastOutputSample = 0;
+
+// Duty-cycle integration: track the exact cycle of each state change
+// to correctly render PWM/DAC audio that toggles faster than 44.1 kHz.
+static int64_t lastToggleCycle = 0;
+static int64_t highCyclesAccum = 0;
+static int64_t sampleStartCycle = 0;
+static int16_t cachedHigh = 0;
+static int16_t cachedLow  = 0;
 
 // --- Public API ---
 
@@ -103,81 +100,89 @@ void wsola_reset()
   internalToggleState = false;
   lastWrittenLevel = 0;
   lastOutputSample = 0;
+  lastToggleCycle = 0;
+  highCyclesAccum = 0;
+  sampleStartCycle = 0;
+  cachedHigh = 0;
+  cachedLow  = 0;
+}
+
+// Emit integrated samples into emuBuf up to (but not including) the
+// sample containing `upToCycle`. Each sample's value is the duty-cycle
+// weighted average of HIGH and LOW based on how many cycles the speaker
+// spent at each level during that sample period.
+static void emitSamplesUpTo(int64_t upToCycle)
+{
+  // Cycles per sample = 1023000 / 44100 ≈ 23.2
+  // Sample N starts at cycle: N * 1023000 / 44100 (using lastFilledTime as base)
+  // We iterate sample-by-sample from lastFilledTime.
+
+  while (true) {
+    int64_t nextSampleStart = (lastFilledTime + 1) * (int64_t)1023000 / AUDIO_SAMPLE_RATE;
+    if (nextSampleStart > upToCycle) break;
+
+    // Close out the current sample: accumulate remaining cycles
+    int64_t remain = nextSampleStart - lastToggleCycle;
+    if (remain > 0 && internalToggleState) highCyclesAccum += remain;
+
+    // Compute integrated level for this sample
+    int64_t totalCycles = nextSampleStart - sampleStartCycle;
+    int16_t level;
+    if (totalCycles > 0) {
+      level = (int16_t)(((int32_t)cachedHigh * highCyclesAccum +
+                         (int32_t)cachedLow * (totalCycles - highCyclesAccum))
+                        / totalCycles);
+    } else {
+      level = internalToggleState ? cachedHigh : cachedLow;
+    }
+
+    // Ring overrun check
+    uint64_t available = emuWriteIdx - emuReadIdx;
+    if (available >= EMU_BUF_SAMPLES) {
+      emuReadIdx = emuWriteIdx - EMU_BUF_SAMPLES + 1;
+      prevTailValid = false;
+    }
+
+    emuBuf[emuWriteIdx & EMU_BUF_MASK] = level;
+    emuWriteIdx++;
+    lastFilledTime++;
+    lastWrittenLevel = level;
+
+    // Start new sample period
+    sampleStartCycle = nextSampleStart;
+    lastToggleCycle = nextSampleStart;
+    highCyclesAccum = 0;
+  }
+
+  // Accumulate partial cycles into current (incomplete) sample
+  int64_t partial = upToCycle - lastToggleCycle;
+  if (partial > 0 && internalToggleState) highCyclesAccum += partial;
+  lastToggleCycle = upToCycle;
 }
 
 void wsola_toggle(int64_t cycles, int16_t highLevel, int16_t lowLevel)
 {
-  // Map CPU cycle → emu-rate sample index. Bit-exact with the
-  // pre-WSOLA SDL speaker at g_speed=1023000.
-  int64_t sampleIdx = cycles * (int64_t)AUDIO_SAMPLE_RATE / 1023000;
+  cachedHigh = highLevel;
+  cachedLow  = lowLevel;
 
-  if (lastFilledTime == 0) lastFilledTime = sampleIdx;
-
-  int64_t delta = sampleIdx - lastFilledTime;
-  if (delta <= 0) {
-    // Zero-width gap: no samples to write, but the speaker still
-    // flips. Two sub-sample toggles cancel each other out (correct);
-    // a flush-then-toggle at the same sample still registers the flip.
-    internalToggleState = !internalToggleState;
-    lastWrittenLevel = internalToggleState ? highLevel : lowLevel;
-    return;
+  if (lastFilledTime == 0) {
+    lastFilledTime = cycles * (int64_t)AUDIO_SAMPLE_RATE / 1023000;
+    sampleStartCycle = cycles;
+    lastToggleCycle = cycles;
   }
 
-  // Extended silence (seconds) can produce a huge `delta`. Cap to
-  // the ring — nothing useful in a long constant-level stretch.
-  if ((uint64_t)delta > EMU_BUF_SAMPLES) {
-    emuReadIdx = emuWriteIdx + (uint64_t)delta - EMU_BUF_SAMPLES;
-    delta = EMU_BUF_SAMPLES;
-    prevTailValid = false;
-  } else {
-    uint64_t available = emuWriteIdx - emuReadIdx;
-    if (available + (uint64_t)delta > EMU_BUF_SAMPLES) {
-      uint64_t drop = (available + (uint64_t)delta) - EMU_BUF_SAMPLES + 1;
-      emuReadIdx += drop;
-      prevTailValid = false;
-    }
-  }
+  // Emit any complete samples up to this toggle
+  emitSamplesUpTo(cycles);
 
-  // Fill the gap with the CURRENT level (pre-flip) — this is what the
-  // speaker was doing until this toggle. Then flip state for next time.
-  int16_t level = internalToggleState ? highLevel : lowLevel;
-
-  for (int64_t i = 0; i < delta; i++) {
-    emuBuf[(emuWriteIdx + i) & EMU_BUF_MASK] = level;
-  }
-  emuWriteIdx += (uint64_t)delta;
-  lastFilledTime = sampleIdx;
-
+  // Flip speaker state
   internalToggleState = !internalToggleState;
   lastWrittenLevel = internalToggleState ? highLevel : lowLevel;
 }
 
 void wsola_flush(int64_t cycles)
 {
-  if (lastFilledTime == 0) return;
-
-  int64_t sampleIdx = cycles * (int64_t)AUDIO_SAMPLE_RATE / 1023000;
-  int64_t delta = sampleIdx - lastFilledTime;
-  if (delta <= 0) return;
-
-  if ((uint64_t)delta > EMU_BUF_SAMPLES) {
-    emuReadIdx = emuWriteIdx + (uint64_t)delta - EMU_BUF_SAMPLES;
-    delta = EMU_BUF_SAMPLES;
-    prevTailValid = false;
-  } else {
-    uint64_t available = emuWriteIdx - emuReadIdx;
-    if (available + (uint64_t)delta > EMU_BUF_SAMPLES) {
-      uint64_t drop = (available + (uint64_t)delta) - EMU_BUF_SAMPLES + 1;
-      emuReadIdx += drop;
-      prevTailValid = false;
-    }
-  }
-
-  for (int64_t i = 0; i < delta; i++) {
-    emuBuf[(emuWriteIdx + i) & EMU_BUF_MASK] = lastWrittenLevel;
-  }
-  emuWriteIdx += (uint64_t)delta;
-  lastFilledTime = sampleIdx;
+  if (lastFilledTime == 0 || cycles <= 0) return;
+  emitSamplesUpTo(cycles);
 }
 
 bool wsola_has_primed_fill(int minSamples)
@@ -294,12 +299,27 @@ static void appendOneChunk()
   if (ratio < RATIO_WSOLA_ON || wsolaEngageCount < WSOLA_ENGAGE_CHUNKS) {
     int n = WSOLA_SYNHOP;
     if ((uint64_t)n > available) n = (int)available;
-    for (int j = 0; j < n; j++) {
-      pendingBuf[pendingFill + j] = emuBuf[(readIdx + j) & EMU_BUF_MASK];
+    if (n == WSOLA_SYNHOP) {
+      for (int j = 0; j < n; j++) {
+        pendingBuf[pendingFill + j] = emuBuf[(readIdx + j) & EMU_BUF_MASK];
+      }
+    } else if (n >= 2) {
+      // Underrun: stretch available samples via linear interpolation
+      // instead of sample-and-hold, which causes audible choppiness.
+      for (int j = 0; j < WSOLA_SYNHOP; j++) {
+        int32_t srcPos = j * (n - 1);
+        int idx = srcPos / (WSOLA_SYNHOP - 1);
+        int frac = srcPos % (WSOLA_SYNHOP - 1);
+        int16_t s0 = emuBuf[(readIdx + idx) & EMU_BUF_MASK];
+        int16_t s1 = emuBuf[(readIdx + idx + 1) & EMU_BUF_MASK];
+        if (idx + 1 >= n) s1 = s0;
+        pendingBuf[pendingFill + j] =
+          (int16_t)(s0 + ((int32_t)(s1 - s0) * frac) / (WSOLA_SYNHOP - 1));
+      }
+    } else {
+      int16_t hold = (n > 0) ? emuBuf[readIdx & EMU_BUF_MASK] : lastOutputSample;
+      for (int j = 0; j < WSOLA_SYNHOP; j++) pendingBuf[pendingFill + j] = hold;
     }
-    int16_t hold = (n > 0) ? pendingBuf[pendingFill + n - 1] : lastOutputSample;
-    for (int j = n; j < WSOLA_SYNHOP; j++) pendingBuf[pendingFill + j] = hold;
-    // Keep prevTail populated in case we transition up to WSOLA.
     for (int j = 0; j < WSOLA_OVERLAP; j++) {
       prevTail[j] = pendingBuf[pendingFill + WSOLA_SYNHOP - WSOLA_OVERLAP + j];
     }
@@ -316,14 +336,28 @@ static void appendOneChunk()
   int consumed = wsolaEmitOneSynhop(&pendingBuf[pendingFill], ratio,
                                     readIdx, available);
   if (consumed < 0) {
-    // Not enough input for a full frame. Drop back to passthrough.
+    // Not enough input for a full frame. Drop back to passthrough
+    // with linear interpolation stretching when underrunning.
     int n = (int)available;
     if (n > WSOLA_SYNHOP) n = WSOLA_SYNHOP;
-    for (int j = 0; j < n; j++) {
-      pendingBuf[pendingFill + j] = emuBuf[(readIdx + j) & EMU_BUF_MASK];
+    if (n >= 2 && n < WSOLA_SYNHOP) {
+      for (int j = 0; j < WSOLA_SYNHOP; j++) {
+        int32_t srcPos = j * (n - 1);
+        int idx = srcPos / (WSOLA_SYNHOP - 1);
+        int frac = srcPos % (WSOLA_SYNHOP - 1);
+        int16_t s0 = emuBuf[(readIdx + idx) & EMU_BUF_MASK];
+        int16_t s1 = emuBuf[(readIdx + idx + 1) & EMU_BUF_MASK];
+        if (idx + 1 >= n) s1 = s0;
+        pendingBuf[pendingFill + j] =
+          (int16_t)(s0 + ((int32_t)(s1 - s0) * frac) / (WSOLA_SYNHOP - 1));
+      }
+    } else if (n == WSOLA_SYNHOP) {
+      for (int j = 0; j < n; j++)
+        pendingBuf[pendingFill + j] = emuBuf[(readIdx + j) & EMU_BUF_MASK];
+    } else {
+      int16_t hold = (n > 0) ? emuBuf[readIdx & EMU_BUF_MASK] : lastOutputSample;
+      for (int j = 0; j < WSOLA_SYNHOP; j++) pendingBuf[pendingFill + j] = hold;
     }
-    int16_t hold = (n > 0) ? pendingBuf[pendingFill + n - 1] : lastOutputSample;
-    for (int j = n; j < WSOLA_SYNHOP; j++) pendingBuf[pendingFill + j] = hold;
     pendingFill += WSOLA_SYNHOP;
     emuReadIdx = readIdx + (uint64_t)n;
     silenceChunks = (n == 0) ? (silenceChunks + 1) : 0;

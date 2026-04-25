@@ -930,7 +930,7 @@ uint16_t BIOS::SelectFileScreenHandler(bool needsRedraw, bool performAction)
   selectedMenuItem %= BIOS_MAXFILES + 2;
 
   static bool localRedraw = true;
-  static int8_t page = 0;
+  static uint8_t page = 0;
   static uint16_t fileCount = 0;
   
   if (needsRedraw || localRedraw) {
@@ -941,8 +941,7 @@ uint16_t BIOS::SelectFileScreenHandler(bool needsRedraw, bool performAction)
   
   if (performAction) {
     if (selectedMenuItem == 0) {
-      page--;
-      if (page < 0) page = 0;
+      if (page > 0) page--;
       //      else sel = BIOS_MAXFILES + 1;
       localRedraw = true;
     }
@@ -1557,7 +1556,7 @@ void BIOS::sortCachedEntries()
 
 uint16_t BIOS::GatherFilenames(uint8_t pageOffset, const char *filter)
 {
-  uint8_t startNum = MAXFILESPERPAGE * pageOffset;
+  uint16_t startNum = MAXFILESPERPAGE * (uint16_t)pageOffset;
   uint8_t count = 0; // number we're including in our listing
 
   uint16_t numEntriesTotal = cacheAllEntries(filter);

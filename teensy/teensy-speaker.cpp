@@ -40,9 +40,11 @@ void TeensySpeaker::begin()
   mixer2.gain(0, curVolume);
   mixer2.gain(1, curVolume);
 
+  __disable_irq();
   wsola_reset();
   toggleState = false;
   audioRunning = 0;
+  __enable_irq();
 }
 
 void TeensySpeaker::reset()
@@ -82,7 +84,6 @@ void TeensyAudio::update(void)
   if (audioRunning == 0) audioRunning = 1;
 
   if (g_biosInterrupt) {
-    // BIOS suspends audio — emit silence.
     audioRunning = 0;
     memset(block->data, 0, AUDIO_BLOCK_SAMPLES * sizeof(int16_t));
     transmit(block, 0);
@@ -90,24 +91,18 @@ void TeensyAudio::update(void)
     return;
   }
 
-  // Initial fill gate. AUDIO_BLOCK_SAMPLES-worth of primed content is
-  // enough on Teensy since blocks are tiny (2.9 ms).
   __disable_irq();
-  if (audioRunning == 1) {
-    if (!wsola_has_primed_fill(AUDIO_BLOCK_SAMPLES * 4)) {
-      __enable_irq();
-      memset(block->data, 0, AUDIO_BLOCK_SAMPLES * sizeof(int16_t));
-      transmit(block, 0);
-      release(block);
-      return;
-    }
-    audioRunning = 2;
+
+  // Speaker: wait for priming before producing, otherwise zero-fill.
+  if (audioRunning >= 2) {
+    wsola_produce(block->data, AUDIO_BLOCK_SAMPLES);
+  } else {
+    memset(block->data, 0, AUDIO_BLOCK_SAMPLES * sizeof(int16_t));
+    if (wsola_has_primed_fill(AUDIO_BLOCK_SAMPLES * 16))
+      audioRunning = 2;
   }
 
-  wsola_produce(block->data, AUDIO_BLOCK_SAMPLES);
-
-  // Mix in Mockingboard output — rendered directly here so we
-  // never starve the buffer.
+  // Mockingboard: always render regardless of speaker priming state.
   Mockingboard *mb = ((AppleVM *)g_vm)->mockingboard;
   if (mb) {
     int16_t mbBuf[AUDIO_BLOCK_SAMPLES];

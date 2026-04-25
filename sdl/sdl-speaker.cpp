@@ -46,19 +46,16 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
     return;
   }
 
-  if (audioRunning == 0) {
-    if (!wsola_has_primed_fill(SDLSIZE)) {
-      memset(stream, 0, len);
-      pthread_mutex_unlock(&togmutex);
-      return;
-    }
-    audioRunning = 1;
+  // Speaker: wait for priming before producing, otherwise zero-fill.
+  if (audioRunning) {
+    wsola_produce(out, outputCount);
+  } else {
+    memset(stream, 0, len);
+    if (wsola_has_primed_fill(SDLSIZE))
+      audioRunning = 1;
   }
 
-  wsola_produce(out, outputCount);
-
-  // Mix in Mockingboard output — rendered directly here so we
-  // never starve the buffer.
+  // Mockingboard: always render regardless of speaker priming state.
   Mockingboard *mb = ((AppleVM *)g_vm)->mockingboard;
   if (mb) {
     int16_t mbBuf[SDLSIZE];
@@ -134,9 +131,6 @@ void SDLSpeaker::begin()
 
 void SDLSpeaker::toggle(int64_t c)
 {
-  // Let WSOLA manage the flip state — it must only flip on writes
-  // that actually produce a sample, or polyphonic PWM music comes
-  // out with the wrong parity.
   pthread_mutex_lock(&togmutex);
   wsola_toggle(c, HIGHVAL, LOWVAL);
   pthread_mutex_unlock(&togmutex);
