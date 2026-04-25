@@ -23,7 +23,7 @@ extern void runDebouncer();
 struct _cacheEntry {
   char fn[BIOS_MAXPATH];
 };
-#define BIOSCACHESIZE 1024 // hope that's enough files?
+#define BIOSCACHESIZE 2048
 EXTMEM char cachedPath[BIOS_MAXPATH] = {0};
 EXTMEM char cachedFilter[BIOS_MAXPATH] = {0};
 EXTMEM struct _cacheEntry biosCache[BIOSCACHESIZE];
