@@ -205,16 +205,16 @@ bool AppleMMU::Deserialize(int8_t fd)
   deserializeMagic(MMUMAGIC);
 
   deserialize16(switches);
-  serialize8(auxRamRead);
-  serialize8(auxRamWrite);
-  serialize8(bank2);
-  serialize8(readbsr);
-  serialize8(writebsr);
-  serialize8(altzp);
-  serialize8(intcxrom);
-  serialize8(slot3rom);
-  serialize8(slotLatch);
-  serialize8(preWriteFlag);
+  deserialize8(auxRamRead);
+  deserialize8(auxRamWrite);
+  deserialize8(bank2);
+  deserialize8(readbsr);
+  deserialize8(writebsr);
+  deserialize8(altzp);
+  deserialize8(intcxrom);
+  deserialize8(slot3rom);
+  deserialize8(slotLatch);
+  deserialize8(preWriteFlag);
 
   if (!g_ram.Deserialize(fd)) {
     goto err;
