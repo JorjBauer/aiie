@@ -19,11 +19,11 @@
 //#define DEBUG_TIMING
 
 #if F_CPU < 240000000
-#pragma AiiE warning: performance will improve if you overclock the Teensy to 240MHz (F_CPU=240MHz) or 256MHz (F_CPU=256MHz)
+#warning "AiiE: performance will improve if you overclock the Teensy to 240MHz or higher"
 #endif
 
 #if F_CPU == 600000000
-#pragma AiiE suggestion: if you underclock to 528MHz (F_CPU=528MHz) then it will use significantly less power, and still perform perfectly
+#warning "AiiE: if you underclock to 528MHz it will use significantly less power, and still perform perfectly"
 #endif
 
 #define RESETPIN 38
@@ -414,8 +414,6 @@ void runDebouncer()
 
 void runBIOS(uint32_t now)
 {
-  static uint32_t nextResetMicros = 0;
-  static uint32_t countSinceLast = 0;
   static uint32_t microsAtStart = micros();
   static uint32_t microsForNext = microsAtStart + 100000; // 1/10 second
 
@@ -569,7 +567,7 @@ void doDebugging(uint32_t lastFps)
     g_display->debugMsg(debugBuf);
     break;
   case D_SHOWBATTERY:
-    sprintf(debugBuf, "B: %d %d%%     ", currentBatteryReading,
+    sprintf(debugBuf, "B: %d %ld%%     ", currentBatteryReading,
 	    map(currentBatteryReading, BATTERYMIN, BATTERYMAX, 0, 100));
     g_display->debugMsg(debugBuf);
     break;
@@ -657,5 +655,5 @@ void writePrefs()
   strcpy(p.hd1, ((AppleVM *)g_vm)->HDName(0));
   strcpy(p.hd2, ((AppleVM *)g_vm)->HDName(1));
 
-  bool ret = np.writePrefs(&p);
+  np.writePrefs(&p);
 }

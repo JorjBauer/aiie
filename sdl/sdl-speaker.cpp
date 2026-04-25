@@ -26,7 +26,7 @@ volatile uint8_t audioRunning = 0;
 // Debug: dump wall-clock output to /tmp/out.wav. Compare with the
 // pre-WSOLA reference capture to see what the WSOLA pipeline is
 // doing to the signal.
-#define DEBUG_OUT_WAV
+//#define DEBUG_OUT_WAV
 #ifdef DEBUG_OUT_WAV
 static int outputFD = -1;
 #endif
