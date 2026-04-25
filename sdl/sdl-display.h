@@ -35,6 +35,8 @@ class SDLDisplay : public PhysicalDisplay {
   void cacheDoubleWidePixel(uint16_t x, uint16_t y, uint32_t packedColor);
 
   void windowResized(uint32_t w, uint32_t h);
+  void setWindowSize(uint32_t w, uint32_t h);
+  SDL_Window *getWindow() { return screen; }
 
  private:
   uint32_t *videoBuffer;

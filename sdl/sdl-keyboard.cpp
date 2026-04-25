@@ -165,12 +165,7 @@ void SDLKeyboard::maintainKeyboard()
 					   event.motion.xrel, event.motion.yrel);
       break;
 
-      // FIXME: this really doesn't belong here. The mouse kinda
-      // didn't belong here, but this REALLY is wrong.
     case SDL_WINDOWEVENT:
-      if (event.window.event == SDL_WINDOWEVENT_RESIZED) {
-	((SDLDisplay *)g_display)->windowResized(event.window.data1, event.window.data2);
-      }
       break;
 
     case SDL_QUIT:

@@ -145,6 +145,17 @@ const uint8_t loresPixelColors[16][3] = { { 0, 0, 0 }, // black
 #define blendPackedColor(x,y) ( (((unpackRed(x) + unpackRed(y))/2) << 16) + (((unpackGreen(x) + unpackGreen(y))/2) << 8) + ((unpackBlue(x) + unpackBlue(y))/2) )
 #define luminanceFromRGB(r,g,b) ( ((r)*0.2126) + ((g)*0.7152) + ((b)*0.0722) )
 
+static int resizeEventWatch(void *userdata, SDL_Event *event)
+{
+  if (event->type == SDL_WINDOWEVENT &&
+      event->window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
+    SDLDisplay *d = (SDLDisplay *)userdata;
+    d->windowResized(event->window.data1, event->window.data2);
+    d->blit();
+  }
+  return 0;
+}
+
 SDLDisplay::SDLDisplay()
 {
   driveIndicator[0] = driveIndicator[1] = true; // assume on so they will redraw the first time
@@ -188,9 +199,11 @@ SDLDisplay::SDLDisplay()
 
   buffer = SDL_CreateTexture(renderer,
                              SDL_PIXELFORMAT_RGB888,
-                             SDL_TEXTUREACCESS_STREAMING, 
+                             SDL_TEXTUREACCESS_STREAMING,
                              use8875 ? RA8875_WIDTH : ILI9341_WIDTH,
                              use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT);
+
+  SDL_AddEventWatch(resizeEventWatch, this);
 }
 
 SDLDisplay::~SDLDisplay()
@@ -388,19 +401,29 @@ void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint32_t packedCol
 
 void SDLDisplay::windowResized(uint32_t w, uint32_t h)
 {
-  // Preserve the aspect ratio
-  float aspectRatio = (float)w/(float)h;
+  static bool inResize = false;
+  if (inResize)
+    return;
+  inResize = true;
 
-  float expectedWidth = use8875 ? RA8875_WIDTH : ILI9341_WIDTH;
-  float expectedHeight = use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT;
-  
-  if (aspectRatio != ((float)expectedWidth)/((float)expectedHeight)) {
-    if (aspectRatio > ((float)expectedWidth)/((float)expectedHeight)) {
-      h = ((1.f * ((float)expectedHeight)) / ((float)expectedWidth)) * w;
-    } else {
-      w = (((float)expectedWidth)/((float)expectedHeight)) * h;
-    }
+  float nativeW = use8875 ? RA8875_WIDTH : ILI9341_WIDTH;
+  float nativeH = use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT;
+  float nativeAspect = nativeW / nativeH;
+  float currentAspect = (float)w / (float)h;
+
+  if (currentAspect > nativeAspect) {
+    w = (uint32_t)(h * nativeAspect + 0.5f);
+  } else if (currentAspect < nativeAspect) {
+    h = (uint32_t)(w / nativeAspect + 0.5f);
   }
-  
+
   SDL_SetWindowSize(screen, w, h);
+
+  inResize = false;
+}
+
+void SDLDisplay::setWindowSize(uint32_t w, uint32_t h)
+{
+  if (w && h)
+    SDL_SetWindowSize(screen, w, h);
 }

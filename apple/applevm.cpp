@@ -146,6 +146,7 @@ void AppleVM::cpuMaintenance(int64_t cycles)
 void AppleVM::Reset()
 {
   disk6->Reset();
+  if (mockingboard) mockingboard->Reset();
   ((AppleMMU *)mmu)->resetRAM();
   mmu->Reset();
 

@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "globals.h"
+#include "cpu.h"
 
 #ifdef TEENSYDUINO
 #include "teensy-println.h"
@@ -36,8 +37,11 @@ Mockingboard::~Mockingboard() {}
 
 void Mockingboard::Reset()
 {
+  lastCycleCount = 0;
   for (int i = 0; i < 2; i++) {
     memset(&via[i], 0, sizeof(Via6522));
+    via[i].timer1latch = 0xFFFF;
+    via[i].timer2latch = 0xFFFF;
     memset(&ay[i], 0, sizeof(AY8910));
     ay[i].noiseShift = 1;
     ay[i].noisePeriod = 1;
@@ -63,13 +67,14 @@ void Mockingboard::writeSwitches(uint8_t s, uint8_t v) {}
 
 uint8_t Mockingboard::readSlotRom(uint8_t addr)
 {
-  // 6522 only decodes A0-A3; bit 7 selects VIA A vs B.
+  update(g_cpu->cycles);
   int whichVia = (addr & 0x80) ? 1 : 0;
   return viaRead(whichVia, addr & 0x0F);
 }
 
 void Mockingboard::writeSlotRom(uint8_t addr, uint8_t val)
 {
+  update(g_cpu->cycles);
   int whichVia = (addr & 0x80) ? 1 : 0;
   viaWrite(whichVia, addr & 0x0F, val);
 }
@@ -403,40 +408,42 @@ void Mockingboard::update(uint64_t cpuCycles)
   uint64_t elapsed = cpuCycles - lastCycleCount;
   lastCycleCount = cpuCycles;
 
-  // Tick 6522 timers
+  // Tick 6522 timers — counters always decrement (even when "stopped"),
+  // matching real 6522 behavior. Only IFR flags depend on timer1running.
   for (int v = 0; v < 2; v++) {
     Via6522 &p = via[v];
 
-    if (p.timer1running) {
-      if (elapsed >= p.timer1counter) {
+    if (elapsed >= p.timer1counter) {
+      if (p.timer1running) {
         p.ifr |= IFR_TIMER1;
         p.timer1fired = true;
-        if (p.acr & 0x40) {
-          // Free-running: reload from latch
-          uint32_t overflow = elapsed - p.timer1counter;
-          if (p.timer1latch > 0)
-            overflow %= (p.timer1latch + 2);
-          p.timer1counter = p.timer1latch - overflow;
-        } else {
-          p.timer1running = false;
-          p.timer1counter = 0xFFFF;
-        }
         viaUpdateIFR(v);
-      } else {
-        p.timer1counter -= elapsed;
       }
+      if (p.acr & 0x40) {
+        uint32_t overflow = elapsed - p.timer1counter;
+        if (p.timer1latch > 0)
+          overflow %= (p.timer1latch + 2);
+        p.timer1counter = p.timer1latch - overflow;
+      } else {
+        uint32_t overflow = elapsed - p.timer1counter;
+        p.timer1counter = 0xFFFF - (overflow % 0x10000);
+        p.timer1running = false;
+      }
+    } else {
+      p.timer1counter -= elapsed;
     }
 
-    if (p.timer2running) {
-      if (elapsed >= p.timer2counter) {
+    if (elapsed >= p.timer2counter) {
+      if (p.timer2running) {
         p.ifr |= IFR_TIMER2;
         p.timer2fired = true;
-        p.timer2running = false;
-        p.timer2counter = 0xFFFF;
         viaUpdateIFR(v);
-      } else {
-        p.timer2counter -= elapsed;
       }
+      uint32_t overflow = elapsed - p.timer2counter;
+      p.timer2counter = 0xFFFF - (overflow % 0x10000);
+      p.timer2running = false;
+    } else {
+      p.timer2counter -= elapsed;
     }
   }
 

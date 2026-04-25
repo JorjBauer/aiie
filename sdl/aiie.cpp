@@ -1,4 +1,6 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 #include <curses.h>
 #include <termios.h>
@@ -449,6 +451,8 @@ int main(int argc, char *argv[])
   signal(SIGINT, sigint_handler);
   signal(SIGPIPE, SIG_IGN); // debugger might have a SIGPIPE happen if the remote end drops
 
+  atexit(writePrefs);
+
   g_speaker->begin();
 
   printf("Starting loop\n");
@@ -486,6 +490,8 @@ void readPrefs()
     if (p.hd2[0]) {
       ((AppleVM *)g_vm)->insertHD(1, p.hd2);
     }
+
+    ((SDLDisplay *)g_display)->setWindowSize(p.windowWidth, p.windowHeight);
   }
 }
 
@@ -493,7 +499,8 @@ void writePrefs()
 {
   NixPrefs np;
   prefs_t p;
-  
+
+  memset(&p, 0, sizeof(p));
   p.magic = PREFSMAGIC;
   p.prefsSize = sizeof(prefs_t);
   p.version = PREFSVERSION;
@@ -502,13 +509,18 @@ void writePrefs()
 
   p.displayType = g_displayType;
   p.luminanceCutoff = g_luminanceCutoff;
-  
+
   p.debug = g_debugMode;
   p.speed = g_speed / (1023000/2);
   strcpy(p.disk1, ((AppleVM *)g_vm)->DiskName(0));
   strcpy(p.disk2, ((AppleVM *)g_vm)->DiskName(1));
   strcpy(p.hd1, ((AppleVM *)g_vm)->HDName(0));
   strcpy(p.hd2, ((AppleVM *)g_vm)->HDName(1));
+
+  int w, h;
+  SDL_GetWindowSize(((SDLDisplay *)g_display)->getWindow(), &w, &h);
+  p.windowWidth = w;
+  p.windowHeight = h;
 
   bool ret = np.writePrefs(&p);
   printf("writePrefs returns %s\n", ret ? "true" : "false");
