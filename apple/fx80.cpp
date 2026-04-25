@@ -46,23 +46,52 @@ void Fx80::Reset()
   escapeModeLengthByteCount = 0;
   escapeModeLength = 0;
   italicsMode = false;
+  oneLineExpanded = false;
+  underlineMode = false;
+  doubleStrike = false;
+  scriptMode = 0;
+  formLengthLines = 66;
+  currentLine = 0;
+
+  numTabStops = 0;
+  for (int i = 8; i <= 80; i += 8) {
+    tabStops[numTabStops++] = i;
+  }
+  numVtabStops = 0;
+
+  leftMarginDot = 0;
+  rightMarginDot = FX80_MAXWIDTH;
+}
+
+void Fx80::cancelOneLineExpanded()
+{
+  if (oneLineExpanded) {
+    fontMode &= ~FM_Expanded;
+    oneLineExpanded = false;
+  }
 }
 
 void Fx80::handleEscape(uint8_t c)
 {
   switch (c) {
-  case 75: // FIXME: single-density 480 dpi graphics line
+  case 75: // single-density graphics (480 dots per 8" line)
     graphicsWidth = 480;
+    escapeModeActive = c;
+    escapeModeExpectingBytes = -1;
+    escapeModeLengthByteCount = 0;
     break;
-  case 76: // FIXME: low-speed double-density graphics line
-  case 89: // FIXME: high-speed double-density graphics
+  case 76: // low-speed double-density graphics
+  case 89: // high-speed double-density graphics
     graphicsWidth = 960;
     escapeModeActive = c;
     escapeModeExpectingBytes = -1;
     escapeModeLengthByteCount = 0;
     break;
-  case 90: // FIXME: quadruple-density graphics
-    graphicsWidth = 960 * 2;
+  case 90: // quadruple-density graphics (1920 dots per 8" line)
+    graphicsWidth = 1920;
+    escapeModeActive = c;
+    escapeModeExpectingBytes = -1;
+    escapeModeLengthByteCount = 0;
     break;
   case 94: // FIXME: enable 9-pin graphics
     escapeModeActive = c;
@@ -73,12 +102,31 @@ void Fx80::handleEscape(uint8_t c)
     escapeModeActive = c;
     escapeModeExpectingBytes = 1;
     break;
-  case 33: // FIXME: mode select
+  case 48: // ESC 0: set line spacing to 1/8" (27/216")
+    twoSixteenthsLineSpacing = 27;
+    break;
+  case 49: // ESC 1: set line spacing to 7/72" (21/216")
+    twoSixteenthsLineSpacing = 21;
+    break;
+  case 50: // ESC 2: set line spacing to 1/6" default (36/216")
+    twoSixteenthsLineSpacing = 36;
+    break;
+  case 51: // ESC 3: set line spacing to n/216"
+    escapeModeActive = c;
+    escapeModeExpectingBytes = 1;
+    break;
+  case 33: // ESC !: Master Select (1-byte bit field)
+    escapeModeActive = c;
+    escapeModeExpectingBytes = 1;
+    break;
   case 35: // FIXME: enable 8-bit reception from computer
   case 37: // FIXME: pick charset from ROM
   case 38: // FIXME: define chars in RAM
-  case 42: // FIXME: set vertical tabs
-  case 43: // FIXME: set form length (default: 66 lines, 11 inches)
+  case 42: // FIXME: ESC * master graphics mode (mode byte + 2-byte length + data)
+    break;
+  case 45: // ESC -: underline on/off (1-byte param)
+    escapeModeActive = c;
+    escapeModeExpectingBytes = 1;
     break;
   case 52: // italics on
     italicsMode = true;
@@ -89,7 +137,19 @@ void Fx80::handleEscape(uint8_t c)
   case 64: // Reset
     Reset();
     break;
-  case 68: // FIXME: reset current tabs, pitch
+  case 66: // ESC B: set vertical tabs (NUL-terminated list)
+    escapeModeActive = c;
+    escapeModeExpectingBytes = 17;
+    numVtabStops = 0;
+    break;
+  case 67: // ESC C: set form length
+    escapeModeActive = c;
+    escapeModeExpectingBytes = 1;
+    break;
+  case 68: // ESC D: set horizontal tabs (NUL-terminated list)
+    escapeModeActive = c;
+    escapeModeExpectingBytes = 33;
+    numTabStops = 0;
     break;
   case 69: // emphasized mode on
     fontMode |= FM_Emphasized;
@@ -97,10 +157,17 @@ void Fx80::handleEscape(uint8_t c)
   case 70: // emphasized mode off
     fontMode &= ~FM_Emphasized;
     break;
-  case 71: // FIXME: double-strike on
-  case 72: // FIXME: double-strike off
+  case 71: // ESC G: double-strike on
+    doubleStrike = true;
+    break;
+  case 72: // ESC H: double-strike off
+    doubleStrike = false;
+    break;
   case 73: // FIXME: enable printing chr[0..31] except control codes
-  case 74: // FIXME: line feed immediately, n/216th of an inch
+    break;
+  case 74: // ESC J: immediate line feed n/216" without CR
+    escapeModeActive = c;
+    escapeModeExpectingBytes = 1;
     break;
   case 77: // elite mode (12cpi)
     fontMode |= FM_Elite;
@@ -111,27 +178,40 @@ void Fx80::handleEscape(uint8_t c)
   case 80: // disable elite; enable pica mode (unless compressed is enabled)
     fontMode &= ~FM_Elite;
     break;
-  case 81: // FIXME: cancel print buffer, set right margin
+  case 81: // ESC Q: set right margin (1-byte param)
+    escapeModeActive = c;
+    escapeModeExpectingBytes = 1;
     break;
   case 82: // FIXME: select international charset
     escapeModeExpectingBytes = 1;
     escapeModeActive = c;
     break;
-  case 83: // FIXME: script mode on
-  case 84: // FIXME: script mode off
-  case 85: // FIXME: unidirecitonal mode on/off
+  case 83: // ESC S: script mode on (1-byte param: 0=super, 1=sub)
+    escapeModeActive = c;
+    escapeModeExpectingBytes = 1;
+    break;
+  case 84: // ESC T: script mode off
+    scriptMode = 0;
+    break;
+  case 85: // FIXME: unidirectional mode on/off
     break;
   case 87: // expanded mode (1=on; 0=off)
     escapeModeExpectingBytes = 1;
     escapeModeActive = c;
     break;
-  case 98: // FIXME: set vertical tab
+  case 98: // FIXME: set vertical tab channel
   case 105: // FIXME: immediate mode on
   case 106: // FIXME: immediate reverse linefeed 1/216"
-  case 108: // FIXME: set left margin
-  case 112: // FIXME: turn on proportional mode
+    break;
+  case 108: // ESC l: set left margin (1-byte param)
+    escapeModeActive = c;
+    escapeModeExpectingBytes = 1;
+    break;
+  case 112: // ESC p: proportional mode on/off (1-byte param)
+    escapeModeActive = c;
+    escapeModeExpectingBytes = 1;
+    break;
   case 115: // FIXME: print speed
-    printf("unhandled escape code %d\n", c);
     break;
 
   }
@@ -140,37 +220,111 @@ void Fx80::handleEscape(uint8_t c)
 void Fx80::handleActiveEscapeMode(uint8_t c)
 {
   switch (escapeModeActive) {
-  case 76:
-  case 89:
-    // one column of double-density graphics
+  case 75: // single-density: each graphics dot spans 2 horizontal dots
+  case 76: // double-density
+  case 89: // high-speed double-density
+  case 90: // quadruple-density: 2 graphics dots per horizontal dot
     {
-      // FIXME: abstract this - second time it's being used
-      uint16_t byteIdx = (carriageDot+0) / 8 + (FX80_MAXWIDTH/8) * 0;
-      uint8_t bitIdx = (carriageDot+0) % 8;
-      for (int i=0; i<8; i++) {
-	if (c & (1 << (7-i))) {
-	  rowOfBits[byteIdx] |= (1 << (7-bitIdx));
+      bool singleDensity = (escapeModeActive == 75);
+      bool quadDensity = (escapeModeActive == 90);
+      int dotsPerColumn = singleDensity ? 2 : (quadDensity ? 1 : 1);
+
+      for (int i = 0; i < 8; i++) {
+	if (c & (1 << (7 - i))) {
+	  for (int d = 0; d < dotsPerColumn; d++) {
+	    uint16_t x = carriageDot + d;
+	    if (x < FX80_MAXWIDTH) {
+	      uint16_t byteIdx = x / 8 + (FX80_MAXWIDTH / 8) * i;
+	      uint8_t bitIdx = x % 8;
+	      rowOfBits[byteIdx] |= (1 << (7 - bitIdx));
+	    }
+	  }
 	}
-	byteIdx += (FX80_MAXWIDTH/8);
       }
+      carriageDot += dotsPerColumn;
     }
-    carriageDot++;
+    break;
+  case 51: // ESC 3: set line spacing to n/216"
+    twoSixteenthsLineSpacing = c;
     break;
   case 65: // set line spacing to n/72ths of an inch (n=0-85)
     twoSixteenthsLineSpacing = 3 * c;
-
     break;
+  case 74: // ESC J: immediate line feed of n/216" (no CR, doesn't change spacing)
+    emitLine();
+    clearLine();
+    g_printer->moveDownPixels(c / 3);
+    break;
+  case 33: // ESC !: Master Select bit field
+    fontMode = FM_Pica;
+    if (c & 0x01) fontMode |= FM_Elite;
+    if (c & 0x02) proportionalMode = true; else proportionalMode = false;
+    if (c & 0x04) fontMode |= FM_Compressed;
+    if (c & 0x08) fontMode |= FM_Emphasized;
+    if (c & 0x10) doubleStrike = true; else doubleStrike = false;
+    if (c & 0x20) fontMode |= FM_Expanded;
+    break;
+  case 45: // ESC -: underline
+    underlineMode = (c & 1);
+    break;
+  case 66: // ESC B: accumulate vertical tab stops
+    if (c == 0 || numVtabStops >= 16) {
+      escapeModeExpectingBytes = 0;
+    } else {
+      vtabStops[numVtabStops++] = c;
+    }
+    break;
+  case 67: // ESC C: set form length
+    if (c == 0) {
+      // ESC C NUL n: inches form. Read one more byte.
+      escapeModeActive = 200;
+      escapeModeExpectingBytes = 1;
+    } else {
+      formLengthLines = c;
+      currentLine = 0;
+    }
+    break;
+  case 200: // ESC C NUL n: form length in inches
+    formLengthLines = c * 6; // approximate: 6 lines per inch at default spacing
+    currentLine = 0;
+    break;
+  case 68: // ESC D: accumulate horizontal tab stops
+    if (c == 0 || numTabStops >= 32) {
+      escapeModeExpectingBytes = 0;
+    } else {
+      tabStops[numTabStops++] = c;
+    }
+    break;
+  case 81: { // ESC Q: set right margin (column number)
+    uint8_t charWidth = characterWidthOfSelectedFont(' ');
+    rightMarginDot = (uint16_t)c * charWidth;
+    if (rightMarginDot > FX80_MAXWIDTH || rightMarginDot == 0)
+      rightMarginDot = FX80_MAXWIDTH;
+    break;
+  }
   case 82:
     charsetEnabled = (Charset) (c % 9);
     break;
+  case 83: // ESC S: script mode (0=superscript, 1=subscript)
+    scriptMode = (c & 1) ? 2 : 1;
+    break;
   case 87:
-    if (c == 1) 
+    if (c == 1)
       fontMode |= FM_Expanded;
     else if (c == 0)
       fontMode &= ~FM_Expanded;
     break;
+  case 108: { // ESC l: set left margin (column number)
+    uint8_t charWidth = characterWidthOfSelectedFont(' ');
+    leftMarginDot = (uint16_t)c * charWidth;
+    if (leftMarginDot >= FX80_MAXWIDTH)
+      leftMarginDot = 0;
+    break;
+  }
+  case 112: // ESC p: proportional mode
+    proportionalMode = (c & 1);
+    break;
   default:
-    printf("unhandled active escape mode %d\n", c);
     break;
   }
 }
@@ -211,40 +365,89 @@ void Fx80::input(uint8_t c)
     return;
   }
 
-  // FIXME: all these also work as 128 + c
+  // Control codes 128-155 mirror 0-27
+  if (c >= 128 && c <= 155)
+    c -= 128;
+
   switch (c) {
   case 0: // FIXME: terminate horiz/vert tab setting
     return;
   case 7: // beep
     return;
-  case 8: // FIXME: "at current width" instead of this fixed-12
-    if (carriageDot >= 12) 
-      carriageDot -= 12;
+  case 8: { // backspace one character width
+    uint8_t w = characterWidthOfSelectedFont(' ');
+    if (carriageDot >= w)
+      carriageDot -= w;
+    else
+      carriageDot = 0;
     return;
-  case 9: // FIXME: HTAB
+  }
+  case 9: { // horizontal tab
+    uint8_t charWidth = characterWidthOfSelectedFont(' ');
+    uint8_t currentCol = (charWidth > 0) ? (carriageDot / charWidth) : 0;
+    for (uint8_t i = 0; i < numTabStops; i++) {
+      if (tabStops[i] > currentCol) {
+	carriageDot = tabStops[i] * charWidth;
+	if (carriageDot >= FX80_MAXWIDTH)
+	  carriageDot = FX80_MAXWIDTH - 1;
+	break;
+      }
+    }
     return;
+  }
   case 10:
+    cancelOneLineExpanded();
     lineFeed();
     return;
-  case 11: // FIXME: VTAB
+  case 11: // vertical tab
+    if (numVtabStops > 0) {
+      for (uint8_t i = 0; i < numVtabStops; i++) {
+	if (vtabStops[i] > currentLine) {
+	  uint16_t linesToAdvance = vtabStops[i] - currentLine;
+	  for (uint16_t j = 0; j < linesToAdvance; j++)
+	    lineFeed();
+	  break;
+	}
+      }
+    }
     return;
-  case 12: // FIXME: Form Feed
-    lineFeed();
+  case 12: // form feed
+    cancelOneLineExpanded();
+    emitLine();
+    clearLine();
+    carriageDot = 0;
+    if (currentLine > 0) {
+      uint16_t linesRemaining = formLengthLines - currentLine;
+      g_printer->moveDownPixels(linesRemaining * (twoSixteenthsLineSpacing / 3));
+    }
+    currentLine = 0;
     return;
   case 13:
-    carriageDot = 0;
-    // lineFeed(); // FIXME: this was controlled by a switch
+    cancelOneLineExpanded();
+    carriageDot = leftMarginDot;
     return;
-  case 14: // FIXME: Shift Out - turns on "Expanded Mode"
-  case 15: // FIXME: Shift In - turns on "Compressed Mode"
-  case 17: // FIXME: DC1
-  case 18: // FIXME: DC2
-  case 19: // FIXME: DC3
-  case 20: // FIXME: DC4
+  case 14: // SO: one-line expanded mode ON
+    if (!(fontMode & FM_Expanded)) {
+      fontMode |= FM_Expanded;
+      oneLineExpanded = true;
+    }
+    return;
+  case 15: // SI: compressed mode ON
+    fontMode |= FM_Compressed;
+    return;
+  case 17: // FIXME: DC1 - activate printer
+  case 19: // FIXME: DC3 - deactivate printer
+    return;
+  case 18: // DC2: compressed mode OFF
+    fontMode &= ~FM_Compressed;
+    return;
+  case 20: // DC4: one-line expanded mode OFF
+    cancelOneLineExpanded();
+    return;
   case 24: // FIXME: cancel text in print buffer; not the same as "clear line"
   case 127: // FIXME: delete last char in the print buffer
     return;
-    
+
   }
 
   // normal print - send the character verbatim...
@@ -300,67 +503,89 @@ void Fx80::addCharacter(uint8_t c)
     c += 128;
   }
 
-  (void)Fx80Font[c * 19];
-  // FIXME: is 12 right for non-proportional mode?
-  /*  if (!proportionalMode)
-      width = 12;*/
+  uint8_t charWidth = characterWidthOfSelectedFont(c);
 
-  // Each row for this char has two bytes of bits, left-to-right, high
-  // bit leftmost.
+  if (carriageDot + charWidth > rightMarginDot)
+    return;
 
   const uint8_t *charPtr = &Fx80Font[c * 19];
-  charPtr++;
+  charPtr++; // skip proportional width byte
 
-  for (uint8_t row=0; row<9; row++) {
-    uint16_t rowData = (charPtr[2*row] << 1) | (charPtr[2*row+1]>>7);
+  for (uint8_t fontRow = 0; fontRow < 9; fontRow++) {
+    // Determine which output row this font row maps to
+    uint8_t outRow;
+    if (scriptMode == 1) { // superscript: compress 9 rows into rows 0-4
+      outRow = fontRow / 2;
+      if ((fontRow & 1) && fontRow > 0) continue; // skip odd rows
+    } else if (scriptMode == 2) { // subscript: compress into rows 4-8
+      outRow = 4 + fontRow / 2;
+      if ((fontRow & 1) && fontRow > 0) continue;
+    } else {
+      outRow = fontRow;
+    }
+
+    uint16_t rowData = (charPtr[2*fontRow] << 1) | (charPtr[2*fontRow+1]>>7);
     float xoffTo = 0;
+    float pw = pixelWidthOfSelectedFont();
+
     for (uint8_t xoff = 0; xoff <= 8; xoff++) {
+      if (carriageDot + (uint16_t)xoffTo >= FX80_MAXWIDTH)
+	break;
 
-      // Don't print beyond end of line!
-      if (carriageDot+xoff >= FX80_MAXWIDTH)
-	continue;
-
-      float pw = pixelWidthOfSelectedFont();
-
-      // Figure out where we're drawing *to*
       xoffTo += pw;
-      uint16_t byteIdx = (carriageDot+xoffTo) / 8 + (FX80_MAXWIDTH/8) * row;
-      uint8_t bitIdx = (uint8_t)((float)carriageDot+xoffTo) % 8;
+      uint16_t dotX = carriageDot + (uint16_t)xoffTo;
+      if (dotX >= FX80_MAXWIDTH) break;
 
-      // We never clear bits - it's possible to overstrike, so just add more...
-      if (rowData & (1 << (8-xoff))) {
-	rowOfBits[byteIdx] |= (1 << (7-bitIdx));
-      }
+      if (rowData & (1 << (8 - xoff))) {
+	uint16_t byteIdx = dotX / 8 + (FX80_MAXWIDTH/8) * outRow;
+	uint8_t bitIdx = dotX % 8;
+	rowOfBits[byteIdx] |= (1 << (7 - bitIdx));
 
-      // If we're in emphasized mode, then repeat the pixel one to the right-
-      //   without changing xOffTo, so we'll strike over
-      if (fontMode & FM_Emphasized) {
-	byteIdx = (carriageDot+xoffTo+pw) / 8 + (FX80_MAXWIDTH/8) * row;
-	bitIdx = (uint8_t)((float)carriageDot+xoffTo+pw) % 8;
-
-	// Add this bit too
-	if (rowData & (1 << (8-xoff))) {
-	  rowOfBits[byteIdx] |= (1 << (7-bitIdx));
+	// Double-strike: also set the dot one row below
+	if (doubleStrike && outRow < 8) {
+	  uint16_t dsIdx = dotX / 8 + (FX80_MAXWIDTH/8) * (outRow + 1);
+	  rowOfBits[dsIdx] |= (1 << (7 - bitIdx));
 	}
       }
 
-      // If we're in expanded mode, then repeat the pixel offset to
-      // the right one dot - while changing xOffTo, moving the print head
+      // Emphasized: repeat dot one position to the right
+      if (fontMode & FM_Emphasized) {
+	uint16_t empX = carriageDot + (uint16_t)(xoffTo + pw);
+	if (empX < FX80_MAXWIDTH && (rowData & (1 << (8 - xoff)))) {
+	  uint16_t byteIdx = empX / 8 + (FX80_MAXWIDTH/8) * outRow;
+	  uint8_t bitIdx = empX % 8;
+	  rowOfBits[byteIdx] |= (1 << (7 - bitIdx));
+	}
+      }
+
+      // Expanded: double-width by repeating and advancing
       if (fontMode & FM_Expanded) {
 	xoffTo += pw;
-	byteIdx = (carriageDot+xoffTo) / 8 + (FX80_MAXWIDTH/8) * row;
-	bitIdx = (uint8_t)((float)carriageDot+xoffTo) % 8;
-
-	// Add this bit too
-	if (rowData & (1 << (8-xoff))) {
-	  rowOfBits[byteIdx] |= (1 << (7-bitIdx));
+	uint16_t expX = carriageDot + (uint16_t)xoffTo;
+	if (expX < FX80_MAXWIDTH && (rowData & (1 << (8 - xoff)))) {
+	  uint16_t byteIdx = expX / 8 + (FX80_MAXWIDTH/8) * outRow;
+	  uint8_t bitIdx = expX % 8;
+	  rowOfBits[byteIdx] |= (1 << (7 - bitIdx));
 	}
       }
-      
     }
   }
 
-  carriageDot += characterWidthOfSelectedFont(c);
+  // Underline: draw continuous line across character width in row 8
+  if (underlineMode) {
+    uint8_t ulRow = (scriptMode == 1) ? 4 : 8;
+    uint16_t totalDots = charWidth;
+    for (uint16_t d = 0; d < totalDots; d++) {
+      uint16_t dotX = carriageDot + d;
+      if (dotX < FX80_MAXWIDTH) {
+	uint16_t byteIdx = dotX / 8 + (FX80_MAXWIDTH/8) * ulRow;
+	uint8_t bitIdx = dotX % 8;
+	rowOfBits[byteIdx] |= (1 << (7 - bitIdx));
+      }
+    }
+  }
+
+  carriageDot += charWidth;
 }
 
   // Determine our dot spacing. We have 960 dots across a page, and we
@@ -397,13 +622,17 @@ float Fx80::pixelWidthOfSelectedFont()
 uint8_t Fx80::characterWidthOfSelectedFont(uint8_t c)
 {
   uint8_t ret;
-  
-  if (fontMode & FM_Elite)
+
+  if (proportionalMode) {
+    ret = Fx80Font[c * 19]; // first byte of font entry is proportional width
+    if (ret == 0) ret = 12;
+  } else if (fontMode & FM_Elite) {
     ret = 10;
-  else if (fontMode & FM_Compressed)
+  } else if (fontMode & FM_Compressed) {
     ret = 7;
-  else /*if (fontMode & FM_Pica)*/
+  } else {
     ret = 12;
+  }
 
   if (fontMode & FM_Expanded)
     ret *= 2;
@@ -414,8 +643,12 @@ uint8_t Fx80::characterWidthOfSelectedFont(uint8_t c)
 void Fx80::lineFeed()
 {
   emitLine();
-  g_printer->moveDownPixels(twoSixteenthsLineSpacing / 3); // pixel estimation
+  g_printer->moveDownPixels(twoSixteenthsLineSpacing / 3);
   clearLine();
+  carriageDot = leftMarginDot;
+  currentLine++;
+  if (currentLine >= formLengthLines)
+    currentLine = 0;
 }
 
 void Fx80::clearLine()

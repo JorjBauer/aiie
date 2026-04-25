@@ -4,21 +4,17 @@
 #define WIDTH (384)       // width of printer, in dots
 #define NATIVEWIDTH 960 // 
 
-#define RXPIN 57
-#define TXPIN 56
+#define RXPIN 19
+#define TXPIN 18
 
 TeensyPrinter::TeensyPrinter()
 {
-#if 0
-  // debugging
   ser = new SoftwareSerial(RXPIN, TXPIN, false);
   ser->begin(19200);
-  char buf[6] = { 27, '@',          // init command '@'
-		  27, '3', 8,       // ESC-3 is "set line spacing"; default 30
-		  0                 // terminator
+  char buf[5] = { 27, '@',
+		  27, '3', 8
   };
-  ser->print(buf);
-#endif
+  ser->write((uint8_t *)buf, sizeof(buf));
 }
 
 TeensyPrinter::~TeensyPrinter()
@@ -65,14 +61,11 @@ void TeensyPrinter::addLine(uint8_t *rowOfBits)
       }
     }
 
-    // Send this line to the printer
-    ser->write(DC2); // send this line as a bitmap
+    ser->write(DC2);
     ser->write('*');
-    ser->write(1); // FIXME: height
-    ser->write(48); // FIXME: width, in bytes
-    for (int i=0; i<WIDTH/8; i++) {
-      ser->write(linebuf[i]);
-    }
+    ser->write((uint8_t)1);
+    ser->write((uint8_t)(WIDTH/8));
+    ser->write(linebuf, WIDTH/8);
   }
 
   //  ser->write(10); // linefeed @ the end
@@ -80,4 +73,10 @@ void TeensyPrinter::addLine(uint8_t *rowOfBits)
 
 void TeensyPrinter::moveDownPixels(uint8_t p)
 {
+  if (!ser)
+    return;
+
+  ser->write(27);
+  ser->write('J');
+  ser->write(p);
 }

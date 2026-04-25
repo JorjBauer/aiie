@@ -118,27 +118,26 @@ void SDLPrinter::moveDownPixels(uint8_t p)
 
 void SDLPrinter::savePageAsBitmap(uint32_t pageno)
 {
-  SDL_Surface* saveSurface = NULL;
-
   char buf[255];
   snprintf(buf, sizeof(buf), "page-%d.bmp", pageno);
 
-  saveSurface = SDL_CreateRGBSurfaceFrom((void *)_hackyBitmap, 
-					 WIDTH,
-					 HEIGHT,
-					 8, // bpp
-					 WIDTH * 1, // bytes per row
-
-					 0xE0, // rmask
-					 0x1C, // gmask
-					 0x03, // bmask
-					 0x00  // amask
-					 );
-  if (saveSurface) {
-    SDL_SaveBMP(saveSurface, buf);
-    SDL_FreeSurface(saveSurface);
-  } else {
+  SDL_Surface *saveSurface = SDL_CreateRGBSurface(0, WIDTH, HEIGHT, 32,
+						   0x00FF0000,
+						   0x0000FF00,
+						   0x000000FF,
+						   0xFF000000);
+  if (!saveSurface) {
     printf("Failed to create saveSurface\n");
+    return;
   }
+
+  uint32_t *pixels = (uint32_t *)saveSurface->pixels;
+  for (int i = 0; i < WIDTH * HEIGHT; i++) {
+    uint32_t v = _hackyBitmap[i] ? 0xFF000000 : 0xFFFFFFFF;
+    pixels[i] = v;
+  }
+
+  SDL_SaveBMP(saveSurface, buf);
+  SDL_FreeSurface(saveSurface);
 }
 

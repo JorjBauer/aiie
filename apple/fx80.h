@@ -98,6 +98,23 @@ class Fx80 {
   Charset charsetEnabled;
   uint8_t fontMode;
   bool italicsMode;
+  bool oneLineExpanded;
+  bool underlineMode;
+  bool doubleStrike;
+  uint8_t scriptMode; // 0=off, 1=superscript, 2=subscript
+
+  uint16_t formLengthLines;
+  uint16_t currentLine;
+
+  uint8_t tabStops[32];
+  uint8_t numTabStops;
+  uint8_t vtabStops[16];
+  uint8_t numVtabStops;
+
+  uint16_t leftMarginDot;
+  uint16_t rightMarginDot;
+
+  void cancelOneLineExpanded();
 };
 
 #endif
