@@ -504,38 +504,44 @@ void loop()
     wasBios = true;
   } else {
     if (wasBios) {
-      // bios has just exited
+      // bios has just exited — do all cleanup before the CPU runs.
+      g_display->clrScr(0x0010);
+      g_display->drawString(M_SELECTED, 80, 100, "Resuming...");
+      g_display->flush();
+      g_display->blit();
+
+      g_speaker->reset();
       writePrefs();
 
-      // Also might have changed the paddles state
       TeensyPaddles *tmp = (TeensyPaddles *)g_paddles;
       tmp->setRev(g_invertPaddleX, g_invertPaddleY);
 
-      // if we turned off debugMode, make sure to clear the debugMsg                
       if (g_debugMode == D_NONE) {
 	g_display->debugMsg("");
       }
-      // Drain the speaker queue (FIXME: a little hacky)
-      g_speaker->maintainSpeaker(-1, -1);
-      
-      // Force the display to redraw
-      g_display->redraw(); // Redraw the UI
-      ((AppleDisplay*)(g_vm->vmdisplay))->modeChange(); // force a full re-draw and blit
-      
-      // Poll the keyboard before we start, so we can do selftest on startup
+
       g_keyboard->maintainKeyboard();
 
-      // Reset the CPU clock so it doesn't fast-forward
-      cpuClockInitialized = false;
-
-      // Reset the speaker so it picks up its new volume (FIXME kinda hacky)
       g_speaker->begin();
+
+      // Force the display to show the Apple's screen.
+      g_display->redraw();
+      ((AppleDisplay*)(g_vm->vmdisplay))->modeChange();
+      g_ui->blit();
+      g_vm->vmdisplay->lockDisplay();
+      g_vm->vmdisplay->didRedraw();
+      g_display->blit();
+      g_vm->vmdisplay->unlockDisplay();
+
+      // Reset the CPU clock last so it doesn't try to catch up
+      // for time spent in cleanup.
+      cpuClockInitialized = false;
 
       wasBios = false;
     }
   }
 
-  if (!g_biosInterrupt) {
+  if (!g_biosInterrupt && !wasBios) {
     runCPU(now);
   }
   runDisplay(now);
@@ -617,7 +623,13 @@ void readPrefs()
     
     g_invertPaddleX = p.invertPaddleX;
     g_invertPaddleY = p.invertPaddleY;
-    
+
+    if (p.slotDiskII <= 7) g_slotDiskII = p.slotDiskII;
+    if (p.slotParallel <= 7) g_slotParallel = p.slotParallel;
+    if (p.slotHD32 <= 7) g_slotHD32 = p.slotHD32;
+    if (p.slotMouse <= 7) g_slotMouse = p.slotMouse;
+    if (p.slotMockingboard <= 7) g_slotMockingboard = p.slotMockingboard;
+
   } else {
     // Set some defaults!
     g_volume = 7;
@@ -654,6 +666,12 @@ void writePrefs()
   strcpy(p.disk2, ((AppleVM *)g_vm)->DiskName(1));
   strcpy(p.hd1, ((AppleVM *)g_vm)->HDName(0));
   strcpy(p.hd2, ((AppleVM *)g_vm)->HDName(1));
+
+  p.slotDiskII = g_slotDiskII;
+  p.slotParallel = g_slotParallel;
+  p.slotHD32 = g_slotHD32;
+  p.slotMouse = g_slotMouse;
+  p.slotMockingboard = g_slotMockingboard;
 
   np.writePrefs(&p);
 }

@@ -103,7 +103,7 @@ void TeensyAudio::update(void)
   }
 
   // Mockingboard: always render regardless of speaker priming state.
-  Mockingboard *mb = ((AppleVM *)g_vm)->mockingboard;
+  Mockingboard *mb = g_vm ? ((AppleVM *)g_vm)->mockingboard : NULL;
   if (mb) {
     int16_t mbBuf[AUDIO_BLOCK_SAMPLES];
     mb->renderToBuffer(mbBuf, AUDIO_BLOCK_SAMPLES);
