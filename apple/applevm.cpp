@@ -37,7 +37,10 @@ AppleVM::AppleVM()
   ((AppleMMU *)mmu)->setSlot(7, hd32);
 
   mouse = new Mouse();
-  ((AppleMMU *)mmu)->setSlot(4, mouse);
+  ((AppleMMU *)mmu)->setSlot(2, mouse);
+
+  mockingboard = new Mockingboard();
+  ((AppleMMU *)mmu)->setSlot(4, mockingboard);
 }
 
 AppleVM::~AppleVM()
@@ -136,7 +139,8 @@ void AppleVM::cpuMaintenance(int64_t cycles)
 
   keyboard->maintainKeyboard(cycles);
   disk6->maintenance(cycles);
-  mouse->maintainMouse(cycles);
+  if (mouse) mouse->maintainMouse(cycles);
+  if (mockingboard) mockingboard->update(cycles);
 }
 
 void AppleVM::Reset()
@@ -196,5 +200,5 @@ VMKeyboard * AppleVM::getKeyboard()
 
 bool AppleVM::isMouseEnabled()
 {
-  return mouse->isEnabled();
+  return mouse && mouse->isEnabled();
 }

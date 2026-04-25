@@ -25,6 +25,10 @@ class Slot {
 
   virtual bool hasExtendedRom() { return false; };
   virtual void loadExtendedRom(uint8_t *toWhere, uint16_t byteOffset) {};
+
+  virtual bool interceptsSlotRom() { return false; };
+  virtual uint8_t readSlotRom(uint8_t addr) { return 0; };
+  virtual void writeSlotRom(uint8_t addr, uint8_t val) {};
 };
 
 #endif

@@ -251,18 +251,27 @@ uint8_t AppleMMU::read(uint16_t address)
     return readSwitches(address);
   }
 
-  // If C800-CFFF isn't latched to a slot ROM, and we try to 
-  // access a slot's memory space from C100-C7FF, then we need 
+  // If C800-CFFF isn't latched to a slot ROM, and we try to
+  // access a slot's memory space from C100-C7FF, then we need
   // to latch in the slot's ROM.
   if (slotLatch == -1 && address >= 0xc100 && address <= 0xc7ff) {
     slotLatch = (address >> 8) & 0x07;
     if (slotLatch == 3 && slot3rom) {
-      // Back off: UTA2E p. 5-28: don't latch in slot 3 ROM while 
+      // Back off: UTA2E p. 5-28: don't latch in slot 3 ROM while
       // the slot3rom flag is enabled
       // fixme
       slotLatch = 3;
     } else {
       updateMemoryPages();
+    }
+  }
+
+  // Cards that intercept their slot ROM space get reads routed
+  // directly rather than going through the preloaded ROM page.
+  if (!intcxrom && address >= 0xC100 && address <= 0xC7FF) {
+    uint8_t slotNum = (address >> 8) & 0x07;
+    if (slots[slotNum] && slots[slotNum]->interceptsSlotRom()) {
+      return slots[slotNum]->readSlotRom(address & 0xFF);
     }
   }
 
@@ -293,6 +302,15 @@ void AppleMMU::write(uint16_t address, uint8_t v)
   if (address >= 0xC000 &&
       address <= 0xC0FF) {
     return writeSwitches(address, v);
+  }
+
+  // Cards that intercept their slot ROM space get writes routed.
+  if (!intcxrom && address >= 0xC100 && address <= 0xC7FF) {
+    uint8_t slotNum = (address >> 8) & 0x07;
+    if (slots[slotNum] && slots[slotNum]->interceptsSlotRom()) {
+      slots[slotNum]->writeSlotRom(address & 0xFF, v);
+      return;
+    }
   }
 
   // Don't allow writes to ROM

@@ -12,6 +12,7 @@ extern "C"
 
 #include "globals.h"
 #include "wsola-speaker.h"
+#include "applevm.h"
 
 #define HIGHVAL ((int16_t)((0x4FFF) >> (15-g_volume)))
 #define LOWVAL  ((int16_t)(-((0x4FFF) >> (15-g_volume))))
@@ -55,6 +56,20 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
   }
 
   wsola_produce(out, outputCount);
+
+  // Mix in Mockingboard output — rendered directly here so we
+  // never starve the buffer.
+  Mockingboard *mb = ((AppleVM *)g_vm)->mockingboard;
+  if (mb) {
+    int16_t mbBuf[SDLSIZE];
+    mb->renderToBuffer(mbBuf, outputCount);
+    for (int i = 0; i < outputCount; i++) {
+      int32_t mixed = (int32_t)out[i] + (int32_t)mbBuf[i];
+      if (mixed > 0x7FFF) mixed = 0x7FFF;
+      if (mixed < -0x7FFF) mixed = -0x7FFF;
+      out[i] = (int16_t)mixed;
+    }
+  }
 
 #ifdef DEBUG_OUT_WAV
   if (outputFD == -1) {

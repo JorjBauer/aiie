@@ -6,6 +6,7 @@
 
 #include "globals.h"
 #include "wsola-speaker.h"
+#include "applevm.h"
 
 TeensyAudio audioDriver;
 AudioMixer4             mixer2;
@@ -98,6 +99,21 @@ void TeensyAudio::update(void)
   }
 
   wsola_produce(block->data, AUDIO_BLOCK_SAMPLES);
+
+  // Mix in Mockingboard output — rendered directly here so we
+  // never starve the buffer.
+  Mockingboard *mb = ((AppleVM *)g_vm)->mockingboard;
+  if (mb) {
+    int16_t mbBuf[AUDIO_BLOCK_SAMPLES];
+    mb->renderToBuffer(mbBuf, AUDIO_BLOCK_SAMPLES);
+    for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {
+      int32_t mixed = (int32_t)block->data[i] + (int32_t)mbBuf[i];
+      if (mixed > 0x7FFF) mixed = 0x7FFF;
+      if (mixed < -0x7FFF) mixed = -0x7FFF;
+      block->data[i] = (int16_t)mixed;
+    }
+  }
+
   __enable_irq();
 
   transmit(block, 0);
