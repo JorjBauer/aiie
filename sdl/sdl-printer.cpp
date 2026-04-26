@@ -1,7 +1,7 @@
 #include "sdl-printer.h"
 #include <stdio.h>
 
-#define WINDOWNAME "printer"
+#define WINDOWNAME "printer [F9 to save]"
 
 inline void putpixel(SDL_Renderer *renderer, int x, int y, uint8_t d)
 {

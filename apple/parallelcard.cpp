@@ -39,7 +39,7 @@ uint8_t ParallelCard::readSwitches(uint8_t s)
 void ParallelCard::writeSwitches(uint8_t s, uint8_t v)
 {
   if (s == 0x00) {
-    fx80->input(v & 0x7F); // Note: not 8-bit clean!
+    fx80->input(v);
   } else {
     //    printf("unknown switch 0x%X\n", s);
   }

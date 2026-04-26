@@ -1,6 +1,5 @@
 #include <string.h> // memset
 #include <stdint.h>
-#include <stdio.h> // while debugging
 
 #include "fx80.h"
 #include "fx80-font.h"
@@ -383,8 +382,9 @@ void Fx80::input(uint8_t c)
     return;
   }
 
-  // Control codes 128-155 mirror 0-27
-  if (c >= 128 && c <= 155)
+  // Strip high bit for normal text (Apple II sets bit 7 on ASCII).
+  // Control codes 128-155 mirror 0-27; printable chars 160-255 map to 32-127.
+  if (c >= 128)
     c -= 128;
 
   switch (c) {

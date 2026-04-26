@@ -2,6 +2,7 @@
 
 #include "sdl-paddles.h"
 #include "sdl-mouse.h"
+#include "sdl-printer.h"
 #include "globals.h"
 #include "sdl-display.h"
 
@@ -26,6 +27,14 @@ void SDLKeyboard::handleKeypress(SDL_KeyboardEvent *key)
       key->keysym.sym == SDLK_F10) {
     // Invoke BIOS
     g_biosInterrupt = true;
+    return;
+  }
+
+  if (key->type == SDL_KEYDOWN &&
+      key->keysym.sym == SDLK_F9) {
+    // Save printer output
+    ((SDLPrinter *)g_printer)->savePageAsBitmap(0);
+    printf("Saved printer output to page-0.bmp\n");
     return;
   }
 
