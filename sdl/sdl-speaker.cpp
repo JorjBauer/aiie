@@ -51,7 +51,14 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
     wsola_produce(out, outputCount);
   } else {
     memset(stream, 0, len);
-    if (wsola_has_primed_fill(SDLSIZE))
+    // Prime to ~2x the callback size before starting, matching
+    // TARGET_LAG in wsola-speaker.cpp. Starting at just SDLSIZE leaves
+    // zero headroom: the first callback's burst-drain bottoms the buffer
+    // out and any clock drift then underruns periodically (audible
+    // click at a regular interval). The buffer controller only ever
+    // drains excess, never refills, so the starting cushion is what we
+    // live on.
+    if (wsola_has_primed_fill(2 * SDLSIZE))
       audioRunning = 1;
   }
 

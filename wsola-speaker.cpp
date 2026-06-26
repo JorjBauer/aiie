@@ -41,8 +41,14 @@
 #define PENDING_BUF_SAMPLES 512
 
 // Target lag: how much emu audio we aim to keep buffered after each
-// callback.
-#define TARGET_LAG          2048
+// callback. This MUST stay comfortably above the SDL callback size
+// (SDLSIZE, currently 2048): a single audioCallback drains that many
+// samples in one burst, and the producer thread may be asleep for the
+// whole burst. The rate controller below is one-sided (ratio floored at
+// 1.0 — it can drain a too-full buffer but never refill a too-empty
+// one), so this cushion is the only thing standing between host/audio
+// clock drift and a periodic underrun click. Keep it ~2x the callback.
+#define TARGET_LAG          4096
 
 // Only engage WSOLA when the buffer is sustainedly beyond this ratio.
 // Below it we do bit-exact passthrough — essential for PWM-based
