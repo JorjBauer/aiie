@@ -109,6 +109,7 @@ class Woz {
   
   uint8_t nextDiskBit(uint8_t datatrack);
   uint8_t nextDiskByte(uint8_t datatrack);
+  uint8_t nextRawWozByte(uint8_t datatrack);
 
   void writeDiskByte(uint8_t datatrack, uint8_t b);
   

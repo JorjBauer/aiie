@@ -304,6 +304,30 @@ uint8_t Woz::nextDiskByte(uint8_t datatrack)
   return d;
 }
 
+// Like nextDiskByte, but reads the *raw* bitstream via getNextWozBit
+// instead of the MC3470 read-head emulation (nextDiskBit). The emulation
+// reports the bit one position behind the real cursor and injects random
+// fake bits on long zero-runs; both leave trackPointer/trackBitIdx offset
+// from the data we just matched. That's harmless for pure reads, but the
+// sector *writer* (writeNibSectorDataToDataTrack) reuses this cursor to
+// splice new nibbles in place — and a sub-byte skew there shifts every
+// following bit, smearing the write across adjacent sectors. So scanning
+// for the write position must use this exact, deterministic reader.
+uint8_t Woz::nextRawWozByte(uint8_t datatrack)
+{
+  if (!tracks[datatrack].trackData) {
+    fprintf(stderr, "ERROR: nextRawWozByte was called without the track being cached, and it can't possibly know which QT to load it from\n");
+    return 0;
+  }
+
+  uint8_t d = 0;
+  while ((d & 0x80) == 0) {
+    d <<= 1;
+    d |= getNextWozBit(datatrack);
+  }
+  return d;
+}
+
 static bool write8(int fd, uint8_t v)
 {
   if (write(fd, &v, 1) != 1)
@@ -1443,24 +1467,24 @@ bool Woz::writeNibSectorDataToDataTrack(uint8_t dataTrack, uint8_t sector, uint8
   while (ptr < endCount) {
     sectorData.sectorProlog[0] = sectorData.sectorProlog[1];
     sectorData.sectorProlog[1] = sectorData.sectorProlog[2];
-    sectorData.sectorProlog[2] = nextDiskByte(dataTrack);
+    sectorData.sectorProlog[2] = nextRawWozByte(dataTrack);
     ptr++;
 
     if (sectorData.sectorProlog[0] == 0xd5 &&
 	sectorData.sectorProlog[1] == 0xaa &&
 	sectorData.sectorProlog[2] == 0x96) {
       // Found *a* sector header. See if it's ours.
-      sectorData.volume44[0] = nextDiskByte(dataTrack);
-      sectorData.volume44[1] = nextDiskByte(dataTrack);
-      sectorData.track44[0] = nextDiskByte(dataTrack);
-      sectorData.track44[1] = nextDiskByte(dataTrack);
-      sectorData.sector44[0] = nextDiskByte(dataTrack);
-      sectorData.sector44[1] = nextDiskByte(dataTrack);
-      sectorData.checksum44[0] = nextDiskByte(dataTrack);
-      sectorData.checksum44[1] = nextDiskByte(dataTrack);
-      sectorData.sectorEpilog[0] = nextDiskByte(dataTrack);
-      sectorData.sectorEpilog[1] = nextDiskByte(dataTrack);
-      sectorData.sectorEpilog[2] = nextDiskByte(dataTrack);
+      sectorData.volume44[0] = nextRawWozByte(dataTrack);
+      sectorData.volume44[1] = nextRawWozByte(dataTrack);
+      sectorData.track44[0] = nextRawWozByte(dataTrack);
+      sectorData.track44[1] = nextRawWozByte(dataTrack);
+      sectorData.sector44[0] = nextRawWozByte(dataTrack);
+      sectorData.sector44[1] = nextRawWozByte(dataTrack);
+      sectorData.checksum44[0] = nextRawWozByte(dataTrack);
+      sectorData.checksum44[1] = nextRawWozByte(dataTrack);
+      sectorData.sectorEpilog[0] = nextRawWozByte(dataTrack);
+      sectorData.sectorEpilog[1] = nextRawWozByte(dataTrack);
+      sectorData.sectorEpilog[2] = nextRawWozByte(dataTrack);
       
       if (sectorData.sectorEpilog[0] == 0xde &&
 	  sectorData.sectorEpilog[1] == 0xaa &&
@@ -1475,7 +1499,7 @@ bool Woz::writeNibSectorDataToDataTrack(uint8_t dataTrack, uint8_t sector, uint8
 	while (ptr < tracks[dataTrack].blockCount*512*2) {
 	  sectorData.dataProlog[0] = sectorData.dataProlog[1];
 	  sectorData.dataProlog[1] = sectorData.dataProlog[2];
-	  sectorData.dataProlog[2] = nextDiskByte(dataTrack);
+	  sectorData.dataProlog[2] = nextRawWozByte(dataTrack);
 	  ptr++;
 
 	  if (sectorData.dataProlog[0] == 0xd5 &&
