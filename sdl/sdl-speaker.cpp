@@ -75,6 +75,27 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
     }
   }
 
+  // Keep-alive dither. The producer-frozen debugger test proved the periodic
+  // click is generated below us: when the buffer is drained we emit a constant
+  // value (DC, or zeros before priming), and the output device — built-in amp,
+  // HDMI, USB/BT DAC — mutes / re-syncs on bit-identical silence and clicks on
+  // each transition. A few-LSB broadband dither keeps the stream "alive" so the
+  // device never sees silence; at ~-78 dBFS it is inaudible under real audio.
+  {
+    static uint32_t ditherState = 0x1234567;
+    for (int i = 0; i < outputCount; i++) {
+      // xorshift32 -> small signed dither in roughly [-4, +4]
+      ditherState ^= ditherState << 13;
+      ditherState ^= ditherState >> 17;
+      ditherState ^= ditherState << 5;
+      int d = (int)(ditherState & 0x7) - 3;   // -3..+4
+      int32_t v = (int32_t)out[i] + d;
+      if (v > 0x7FFF) v = 0x7FFF;
+      if (v < -0x7FFF) v = -0x7FFF;
+      out[i] = (int16_t)v;
+    }
+  }
+
 #ifdef DEBUG_OUT_WAV
   if (outputFD == -1) {
     outputFD = open("/tmp/out.wav", O_RDWR | O_CREAT | O_TRUNC, 0600);

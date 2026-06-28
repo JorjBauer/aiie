@@ -195,6 +195,7 @@ void Debugger::step()
 	     b != 'L' && // load memory (lines)
              b != 'D' && // dump memory
 	     b != 'h' && // show history
+	     b != 'T' && // dump text screen
 	     b != '*'    // show memory (byte)
 	     );
 
@@ -326,6 +327,33 @@ void Debugger::step()
       }
       goto doover;
       
+    case 'T': // Dump the 40-column text screen as ASCII, in display order.
+              // Use "T" for page 1 ($400) or "T 0x800" for page 2.
+      {
+        GETLN;
+        uint16_t base = 0x400;
+        if (getAddress(buf, &val)) base = val;
+        snprintf(buf, sizeof(buf), "Text screen at $%04X:\r\n", base);
+        write(cd, buf, strlen(buf));
+        for (uint8_t row = 0; row < 24; row++) {
+          // Apple II text rows are interleaved; the base of each visible row
+          // is base + 0x80*(row&7) + 0x28*(row>>3). See deinterlaceAddress().
+          uint16_t rowBase = base + 0x80 * (row & 7) + 0x28 * (row >> 3);
+          char line[41];
+          for (uint8_t col = 0; col < 40; col++) {
+            uint8_t c = g_vm->getMMU()->read(rowBase + col);
+            // Fold screen code (normal/inverse/flashing) to plain ASCII.
+            c &= 0x7F;
+            if (c < 0x20) c += 0x40;
+            line[col] = c;
+          }
+          line[40] = 0;
+          snprintf(buf, sizeof(buf), "%s\r\n", line);
+          write(cd, buf, strlen(buf));
+        }
+      }
+      goto doover;
+
     case '*': // read 1 byte of memory. Use '* 0x<address>'
       {
 	GETLN;
