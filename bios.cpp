@@ -83,6 +83,7 @@ enum {
   ACT_SLOT_MOUSE = 26,
   ACT_SLOT_MOCKINGBOARD = 27,
   ACT_SLOT_DEFAULTS = 28,
+  ACT_SLOT_RAMWORKS = 29,
 };
 
 #define NUM_TITLES 5
@@ -100,7 +101,8 @@ const uint8_t hardwareActions[] = { ACT_DISPLAYTYPE,  ACT_LUMINANCEUP,
 				    ACT_PADDLES, ACT_VOLPLUS, ACT_VOLMINUS };
 const uint8_t cardsActions[] = { ACT_SLOT_DISKII, ACT_SLOT_PARALLEL,
 				 ACT_SLOT_HD32, ACT_SLOT_MOUSE,
-				 ACT_SLOT_MOCKINGBOARD, ACT_SLOT_DEFAULTS };
+				 ACT_SLOT_MOCKINGBOARD, ACT_SLOT_RAMWORKS,
+				 ACT_SLOT_DEFAULTS };
 const uint8_t diskActions[] = { ACT_DISK1, ACT_DISK2,
 				ACT_HD1, ACT_HD2 };
 
@@ -109,6 +111,7 @@ static uint8_t savedSlotParallel;
 static uint8_t savedSlotHD32;
 static uint8_t savedSlotMouse;
 static uint8_t savedSlotMockingboard;
+static uint8_t savedRamworksSize;
 static bool cardsConfigChanged = false;
 static bool cardsConfigSaved = false;
 
@@ -142,6 +145,7 @@ BIOS::BIOS()
   savedSlotHD32 = g_slotHD32;
   savedSlotMouse = g_slotMouse;
   savedSlotMockingboard = g_slotMockingboard;
+  savedRamworksSize = g_ramworksSize;
   cardsConfigChanged = false;
   cardsConfigSaved = false;
 }
@@ -199,6 +203,7 @@ bool BIOS::loop()
     savedSlotHD32 = g_slotHD32;
     savedSlotMouse = g_slotMouse;
     savedSlotMockingboard = g_slotMockingboard;
+    savedRamworksSize = g_ramworksSize;
     cardsConfigChanged = false;
   }
 
@@ -586,7 +591,8 @@ static bool slotsMatchSaved()
           g_slotParallel == savedSlotParallel &&
           g_slotHD32 == savedSlotHD32 &&
           g_slotMouse == savedSlotMouse &&
-          g_slotMockingboard == savedSlotMockingboard);
+          g_slotMockingboard == savedSlotMockingboard &&
+          g_ramworksSize == savedRamworksSize);
 }
 
 uint16_t BIOS::CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key)
@@ -648,12 +654,32 @@ uint16_t BIOS::CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key
           localRedraw = true;
         }
         break;
+      case ACT_SLOT_RAMWORKS:
+        {
+          // Cycle through the available RamWorks sizes. Embedded builds
+          // are capped at 1MB; the desktop offers the full range.
+#ifdef TEENSYDUINO
+          static const uint8_t rwSizes[] = { 0, 1 };
+#else
+          static const uint8_t rwSizes[] = { 0, 1, 3, 16 };
+#endif
+          int n = sizeof(rwSizes);
+          int idx = 0;
+          for (int i = 0; i < n; i++) {
+            if (rwSizes[i] == g_ramworksSize) { idx = i; break; }
+          }
+          g_ramworksSize = rwSizes[(idx + 1) % n];
+          cardsConfigChanged = !slotsMatchSaved();
+          localRedraw = true;
+        }
+        break;
       case ACT_SLOT_DEFAULTS:
         g_slotDiskII = 6;
         g_slotParallel = 1;
         g_slotHD32 = 7;
         g_slotMouse = 2;
         g_slotMockingboard = 4;
+        g_ramworksSize = 0;
         cardsConfigChanged = !slotsMatchSaved();
         localRedraw = true;
         break;
@@ -1044,6 +1070,7 @@ bool BIOS::isActionActive(int8_t action)
   case ACT_SLOT_HD32:
   case ACT_SLOT_MOUSE:
   case ACT_SLOT_MOCKINGBOARD:
+  case ACT_SLOT_RAMWORKS:
   case ACT_SLOT_DEFAULTS:
     return true;
 
@@ -1286,6 +1313,18 @@ void BIOS::DrawCardsMenu()
       name = "Mockingboard";
       slot = g_slotMockingboard;
       break;
+    case ACT_SLOT_RAMWORKS:
+      {
+        const char *sz;
+        switch (g_ramworksSize) {
+        case 1:  sz = "1MB";  break;
+        case 3:  sz = "3MB";  break;
+        case 16: sz = "16MB"; break;
+        default: sz = "None"; break;
+        }
+        snprintf(buf, sizeof(buf), "%-14s %s", "RamWorks", sz);
+      }
+      goto drawit;
     case ACT_SLOT_DEFAULTS:
       strcpy(buf, "Reset to defaults");
       goto drawit;

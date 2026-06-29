@@ -55,6 +55,11 @@ class AppleMMU : public MMU {
   void setSlot(int8_t slotnum, Slot *peripheral);
   void clearSlotRom(int8_t slotnum);
 
+  // Configure RamWorks-compatible aux expansion. 'megabytes' is the
+  // total aux size (0=none/stock, 1, 3, or 16). (Re)allocates the
+  // expansion buffer and resets the selected bank to 0.
+  void setRamworksSize(uint8_t megabytes);
+
   void setAppleKey(int8_t which, bool isDown);
 
  protected:
@@ -85,8 +90,18 @@ class AppleMMU : public MMU {
 
   Slot *slots[8]; // slots 0-7
 
+  // RamWorks-compatible aux expansion state.
+  uint8_t auxBank;        // currently-selected aux bank ($C073); 0 = stock aux
+  uint16_t numAuxBanks;   // total number of 64K aux banks (1 = stock 80-col card)
+  uint8_t *auxExpansion;  // banks 1..numAuxBanks-1, 64K each; NULL when none
+
   uint16_t readPages[0x100];
   uint16_t writePages[0x100];
+
+  // For each logical page, whether the current read/write mapping points
+  // at auxiliary memory (and is therefore subject to RamWorks banking).
+  bool readPageIsAux[0x100];
+  bool writePageIsAux[0x100];
 
   bool anyKeyDown;
   

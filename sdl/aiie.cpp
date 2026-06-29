@@ -427,6 +427,9 @@ int main(int argc, char *argv[])
         g_slotMouse = p.slotMouse;
         g_slotMockingboard = p.slotMockingboard;
       }
+      if (p.version >= 7) {
+        g_ramworksSize = p.ramworksSize;
+      }
     }
   }
 
@@ -504,6 +507,9 @@ void readPrefs()
       g_slotMouse = p.slotMouse;
       g_slotMockingboard = p.slotMockingboard;
     }
+    if (p.version >= 7) {
+      g_ramworksSize = p.ramworksSize;
+    }
     if (p.disk1[0]) {
       ((AppleVM *)g_vm)->insertDisk(0, p.disk1);
       strcpy(disk1name, p.disk1);
@@ -548,6 +554,8 @@ void writePrefs()
   p.slotHD32 = g_slotHD32;
   p.slotMouse = g_slotMouse;
   p.slotMockingboard = g_slotMockingboard;
+
+  p.ramworksSize = g_ramworksSize;
 
   strcpy(p.disk1, ((AppleVM *)g_vm)->DiskName(0));
   strcpy(p.disk2, ((AppleVM *)g_vm)->DiskName(1));

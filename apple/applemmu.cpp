@@ -151,9 +151,17 @@ AppleMMU::AppleMMU(AppleDisplay *display)
     slots[i] = NULL;
   }
 
+  // RamWorks aux expansion starts unconfigured; setRamworksSize() below
+  // allocates based on the user's preference.
+  auxBank = 0;
+  numAuxBanks = 1;
+  auxExpansion = NULL;
+
   this->display = display;
   this->display->setSwitches(&switches);
   resetRAM(); // initialize RAM, load ROM
+
+  setRamworksSize(g_ramworksSize);
 
 #ifdef TEENSYDUINO
   clock = new TeensyClock((AppleMMU *)this);
@@ -165,6 +173,14 @@ AppleMMU::AppleMMU(AppleDisplay *display)
 AppleMMU::~AppleMMU()
 {
   delete display;
+  if (auxExpansion) {
+#ifdef TEENSYDUINO
+    extmem_free(auxExpansion);
+#else
+    free(auxExpansion);
+#endif
+    auxExpansion = NULL;
+  }
 }
 
 bool AppleMMU::Serialize(int8_t fd)
@@ -185,6 +201,21 @@ bool AppleMMU::Serialize(int8_t fd)
   if (!g_ram.Serialize(fd)) {
     printf("Failed to serialize RAM\n");
     goto err;
+  }
+
+  // RamWorks aux-expansion state, including the contents of banks 1..N-1.
+  serialize8(auxBank);
+  serialize16(numAuxBanks);
+  {
+    uint32_t bytes = (numAuxBanks > 1 && auxExpansion) ?
+      (uint32_t)(numAuxBanks - 1) * 0x10000 : 0;
+    serialize32(bytes);
+    if (bytes) {
+      if ((uint32_t)g_filemanager->write(fd, auxExpansion, bytes) != bytes) {
+        printf("Failed to serialize RamWorks banks\n");
+        goto err;
+      }
+    }
   }
 
   // readPages & writePages don't need suspending, but we will need to
@@ -218,6 +249,61 @@ bool AppleMMU::Deserialize(int8_t fd)
 
   if (!g_ram.Deserialize(fd)) {
     goto err;
+  }
+
+  // Restore RamWorks state and resize/refill the expansion buffer.
+  {
+    uint8_t savedBank;
+    uint16_t savedNumBanks;
+    uint32_t bytes;
+    deserialize8(savedBank);
+    deserialize16(savedNumBanks);
+    deserialize32(bytes);
+
+    // (Re)allocate the expansion buffer to match the saved bank count.
+    if (auxExpansion) {
+#ifdef TEENSYDUINO
+      extmem_free(auxExpansion);
+#else
+      free(auxExpansion);
+#endif
+      auxExpansion = NULL;
+    }
+    numAuxBanks = (savedNumBanks < 1) ? 1 : savedNumBanks;
+    if (numAuxBanks > 1) {
+      uint32_t want = (uint32_t)(numAuxBanks - 1) * 0x10000;
+#ifdef TEENSYDUINO
+      auxExpansion = (uint8_t *)extmem_malloc(want);
+#else
+      auxExpansion = (uint8_t *)malloc(want);
+#endif
+      if (!auxExpansion) {
+        numAuxBanks = 1; // couldn't fit; fall back to stock aux
+      }
+    }
+
+    if (bytes) {
+      if (auxExpansion && numAuxBanks > 1 &&
+          bytes == (uint32_t)(numAuxBanks - 1) * 0x10000) {
+        if ((uint32_t)g_filemanager->read(fd, auxExpansion, bytes) != bytes) {
+          goto err;
+        }
+      } else {
+        // Configuration mismatch (or no buffer): consume the bytes so the
+        // rest of the stream stays aligned.
+        uint8_t tmp[256];
+        uint32_t remaining = bytes;
+        while (remaining) {
+          uint32_t chunk = (remaining > sizeof(tmp)) ? sizeof(tmp) : remaining;
+          if ((uint32_t)g_filemanager->read(fd, tmp, chunk) != chunk) {
+            goto err;
+          }
+          remaining -= chunk;
+        }
+      }
+    }
+
+    auxBank = (savedBank < numAuxBanks) ? savedBank : 0;
   }
 
   deserializeMagic(MMUMAGIC);
@@ -281,6 +367,18 @@ uint8_t AppleMMU::read(uint16_t address)
     updateMemoryPages();
   }
 
+  // RamWorks: when a non-zero aux bank is selected, aux reads come from
+  // the expansion buffer instead of the stock aux pages in g_ram.
+  if (auxBank && auxExpansion && readPageIsAux[address >> 8]) {
+    uint32_t ofs = address;
+    if (bank2 && address >= 0xD000 && address <= 0xDFFF) {
+      // The language-card second $D000 bank is stored in the otherwise
+      // unused $C000-$CFFF region of each 64K bank image.
+      ofs = address - 0x1000;
+    }
+    return auxExpansion[(uint32_t)(auxBank - 1) * 0x10000 + ofs];
+  }
+
   uint8_t res = g_ram.readByte((readPages[address >> 8] << 8) | (address & 0xFF));
   return res;
 }
@@ -319,6 +417,18 @@ void AppleMMU::write(uint16_t address, uint8_t v)
     return;
   // Bank-switched ROM/RAM areas
   if (address >= 0xD000 && address <= 0xFFFF && !writebsr) {
+    return;
+  }
+
+  // RamWorks: aux writes to a non-zero bank go to the expansion buffer.
+  // The video scanner only ever reads bank 0, so such writes are never
+  // visible on screen and don't need to trigger a display update.
+  if (auxBank && auxExpansion && writePageIsAux[address >> 8]) {
+    uint32_t ofs = address;
+    if (bank2 && address >= 0xD000 && address <= 0xDFFF) {
+      ofs = address - 0x1000;
+    }
+    auxExpansion[(uint32_t)(auxBank - 1) * 0x10000 + ofs] = v;
     return;
   }
 
@@ -862,6 +972,14 @@ void AppleMMU::writeSwitches(uint16_t address, uint8_t v)
     }
     return;
 
+  case 0xC073: // RamWorks aux bank select
+    if (numAuxBanks > 1) {
+      // The written value is the bank number; out-of-range values wrap,
+      // which is exactly what card-sizing routines rely on to count banks.
+      auxBank = v % numAuxBanks;
+    }
+    return;
+
     // paddles
   case 0xC070:
     g_paddles->startReading();
@@ -965,6 +1083,11 @@ void AppleMMU::resetRAM()
   slotLatch = -1;
 
   preWriteFlag = false;
+
+  // RamWorks selects bank 0 on reset so the 80-column firmware finds the
+  // standard aux memory after a reboot. (The bank count/buffer are config
+  // and are left intact.)
+  auxBank = 0;
 
   g_ram.init();
   for (uint16_t i=0; i<0x100; i++) {
@@ -1079,26 +1202,68 @@ void AppleMMU::clearSlotRom(int8_t slotnum)
   }
 }
 
-void AppleMMU::updateMemoryPages()
+void AppleMMU::setRamworksSize(uint8_t megabytes)
 {
-  if (auxRamRead) {
-    for (uint8_t idx = 0x02; idx < 0xc0; idx++) {
-      readPages[idx] = _pageNumberForRam(idx, 1);
-    }
-  } else {
-    for (uint8_t idx = 0x02; idx < 0xc0; idx++) {
-      readPages[idx] = _pageNumberForRam(idx, 0);
-    }
+  // Map the requested total aux size to a 64K bank count. Bank 0 is the
+  // stock aux memory (held in g_ram); banks 1..N-1 live in auxExpansion.
+  uint16_t banks;
+  switch (megabytes) {
+  case 1:  banks = 16;  break; // 1MB  = 16 * 64K
+  case 3:  banks = 48;  break; // 3MB  = 48 * 64K
+  case 16: banks = 256; break; // 16MB = 256 * 64K (full $C073 range)
+  default: banks = 1;   break; // none / unrecognized -> stock 80-col card
   }
 
-  if (auxRamWrite) {
-    for (uint8_t idx = 0x02; idx < 0xc0; idx++) {
-      writePages[idx] = _pageNumberForRam(idx, 1);
+#ifdef TEENSYDUINO
+  // Embedded builds have limited PSRAM; cap RamWorks at 1MB (16 banks).
+  if (banks > 16) banks = 16;
+#endif
+
+  // Release any previous expansion buffer.
+  if (auxExpansion) {
+#ifdef TEENSYDUINO
+    extmem_free(auxExpansion);
+#else
+    free(auxExpansion);
+#endif
+    auxExpansion = NULL;
+  }
+
+  numAuxBanks = banks;
+  auxBank = 0;
+
+  if (numAuxBanks > 1) {
+    uint32_t bytes = (uint32_t)(numAuxBanks - 1) * 0x10000;
+#ifdef TEENSYDUINO
+    auxExpansion = (uint8_t *)extmem_malloc(bytes);
+#else
+    auxExpansion = (uint8_t *)malloc(bytes);
+#endif
+    if (auxExpansion) {
+      memset(auxExpansion, 0, bytes);
+    } else {
+      // Allocation failed: fall back to stock aux so the machine still runs.
+      numAuxBanks = 1;
     }
-  } else {
-    for (uint8_t idx = 0x02; idx < 0xc0; idx++) {
-      writePages[idx] = _pageNumberForRam(idx, 0);
-    }
+  }
+}
+
+void AppleMMU::updateMemoryPages()
+{
+  // Default: no page is aux. The blocks below mark the ones that are, so
+  // RamWorks banking in read()/write() knows which accesses to redirect.
+  for (uint16_t i = 0; i < 0x100; i++) {
+    readPageIsAux[i] = writePageIsAux[i] = false;
+  }
+
+  for (uint8_t idx = 0x02; idx < 0xc0; idx++) {
+    readPages[idx] = _pageNumberForRam(idx, auxRamRead ? 1 : 0);
+    readPageIsAux[idx] = auxRamRead;
+  }
+
+  for (uint8_t idx = 0x02; idx < 0xc0; idx++) {
+    writePages[idx] = _pageNumberForRam(idx, auxRamWrite ? 1 : 0);
+    writePageIsAux[idx] = auxRamWrite;
   }
 
   if (switches & S_80STORE) {
@@ -1115,11 +1280,13 @@ void AppleMMU::updateMemoryPages()
     uint8_t textBank = (switches & S_PAGE2) ? 1 : 0;
     for (uint8_t idx = 0x04; idx < 0x08; idx++) {
       readPages[idx] = writePages[idx] = _pageNumberForRam(idx, textBank);
+      readPageIsAux[idx] = writePageIsAux[idx] = (textBank == 1);
     }
     if (switches & S_HIRES) {
       uint8_t hgrBank = (switches & S_PAGE2) ? 1 : 0;
       for (uint8_t idx = 0x20; idx < 0x40; idx++) {
         readPages[idx] = writePages[idx] = _pageNumberForRam(idx, hgrBank);
+        readPageIsAux[idx] = writePageIsAux[idx] = (hgrBank == 1);
       }
     }
     // else: $2000-$3FFF already set by the RAMRD/RAMWRT block above.
@@ -1162,6 +1329,7 @@ void AppleMMU::updateMemoryPages()
   if (altzp) {
     for (uint8_t idx = 0x00; idx < 0x02; idx++) {
       readPages[idx] = writePages[idx] = _pageNumberForRam(idx, 1);
+      readPageIsAux[idx] = writePageIsAux[idx] = true;
     }
   } else {
     for (uint8_t idx = 0x00; idx < 0x02; idx++) {
@@ -1197,6 +1365,12 @@ void AppleMMU::updateMemoryPages()
     }
   }
 
+  // High RAM ($D000-$FFFF) is aux exactly when ALTZP selects the aux
+  // language card; ROM reads (readbsr false) are never aux.
+  for (uint16_t idx = 0xd0; idx < 0x100; idx++) {
+    readPageIsAux[idx] = (readbsr && altzp);
+  }
+
   if (writebsr) {
     if (!bank2) {
       for (uint8_t idx = 0xd0; idx < 0xe0; idx++) {
@@ -1214,6 +1388,10 @@ void AppleMMU::updateMemoryPages()
     for (uint16_t idx = 0xd0; idx < 0x100; idx++) {
       writePages[idx] = _pageNumberForRam(idx, 0);
     }
+  }
+
+  for (uint16_t idx = 0xd0; idx < 0x100; idx++) {
+    writePageIsAux[idx] = (writebsr && altzp);
   }
 }
 

@@ -54,6 +54,9 @@ void AppleVM::reassignSlots()
   if (g_slotHD32) ((AppleMMU *)mmu)->setSlot(g_slotHD32, hd32);
   if (g_slotMouse) ((AppleMMU *)mmu)->setSlot(g_slotMouse, mouse);
   if (g_slotMockingboard) ((AppleMMU *)mmu)->setSlot(g_slotMockingboard, mockingboard);
+
+  // Apply any change to the RamWorks aux-expansion size.
+  ((AppleMMU *)mmu)->setRamworksSize(g_ramworksSize);
 }
 
 AppleVM::~AppleVM()

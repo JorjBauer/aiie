@@ -27,6 +27,8 @@ uint8_t g_slotHD32 = 7;
 uint8_t g_slotMouse = 2;
 uint8_t g_slotMockingboard = 4;
 
+uint8_t g_ramworksSize = 0; // 0=none, else total aux MB (1, 3, 16)
+
 #ifdef TEENSYDUINO
 EXTMEM
 #endif

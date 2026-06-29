@@ -68,6 +68,10 @@ extern uint8_t g_slotHD32;
 extern uint8_t g_slotMouse;
 extern uint8_t g_slotMockingboard;
 
+// RamWorks-compatible aux-memory expansion size, in megabytes.
+// 0 = none (stock Extended 80-column card); 1, 3, or 16 = total aux RAM.
+extern uint8_t g_ramworksSize;
+
 extern char debugBuf[255];
 
 #ifdef TEENSYDUINO
