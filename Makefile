@@ -22,16 +22,63 @@ SDLOBJS=sdl/sdl-speaker.o sdl/sdl-display.o sdl/sdl-keyboard.o sdl/sdl-paddles.o
 
 ROMS=apple/applemmu-rom.h apple/diskii-rom.h apple/parallel-rom.h apple/hd32-rom.h apple/mouse-rom.h
 
-.PHONY: roms clean
+# ---- Teensy 4.1 firmware build (via arduino-cli) ----
+# The 'teensy' subdirectory is an Arduino sketch: teensy.ino plus symlinks to
+# the shared sources and the Teensy-specific drivers. Historically it could
+# only be built by opening it in the Arduino IDE; these targets drive
+# arduino-cli instead so it can be built and flashed from the command line.
+#
+# Every setting below can be overridden on the command line, e.g.:
+#   make teensy TEENSY_SPEED=600
+#   make teensy-install PORT=/dev/cu.usbmodem12345
+ARDUINO_CLI   ?= arduino-cli
+TEENSY_BOARD  ?= teensy:avr:teensy41
+# README builds at 528MHz ("Faster"); the 4.1 can go to 600. usb=serial
+# because keyboard input arrives via USBHost, not the device USB type.
+TEENSY_SPEED  ?= 528
+TEENSY_OPT    ?= o2std
+TEENSY_USB    ?= serial
+TEENSY_FQBN   ?= $(TEENSY_BOARD):speed=$(TEENSY_SPEED),opt=$(TEENSY_OPT),usb=$(TEENSY_USB)
+TEENSY_SKETCH ?= teensy
+TEENSY_BUILD  ?= teensy/build
+# Libraries pulled from the Arduino/Teensy environment (see README).
+TEENSY_LIBS   ?= Time Bounce2 ILI9341_t3n
+# Optional explicit upload port; if empty, the Teensy loader auto-detects a
+# board in bootloader mode (you may need to press the button on the Teensy).
+PORT          ?=
 
-all: 
-	@echo You want \'make sdl\' or \'make linuxfb\'.
+.PHONY: roms clean teensy teensy-libs teensy-upload teensy-install teensy-clean
+
+all:
+	@echo You want \'make sdl\', \'make linuxfb\', or \'make teensy\'.
 
 sdl: roms $(COMMONOBJS) $(SDLOBJS)
 	g++ $(LDFLAGS) $(SDLLIBS) -o aiie-sdl $(COMMONOBJS) $(SDLOBJS)
 
 linuxfb: roms $(COMMONOBJS) $(FBOBJS)
 	g++ $(LDFLAGS) $(FBLIBS) -o aiie-fb $(COMMONOBJS) $(FBOBJS)
+
+# Compile the Teensy firmware. ROM headers (built by 'roms') are symlinked
+# into the sketch folder, so they must exist before arduino-cli runs.
+teensy: roms
+	$(ARDUINO_CLI) compile --fqbn $(TEENSY_FQBN) --output-dir $(TEENSY_BUILD) $(TEENSY_SKETCH)
+
+# One-time helper to install the libraries the sketch depends on.
+teensy-libs:
+	$(ARDUINO_CLI) lib install $(TEENSY_LIBS)
+
+# Build and flash the board in one arduino-cli invocation. 'compile -u' is
+# used (rather than a separate 'upload') because the Teensy loader resolves
+# the firmware as {build.path}/{project}.hex from the compile step; a
+# standalone 'upload --input-dir' hands it a path it can't find. The compile
+# reuses arduino-cli's build cache, so this is fast after 'make teensy'.
+# If the board isn't auto-detected, pass PORT=/dev/cu.usbmodemNNNN.
+# teensy-install is an alias for teensy-upload.
+teensy-upload teensy-install: roms
+	$(ARDUINO_CLI) compile --fqbn $(TEENSY_FQBN) -u $(if $(PORT),-p $(PORT),) $(TEENSY_SKETCH)
+
+teensy-clean:
+	rm -rf $(TEENSY_BUILD)
 
 test: $(TSRC)
 	g++ $(CXXFLAGS) -DEXIT_ON_ILLEGAL -DVERBOSE_CPU_ERRORS -DTESTHARNESS $(TSRC) -o testharness
@@ -66,6 +113,7 @@ apple/mouse-rom.h: roms
 
 clean:
 	rm -f *.o *~ */*.o */*~ testharness.basic testharness.verbose testharness.extended testharness apple/diskii-rom.h apple/applemmu-rom.h apple/parallel-rom.h aiie-sdl *.d */*.d
+	rm -rf $(TEENSY_BUILD)
 
 # Automatic dependency handling
 -include *.d
