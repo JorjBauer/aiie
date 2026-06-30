@@ -216,6 +216,25 @@ void setup()
   println(" cpu");
   g_cpu = new Cpu();
 
+  // Card configuration (slot assignments + RamWorks size) must be known
+  // BEFORE the VM is constructed: AppleVM's constructor wires up the slots
+  // and sizes the RamWorks aux RAM from these globals. Reading prefs after
+  // construction and re-applying with reassignSlots() clobbered a
+  // freshly-inserted disk on cold boot, so read the card settings here.
+  // (The full readPrefs() below still loads disks, speed, display, etc.)
+  {
+    TeensyPrefs early;
+    prefs_t p;
+    if (early.readPrefs(&p)) {
+      if (p.slotDiskII <= 7)       g_slotDiskII = p.slotDiskII;
+      if (p.slotParallel <= 7)     g_slotParallel = p.slotParallel;
+      if (p.slotHD32 <= 7)         g_slotHD32 = p.slotHD32;
+      if (p.slotMouse <= 7)        g_slotMouse = p.slotMouse;
+      if (p.slotMockingboard <= 7) g_slotMockingboard = p.slotMockingboard;
+      if (p.version >= 7)          g_ramworksSize = p.ramworksSize;
+    }
+  }
+
   // Create the virtual machine. This may read from g_filemanager to
   // get ROMs if necessary.  (The actual Apple VM we've built has them
   // compiled in, though.) It will create its virutal hardware (MMU,
@@ -253,6 +272,9 @@ void setup()
 
   println("Reading prefs");
   readPrefs(); // read from eeprom and set anything we need setting
+  // NB: card config (slots + RamWorks) was already applied before the VM was
+  // constructed (see above), so we deliberately do NOT reassignSlots() here.
+
   g_speaker->begin(); // let the speaker reset its volume from g_volume
   
   resetButtonDebouncer.attach(RESETPIN);
@@ -630,6 +652,8 @@ void readPrefs()
     if (p.slotMouse <= 7) g_slotMouse = p.slotMouse;
     if (p.slotMockingboard <= 7) g_slotMockingboard = p.slotMockingboard;
 
+    g_ramworksSize = p.ramworksSize;
+
   } else {
     // Set some defaults!
     g_volume = 7;
@@ -638,7 +662,8 @@ void readPrefs()
     g_speed = 1023000;
     g_luminanceCutoff = 127;
     g_invertPaddleX = g_invertPaddleY = false;
-    
+    g_ramworksSize = 0;
+
   }
   // Update the paddles with the new inversion state
   ((TeensyPaddles *)g_paddles)->setRev(g_invertPaddleX, g_invertPaddleY);
@@ -672,6 +697,8 @@ void writePrefs()
   p.slotHD32 = g_slotHD32;
   p.slotMouse = g_slotMouse;
   p.slotMockingboard = g_slotMockingboard;
+
+  p.ramworksSize = g_ramworksSize;
 
   np.writePrefs(&p);
 }

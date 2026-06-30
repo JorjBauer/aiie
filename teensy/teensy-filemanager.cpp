@@ -36,6 +36,11 @@ TeensyFileManager::~TeensyFileManager()
 {
 }
 
+SdFat *TeensyFileManager::getSdFat()
+{
+  return &sd;
+}
+
 int8_t TeensyFileManager::openFile(const char *name)
 {
   if (cacheFd != -1) {

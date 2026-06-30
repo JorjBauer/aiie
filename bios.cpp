@@ -11,6 +11,7 @@
 #ifdef TEENSYDUINO
 #include <Bounce2.h>
 #include "teensy-paddles.h"
+#include "teensy-selfupdate.h"
 extern Bounce resetButtonDebouncer;
 extern void runDebouncer();
 #endif
@@ -84,6 +85,7 @@ enum {
   ACT_SLOT_MOCKINGBOARD = 27,
   ACT_SLOT_DEFAULTS = 28,
   ACT_SLOT_RAMWORKS = 29,
+  ACT_UPDATEFW = 30,
 };
 
 #define NUM_TITLES 5
@@ -94,7 +96,11 @@ const uint8_t aiieActions[] = { ACT_ABOUT };
 
 const uint8_t vmActions[] = { ACT_EXIT, ACT_RESET, ACT_REBOOT, ACT_REBOOTANDEJECT,
                               ACT_MONITOR,
-			      ACT_DEBUG, ACT_SUSPEND, ACT_RESTORE };
+			      ACT_DEBUG, ACT_SUSPEND, ACT_RESTORE,
+#ifdef TEENSYDUINO
+			      ACT_UPDATEFW,
+#endif
+};
 const uint8_t hardwareActions[] = { ACT_DISPLAYTYPE,  ACT_LUMINANCEUP,
                                     ACT_LUMINANCEDOWN, ACT_SPEED,
 				    ACT_PADX_INV, ACT_PADY_INV,
@@ -430,6 +436,15 @@ uint16_t BIOS::VmMenuHandler(bool needsRedraw, bool performAction)
 	g_display->flush();
 	((AppleVM *)g_vm)->Resume("suspend.vm");
 	return BIOS_DONE;
+#ifdef TEENSYDUINO
+      case ACT_UPDATEFW:
+	// Reflash from /AIIE.HEX on the SD card. On success this reboots into
+	// the new firmware and never returns; on failure (missing/invalid
+	// file) it leaves the machine untouched and we redraw the menu.
+	teensySelfUpdateFromSD("/AIIE.HEX");
+	localRedraw = true;
+	return BIOS_VM;
+#endif
       }
     }
   }
@@ -1062,6 +1077,7 @@ bool BIOS::isActionActive(int8_t action)
   case ACT_HD2:
   case ACT_SUSPEND:
   case ACT_RESTORE:
+  case ACT_UPDATEFW:
   case ACT_PADX_INV:
   case ACT_PADY_INV:
   case ACT_PADDLES:
@@ -1176,6 +1192,9 @@ void BIOS::DrawVMMenu()
       break;
     case ACT_RESTORE:
       strcpy(buf, "Restore VM");
+      break;
+    case ACT_UPDATEFW:
+      strcpy(buf, "Update firmware from SD");
       break;
     }
 

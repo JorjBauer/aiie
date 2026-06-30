@@ -43,11 +43,13 @@ TEENSY_SKETCH ?= teensy
 TEENSY_BUILD  ?= teensy/build
 # Libraries pulled from the Arduino/Teensy environment (see README).
 TEENSY_LIBS   ?= Time Bounce2 ILI9341_t3n
+# Filename to write for the SD-card self-update ("Update firmware from SD").
+TEENSY_SDIMAGE ?= AIIE.HEX
 # Optional explicit upload port; if empty, the Teensy loader auto-detects a
 # board in bootloader mode (you may need to press the button on the Teensy).
 PORT          ?=
 
-.PHONY: roms clean teensy teensy-libs teensy-upload teensy-install teensy-clean
+.PHONY: roms clean teensy teensy-libs teensy-upload teensy-install teensy-clean teensy-sdimage
 
 all:
 	@echo You want \'make sdl\', \'make linuxfb\', or \'make teensy\'.
@@ -79,6 +81,13 @@ teensy-upload teensy-install: roms
 
 teensy-clean:
 	rm -rf $(TEENSY_BUILD)
+
+# Build, then copy the firmware image to $(TEENSY_SDIMAGE) for SD-card
+# self-update: drop that file in the root of the Teensy's MicroSD card and
+# pick "Update firmware from SD" in the BIOS VM menu.
+teensy-sdimage: teensy
+	cp $(TEENSY_BUILD)/teensy.ino.hex $(TEENSY_SDIMAGE)
+	@echo "Wrote $(TEENSY_SDIMAGE) -- copy it to the root of the Teensy SD card."
 
 test: $(TSRC)
 	g++ $(CXXFLAGS) -DEXIT_ON_ILLEGAL -DVERBOSE_CPU_ERRORS -DTESTHARNESS $(TSRC) -o testharness

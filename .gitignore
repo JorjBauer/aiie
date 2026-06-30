@@ -15,3 +15,5 @@ mockingboard-d.rom
 *.d
 *.dSYM
 suspend.vm
+AIIE.HEX
+teensy/build

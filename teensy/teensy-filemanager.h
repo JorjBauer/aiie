@@ -30,6 +30,11 @@ class TeensyFileManager : public FileManager {
 
   virtual void flush();
 
+  // Direct access to the underlying SdFat instance, for code that needs to
+  // bypass the cached-file abstraction (e.g. the firmware self-updater
+  // streaming a large hex file). Teensy-only.
+  SdFat *getSdFat();
+
  private:
   bool _prepCache(int8_t fd);
 
