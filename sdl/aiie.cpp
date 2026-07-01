@@ -378,19 +378,46 @@ int main(int argc, char *argv[])
 {
   _init_darwin_shim();
 
-  /* Look for flags first and strip them out of argv/argc if present, leaving
-   * just filenames for disks to have been inserted */
-  if (argc > 1 && !strcmp(argv[1], "-9")) {
-    argc--;
-    argv++;
-    use8875 = false;
+  /* Parse the command line. Flags and positional filenames may be mixed:
+   *   -8 / -9       select the 8875 / 9341 display
+   *   -hd <image>   connect a hard-drive image (repeat for the 2nd HD drive)
+   *   <image>       positional floppy disk image (drive 1, then drive 2)
+   * The images are stashed here and actually inserted once the VM exists. */
+  const char *floppy[2] = { NULL, NULL };
+  const char *hd[2]     = { NULL, NULL };
+  int numFloppy = 0, numHd = 0;
+  for (int i = 1; i < argc; i++) {
+    if (!strcmp(argv[i], "-9")) {
+      use8875 = false;
+    }
+    else if (!strcmp(argv[i], "-8")) {
+      use8875 = true;
+    }
+    else if (!strcmp(argv[i], "-hd") || !strcmp(argv[i], "--hd")) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "Error: %s requires a hard-drive image filename\n", argv[i]);
+        exit(1);
+      }
+      if (numHd >= 2) {
+        fprintf(stderr, "Error: at most 2 hard drives are supported\n");
+        exit(1);
+      }
+      hd[numHd++] = argv[++i];
+    }
+    else if (argv[i][0] == '-') {
+      fprintf(stderr, "Unknown option '%s'\n", argv[i]);
+      fprintf(stderr, "Usage: %s [-8|-9] [-hd <image>] [-hd <image>] [floppy1] [floppy2]\n", argv[0]);
+      exit(1);
+    }
+    else if (numFloppy < 2) {
+      floppy[numFloppy++] = argv[i];
+    }
+    else {
+      fprintf(stderr, "Error: at most 2 floppy disks are supported\n");
+      exit(1);
+    }
   }
-  else if (argc > 1 && !strcmp(argv[1], "-8")) {
-    argc--;
-    argv++;
-    use8875 = true;
-  }
-  
+
   SDL_Init(SDL_INIT_EVERYTHING);
 
   g_speaker = new SDLSpeaker();
@@ -456,21 +483,29 @@ int main(int argc, char *argv[])
 
   /* Load remaining prefs (disk images, window size) now that the VM exists */
   readPrefs();
-  if (argc >= 2) {
-    printf("Inserting disk %s\n", argv[1]);
-    ((AppleVM *)g_vm)->insertDisk(0, argv[1]);
-    strcpy(disk1name, argv[1]);
+  /* Images named on the command line override whatever prefs restored. */
+  if (floppy[0]) {
+    printf("Inserting disk %s\n", floppy[0]);
+    ((AppleVM *)g_vm)->insertDisk(0, floppy[0]);
+    strcpy(disk1name, floppy[0]);
   }
 
-  if (argc == 3) {
-    printf("Inserting disk %s\n", argv[2]);
-    ((AppleVM *)g_vm)->insertDisk(1, argv[2]);
-    strcpy(disk2name, argv[2]);
+  if (floppy[1]) {
+    printf("Inserting disk %s\n", floppy[1]);
+    ((AppleVM *)g_vm)->insertDisk(1, floppy[1]);
+    strcpy(disk2name, floppy[1]);
   }
 
-  // FIXME: fixed test disk...
-  //  ((AppleVM *)g_vm)->insertHD(0, "hd32.img");
-  
+  if (hd[0]) {
+    printf("Connecting hard drive %s\n", hd[0]);
+    ((AppleVM *)g_vm)->insertHD(0, hd[0]);
+  }
+
+  if (hd[1]) {
+    printf("Connecting hard drive %s\n", hd[1]);
+    ((AppleVM *)g_vm)->insertHD(1, hd[1]);
+  }
+
   nonblock(NB_ENABLE);
 
   signal(SIGINT, sigint_handler);
