@@ -129,15 +129,18 @@ void SDLKeyboard::handleKeypress(SDL_KeyboardEvent *key)
       vmkeyboard->keyDepressed(PK_DARR);
   }
 
-  // Paddles
-  if (key->keysym.sym == SDLK_LGUI) {
+  // Paddles / open- and closed-apple. Alt (Option) is accepted alongside
+  // GUI (Command) because the host OS hijacks many Command combinations.
+  if (key->keysym.sym == SDLK_LGUI ||
+      key->keysym.sym == SDLK_LALT) {
     if (releaseEvent)
       vmkeyboard->keyReleased(PK_LA);
     else
       vmkeyboard->keyDepressed(PK_LA);
   }
 
-  if (key->keysym.sym == SDLK_RGUI) {
+  if (key->keysym.sym == SDLK_RGUI ||
+      key->keysym.sym == SDLK_RALT) {
     if (releaseEvent)
       vmkeyboard->keyReleased(PK_RA);
     else
