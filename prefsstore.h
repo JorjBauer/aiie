@@ -6,7 +6,7 @@
 // Fun trivia: the Apple //e was in production from January 1983 to
 // November 1993. And the 65C02 in them supported weird BCD math modes.
 #define PREFSMAGIC 0x01831093
-#define PREFSVERSION 7
+#define PREFSVERSION 8
 
 #ifndef MAXPATH
 #define MAXPATH 255
@@ -40,7 +40,13 @@ typedef struct _prefs {
 
   uint8_t ramworksSize; // v7+: aux expansion size in MB (0/1/3/16)
 
-  char reserved[MAXPATH - 4 - 5 - 1]; // 255 is the Teensy MAXPATH size (less fields above)
+  // v8+: speed in half-speed steps, like 'speed', but wide enough for
+  // 128x (256 steps) and up. 'speed' saturates at 255 (127.5x) and is
+  // still written for older readers. Carved out of 'reserved' so the
+  // struct layout is unchanged.
+  uint16_t speed16;
+
+  char reserved[MAXPATH - 4 - 5 - 1 - 2]; // 255 is the Teensy MAXPATH size (less fields above)
 
   char disk1[MAXPATH];
   char disk2[MAXPATH];

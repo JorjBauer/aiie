@@ -10,6 +10,14 @@
 // How many CPU cycles between repeats of a key?
 #define REPEATAGAIN 66667
 
+// The repeat constants above are calibrated for 1.023MHz. When the
+// CPU runs faster or slower than that, scale them so key repeat
+// stays constant in wall-clock time.
+static int64_t scaleToSpeed(int64_t cycles)
+{
+  return (cycles * (int64_t)g_speed) / 1023000;
+}
+
 AppleKeyboard::AppleKeyboard(AppleMMU *m)
 {
   this->mmu = m;
@@ -127,7 +135,7 @@ void AppleKeyboard::keyDepressed(uint8_t k)
       anyKeyIsDown = true;
     }
     keyThatIsRepeating = translateKeyWithModifiers(k);
-    startRepeatTimer = g_cpu->cycles + STARTREPEAT;
+    startRepeatTimer = g_cpu->cycles + scaleToSpeed(STARTREPEAT);
     mmu->keyboardInput(keyThatIsRepeating);
   } else if (k == PK_LA) {
     // Special handling: apple keys
@@ -198,7 +206,7 @@ void AppleKeyboard::maintainKeyboard(int64_t cycleCount)
     // already repeating; keep it up
     if (cycleCount >= repeatTimer) {
       mmu->keyboardInput(keyThatIsRepeating);
-      repeatTimer = cycleCount + REPEATAGAIN;
+      repeatTimer = cycleCount + scaleToSpeed(REPEATAGAIN);
     }
   }
 }

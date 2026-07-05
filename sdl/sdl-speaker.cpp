@@ -39,7 +39,7 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
 
   pthread_mutex_lock(&togmutex);
 
-  if (g_biosInterrupt) {
+  if (g_biosInterrupt || g_speed >= AUDIO_MUTE_SPEED) {
     audioRunning = 0;
     memset(stream, 0, len);
     pthread_mutex_unlock(&togmutex);
@@ -159,6 +159,11 @@ void SDLSpeaker::begin()
 
 void SDLSpeaker::toggle(int64_t c)
 {
+  // While muted for speed, don't record toggles at all; the speaker is
+  // reset when the BIOS exits, so state resyncs on any speed change.
+  if (g_speed >= AUDIO_MUTE_SPEED)
+    return;
+
   pthread_mutex_lock(&togmutex);
   wsola_toggle(c, HIGHVAL, LOWVAL);
   pthread_mutex_unlock(&togmutex);
@@ -166,6 +171,9 @@ void SDLSpeaker::toggle(int64_t c)
 
 void SDLSpeaker::maintainSpeaker(int64_t c, uint64_t microseconds)
 {
+  if (g_speed >= AUDIO_MUTE_SPEED)
+    return;
+
   pthread_mutex_lock(&togmutex);
   wsola_flush(c);
   pthread_mutex_unlock(&togmutex);

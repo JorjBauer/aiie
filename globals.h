@@ -57,6 +57,11 @@ extern VMRam g_ram;
 extern volatile uint8_t g_debugMode;
 extern volatile bool g_biosInterrupt;
 extern uint32_t g_speed;
+
+// At and above this speed the speaker is muted: audio would have to be
+// time-compressed >= 128:1, which is unlistenable, and generating it
+// costs CPU that we'd rather spend on emulation.
+#define AUDIO_MUTE_SPEED (1023000*128)
 extern bool g_invertPaddleX;
 extern bool g_invertPaddleY;
 

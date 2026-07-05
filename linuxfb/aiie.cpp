@@ -550,9 +550,12 @@ void readPrefs()
     g_displayType = p.displayType;
     g_debugMode = p.debug;
     g_prioritizeDisplay = p.priorityMode;
-    g_speed = (p.speed * (1023000/2)); // steps of half normal speed
-    if (g_speed < (1023000/2))
-      g_speed = (1023000/2);
+    // steps of half normal speed; v8+ stores them in the 16-bit field
+    // (needed for >= 128x)
+    uint32_t speedSteps = (p.version >= 8) ? p.speed16 : p.speed;
+    if (speedSteps < 1) speedSteps = 2; // 1x
+    if (speedSteps > 512) speedSteps = 512; // 256x
+    g_speed = speedSteps * (1023000/2);
     if (p.disk1[0]) {
       ((AppleVM *)g_vm)->insertDisk(0, p.disk1);
       strcpy(disk1name, p.disk1);
@@ -585,7 +588,12 @@ void writePrefs()
   p.displayType = g_displayType;
   p.debug = g_debugMode;
   p.priorityMode = g_prioritizeDisplay;
-  p.speed = g_speed / (1023000/2);
+  {
+    uint32_t speedSteps = g_speed / (1023000/2);
+    p.speed16 = speedSteps;
+    // legacy field for older readers; saturates at 127.5x
+    p.speed = (speedSteps > 255) ? 255 : speedSteps;
+  }
   strcpy(p.disk1, ((AppleVM *)g_vm)->DiskName(0));
   strcpy(p.disk2, ((AppleVM *)g_vm)->DiskName(1));
   strcpy(p.hd1, ((AppleVM *)g_vm)->HDName(0));

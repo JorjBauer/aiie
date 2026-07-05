@@ -350,6 +350,11 @@ void loop()
       g_display->redraw(); // Redraw the UI
       ((AppleDisplay*)(g_vm->vmdisplay))->modeChange(); // force a full re-draw	and blit
 
+      // The BIOS reset g_cpu->cycles to 0, and the speed may have
+      // changed (possibly across the audio-mute threshold). The
+      // speaker tracks cycle numbers, so resync it to the new clock.
+      g_speaker->reset();
+
       cpuClockInitialized = false; // force it to reset so it doesn't fast-forward
       wasBios = false;
     }
@@ -444,9 +449,11 @@ int main(int argc, char *argv[])
       g_displayType = p.displayType;
       g_luminanceCutoff = p.luminanceCutoff;
       g_debugMode = p.debug;
-      g_speed = (p.speed * (1023000/2));
-      if (g_speed < (1023000/2))
-        g_speed = (1023000/2);
+      // v8+ stores speed in the 16-bit field (needed for >= 128x)
+      uint32_t speedSteps = (p.version >= 8) ? p.speed16 : p.speed;
+      if (speedSteps < 1) speedSteps = 2; // 1x
+      if (speedSteps > 512) speedSteps = 512; // 256x
+      g_speed = speedSteps * (1023000/2);
       if (p.version >= 6) {
         g_slotDiskII = p.slotDiskII;
         g_slotParallel = p.slotParallel;
@@ -531,9 +538,12 @@ void readPrefs()
     g_luminanceCutoff = p.luminanceCutoff;
 
     g_debugMode = p.debug;
-    g_speed = (p.speed * (1023000/2)); // steps of half normal speed
-    if (g_speed < (1023000/2))
-      g_speed = (1023000/2);
+    // steps of half normal speed; v8+ stores them in the 16-bit field
+    // (needed for >= 128x)
+    uint32_t speedSteps = (p.version >= 8) ? p.speed16 : p.speed;
+    if (speedSteps < 1) speedSteps = 2; // 1x
+    if (speedSteps > 512) speedSteps = 512; // 256x
+    g_speed = speedSteps * (1023000/2);
 
     if (p.version >= 6) {
       g_slotDiskII = p.slotDiskII;
@@ -582,7 +592,12 @@ void writePrefs()
   p.luminanceCutoff = g_luminanceCutoff;
 
   p.debug = g_debugMode;
-  p.speed = g_speed / (1023000/2);
+  {
+    uint32_t speedSteps = g_speed / (1023000/2);
+    p.speed16 = speedSteps;
+    // legacy field for older readers; saturates at 127.5x
+    p.speed = (speedSteps > 255) ? 255 : speedSteps;
+  }
 
   p.slotDiskII = g_slotDiskII;
   p.slotParallel = g_slotParallel;

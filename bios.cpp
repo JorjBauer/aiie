@@ -125,6 +125,18 @@ static bool cardsConfigSaved = false;
 #define CPUSPEED_FULL 1
 #define CPUSPEED_DOUBLE 2
 #define CPUSPEED_QUAD 3
+#ifdef TEENSYDUINO
+// The Teensy can't sustain more than 4x
+#define NUM_CPUSPEEDS 4
+#else
+#define CPUSPEED_8X 4
+#define CPUSPEED_16X 5
+// Audio is muted at 128x and beyond -- the speaker would have to
+// time-compress 128 seconds of toggles into 1, which is just noise.
+#define CPUSPEED_128X 6
+#define CPUSPEED_256X 7
+#define NUM_CPUSPEEDS 8
+#endif
 
 const char *staticPathConcat(const char *rootPath, const char *filePath)
 {
@@ -283,6 +295,20 @@ bool BIOS::loop()
     case 1023000*4:
       currentCPUSpeedIndex = CPUSPEED_QUAD;
       break;
+#ifndef TEENSYDUINO
+    case 1023000*8:
+      currentCPUSpeedIndex = CPUSPEED_8X;
+      break;
+    case 1023000*16:
+      currentCPUSpeedIndex = CPUSPEED_16X;
+      break;
+    case 1023000*128:
+      currentCPUSpeedIndex = CPUSPEED_128X;
+      break;
+    case 1023000*256:
+      currentCPUSpeedIndex = CPUSPEED_256X;
+      break;
+#endif
     default:
       // Dunno what happened, but we'll default back to full (normal) speed
       currentCPUSpeedIndex = CPUSPEED_FULL;
@@ -495,7 +521,7 @@ uint16_t BIOS::HardwareMenuHandler(bool needsRedraw, bool performAction)
 	
       case ACT_SPEED:
 	currentCPUSpeedIndex++;
-	currentCPUSpeedIndex %= 4;
+	currentCPUSpeedIndex %= NUM_CPUSPEEDS;
 	switch (currentCPUSpeedIndex) {
 	case CPUSPEED_HALF:
 	  g_speed = 1023000/2;
@@ -506,6 +532,20 @@ uint16_t BIOS::HardwareMenuHandler(bool needsRedraw, bool performAction)
 	case CPUSPEED_QUAD:
 	  g_speed = 1023000*4;
 	  break;
+#ifndef TEENSYDUINO
+	case CPUSPEED_8X:
+	  g_speed = 1023000*8;
+	  break;
+	case CPUSPEED_16X:
+	  g_speed = 1023000*16;
+	  break;
+	case CPUSPEED_128X:
+	  g_speed = 1023000*128;
+	  break;
+	case CPUSPEED_256X:
+	  g_speed = 1023000*256;
+	  break;
+#endif
 	default:
 	  g_speed = 1023000;
 	  break;
@@ -1256,6 +1296,20 @@ void BIOS::DrawHardwareMenu()
 	case CPUSPEED_QUAD:
 	  snprintf(buf, sizeof(buf), templateString, "Quad (4.092 MHz)");
 	  break;
+#ifndef TEENSYDUINO
+	case CPUSPEED_8X:
+	  snprintf(buf, sizeof(buf), templateString, "8x (8.184 MHz)");
+	  break;
+	case CPUSPEED_16X:
+	  snprintf(buf, sizeof(buf), templateString, "16x (16.368 MHz)");
+	  break;
+	case CPUSPEED_128X:
+	  snprintf(buf, sizeof(buf), templateString, "128x (no audio)");
+	  break;
+	case CPUSPEED_256X:
+	  snprintf(buf, sizeof(buf), templateString, "256x (no audio)");
+	  break;
+#endif
 	default:
 	  snprintf(buf, sizeof(buf), templateString, "Normal (1.023 MHz)");
 	  break;
