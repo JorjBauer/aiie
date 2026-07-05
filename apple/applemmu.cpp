@@ -980,6 +980,18 @@ void AppleMMU::writeSwitches(uint16_t address, uint8_t v)
     }
     return;
 
+#ifndef TEENSYDUINO
+  case 0xC074: // cycle beacon: report the cumulative cycle count on stderr,
+	       // stamped with the written byte as a marker id. Unused on real
+	       // hardware, so instrumented programs are safe everywhere.
+    if (g_cycleBeacon) {
+      fprintf(stderr, "[cycle-beacon %u] cycles=%lld  t1x=%.3fs\n",
+	      v, (long long)g_cpu->cycles,
+	      (double)g_cpu->cycles / 1023000.0);
+    }
+    break; // fall out of the switch so the write still shadows to RAM
+#endif
+
     // paddles
   case 0xC070:
     g_paddles->startReading();

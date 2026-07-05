@@ -196,6 +196,8 @@ void Debugger::step()
              b != 'D' && // dump memory
 	     b != 'h' && // show history
 	     b != 'T' && // dump text screen
+	     b != 'y' && // show cycle count
+	     b != 'G' && // goto (set PC)
 	     b != '*'    // show memory (byte)
 	     );
 
@@ -370,6 +372,13 @@ void Debugger::step()
       }
       goto doover;
       
+    case 'y': // show cumulative cycle count and 1x-equivalent time
+      snprintf(buf, sizeof(buf), "cycles=%lld  t1x=%.3fs\012\015",
+	       (long long)g_cpu->cycles,
+	       (double)g_cpu->cycles / 1023000.0);
+      write(cd, buf, strlen(buf));
+      goto doover;
+
     case 'G': // Goto (set PC)
       GETLN;
       if (getAddress(buf, &val)) {

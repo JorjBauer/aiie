@@ -384,9 +384,10 @@ int main(int argc, char *argv[])
   _init_darwin_shim();
 
   /* Parse the command line. Flags and positional filenames may be mixed:
-   *   -8 / -9       select the 8875 / 9341 display
-   *   -hd <image>   connect a hard-drive image (repeat for the 2nd HD drive)
-   *   <image>       positional floppy disk image (drive 1, then drive 2)
+   *   -8 / -9         select the 8875 / 9341 display
+   *   -hd <image>     connect a hard-drive image (repeat for the 2nd HD drive)
+   *   --cycle-beacon  print a cycle-count line to stderr on writes to $C074
+   *   <image>         positional floppy disk image (drive 1, then drive 2)
    * The images are stashed here and actually inserted once the VM exists. */
   const char *floppy[2] = { NULL, NULL };
   const char *hd[2]     = { NULL, NULL };
@@ -409,9 +410,12 @@ int main(int argc, char *argv[])
       }
       hd[numHd++] = argv[++i];
     }
+    else if (!strcmp(argv[i], "-cycle-beacon") || !strcmp(argv[i], "--cycle-beacon")) {
+      g_cycleBeacon = true;
+    }
     else if (argv[i][0] == '-') {
       fprintf(stderr, "Unknown option '%s'\n", argv[i]);
-      fprintf(stderr, "Usage: %s [-8|-9] [-hd <image>] [-hd <image>] [floppy1] [floppy2]\n", argv[0]);
+      fprintf(stderr, "Usage: %s [-8|-9] [-hd <image>] [-hd <image>] [--cycle-beacon] [floppy1] [floppy2]\n", argv[0]);
       exit(1);
     }
     else if (numFloppy < 2) {

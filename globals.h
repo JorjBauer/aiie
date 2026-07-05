@@ -58,6 +58,11 @@ extern volatile uint8_t g_debugMode;
 extern volatile bool g_biosInterrupt;
 extern uint32_t g_speed;
 
+// When true (SDL --cycle-beacon), a write to $C074 prints the cumulative
+// cycle count to stderr so instrumented programs can be timed in
+// 1x-equivalent seconds regardless of the current speed multiplier.
+extern bool g_cycleBeacon;
+
 // At and above this speed the speaker is muted: audio would have to be
 // time-compressed >= 128:1, which is unlistenable, and generating it
 // costs CPU that we'd rather spend on emulation.
