@@ -529,6 +529,18 @@ void doDebugging()
     sprintf(buf, "%X", g_cpu->cycles);
     g_display->debugMsg(buf);
     break;
+  case D_SHOWNET:
+    if (g_uthernet) {
+      char nb[48];
+      snprintf(nb, sizeof(nb), "TX%lu RX%lu CE%lu RT%lu TO%lu",
+               (unsigned long)g_uthernet->statFramesSent(),
+               (unsigned long)g_uthernet->statFramesReceived(),
+               (unsigned long)g_uthernet->statCrcErrors(),
+               (unsigned long)g_uthernet->statRetries(),
+               (unsigned long)g_uthernet->statTimeouts());
+      g_display->debugMsg(nb);
+    }
+    break;
     /*                                                                          
   case D_SHOWBATTERY:                                                           
     //    sprintf(buf, "BAT %d", analogRead(BATTERYPIN));                       

@@ -23,6 +23,11 @@ class Slot {
 
   virtual void loadROM(uint8_t *toWhere) = 0;
 
+  // Does this card supply a primary slot ROM ($CsXX)? An I/O-only card (no ROM
+  // of its own) returns false so the MMU leaves that slot's ROM space alone
+  // rather than overwriting it (which for slot 3 is the 80-column firmware).
+  virtual bool hasRom() { return true; };
+
   virtual bool hasExtendedRom() { return false; };
   virtual void loadExtendedRom(uint8_t *toWhere, uint16_t byteOffset) {};
 

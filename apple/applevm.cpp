@@ -32,12 +32,14 @@ AppleVM::AppleVM()
   hd32 = new HD32((AppleMMU *)mmu);
   mouse = new Mouse();
   mockingboard = new Mockingboard();
+  uthernet = new Uthernet2((AppleMMU *)mmu);
 
   if (g_slotDiskII) ((AppleMMU *)mmu)->setSlot(g_slotDiskII, disk6);
   if (g_slotParallel) ((AppleMMU *)mmu)->setSlot(g_slotParallel, parallel);
   if (g_slotHD32) ((AppleMMU *)mmu)->setSlot(g_slotHD32, hd32);
   if (g_slotMouse) ((AppleMMU *)mmu)->setSlot(g_slotMouse, mouse);
   if (g_slotMockingboard) ((AppleMMU *)mmu)->setSlot(g_slotMockingboard, mockingboard);
+  if (g_slotUthernet) ((AppleMMU *)mmu)->setSlot(g_slotUthernet, uthernet);
 }
 
 void AppleVM::reassignSlots()
@@ -54,6 +56,7 @@ void AppleVM::reassignSlots()
   if (g_slotHD32) ((AppleMMU *)mmu)->setSlot(g_slotHD32, hd32);
   if (g_slotMouse) ((AppleMMU *)mmu)->setSlot(g_slotMouse, mouse);
   if (g_slotMockingboard) ((AppleMMU *)mmu)->setSlot(g_slotMockingboard, mockingboard);
+  if (g_slotUthernet) ((AppleMMU *)mmu)->setSlot(g_slotUthernet, uthernet);
 
   // Apply any change to the RamWorks aux-expansion size.
   ((AppleMMU *)mmu)->setRamworksSize(g_ramworksSize);
@@ -63,6 +66,7 @@ AppleVM::~AppleVM()
 {
   delete disk6;
   delete parallel;
+  delete uthernet;
 }
 
 bool AppleVM::Suspend(const char *fn)
@@ -157,6 +161,7 @@ void AppleVM::cpuMaintenance(int64_t cycles)
   disk6->maintenance(cycles);
   if (mouse) mouse->maintainMouse(cycles);
   if (mockingboard) mockingboard->update(cycles);
+  if (uthernet) uthernet->tick(cycles);
   g_speaker->maintainSpeaker(cycles, 0);
 }
 

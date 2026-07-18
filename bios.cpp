@@ -86,6 +86,7 @@ enum {
   ACT_SLOT_DEFAULTS = 28,
   ACT_SLOT_RAMWORKS = 29,
   ACT_UPDATEFW = 30,
+  ACT_SLOT_UTHERNET = 31,
 };
 
 #define NUM_TITLES 5
@@ -107,7 +108,8 @@ const uint8_t hardwareActions[] = { ACT_DISPLAYTYPE,  ACT_LUMINANCEUP,
 				    ACT_PADDLES, ACT_VOLPLUS, ACT_VOLMINUS };
 const uint8_t cardsActions[] = { ACT_SLOT_DISKII, ACT_SLOT_PARALLEL,
 				 ACT_SLOT_HD32, ACT_SLOT_MOUSE,
-				 ACT_SLOT_MOCKINGBOARD, ACT_SLOT_RAMWORKS,
+				 ACT_SLOT_MOCKINGBOARD, ACT_SLOT_UTHERNET,
+				 ACT_SLOT_RAMWORKS,
 				 ACT_SLOT_DEFAULTS };
 const uint8_t diskActions[] = { ACT_DISK1, ACT_DISK2,
 				ACT_HD1, ACT_HD2 };
@@ -117,9 +119,25 @@ static uint8_t savedSlotParallel;
 static uint8_t savedSlotHD32;
 static uint8_t savedSlotMouse;
 static uint8_t savedSlotMockingboard;
+static uint8_t savedSlotUthernet;
 static uint8_t savedRamworksSize;
 static bool cardsConfigChanged = false;
 static bool cardsConfigSaved = false;
+
+// Slots a card can be assigned to. 0 means "disabled". Slot 3 is allowed: an
+// I/O-only card (e.g. the Uthernet) coexists with the internal 80-column
+// firmware, which the MMU now keeps in a separate bank from a slot-3 card's ROM
+// (see _slotRomPageForSlot in applemmu.cpp). A card WITH a boot ROM in slot 3 is
+// reachable only via SETC3ROM, so it is not seen by the boot scan.
+static const uint8_t kSelectableSlots[] = { 0, 1, 2, 3, 4, 5, 6, 7 };
+
+static bool isSelectableSlot(uint8_t n)
+{
+  for (size_t i = 0; i < sizeof(kSelectableSlots); i++) {
+    if (kSelectableSlots[i] == n) return true;
+  }
+  return false;
+}
 
 #define CPUSPEED_HALF 0
 #define CPUSPEED_FULL 1
@@ -163,6 +181,7 @@ BIOS::BIOS()
   savedSlotHD32 = g_slotHD32;
   savedSlotMouse = g_slotMouse;
   savedSlotMockingboard = g_slotMockingboard;
+  savedSlotUthernet = g_slotUthernet;
   savedRamworksSize = g_ramworksSize;
   cardsConfigChanged = false;
   cardsConfigSaved = false;
@@ -221,6 +240,7 @@ bool BIOS::loop()
     savedSlotHD32 = g_slotHD32;
     savedSlotMouse = g_slotMouse;
     savedSlotMockingboard = g_slotMockingboard;
+    savedSlotUthernet = g_slotUthernet;
     savedRamworksSize = g_ramworksSize;
     cardsConfigChanged = false;
   }
@@ -445,7 +465,7 @@ uint16_t BIOS::VmMenuHandler(bool needsRedraw, bool performAction)
 	return BIOS_DONE;
       case ACT_DEBUG:
 	g_debugMode++;
-	g_debugMode %= 9; // FIXME: abstract max #
+	g_debugMode %= 10; // FIXME: abstract max #
 	localRedraw = true;
 	return BIOS_VM;
       case ACT_SUSPEND:
@@ -602,6 +622,7 @@ static uint8_t *slotVarForAction(uint8_t action)
   case ACT_SLOT_HD32: return &g_slotHD32;
   case ACT_SLOT_MOUSE: return &g_slotMouse;
   case ACT_SLOT_MOCKINGBOARD: return &g_slotMockingboard;
+  case ACT_SLOT_UTHERNET: return &g_slotUthernet;
   }
   return NULL;
 }
@@ -609,11 +630,12 @@ static uint8_t *slotVarForAction(uint8_t action)
 static void resolveSlotConflict(uint8_t *changedVar)
 {
   uint8_t *allSlots[] = { &g_slotDiskII, &g_slotParallel, &g_slotHD32,
-                          &g_slotMouse, &g_slotMockingboard };
+                          &g_slotMouse, &g_slotMockingboard, &g_slotUthernet };
+  const int nSlots = sizeof(allSlots) / sizeof(allSlots[0]);
   uint8_t newSlot = *changedVar;
   if (newSlot == 0) return;
 
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < nSlots; i++) {
     if (allSlots[i] == changedVar) continue;
     if (*allSlots[i] == newSlot) {
       // Find an available slot for the displaced card
@@ -622,7 +644,7 @@ static void resolveSlotConflict(uint8_t *changedVar)
       for (int s = 0; s < 6 && !found; s++) {
         uint8_t candidate = validSlots[s];
         bool taken = false;
-        for (int j = 0; j < 5; j++) {
+        for (int j = 0; j < nSlots; j++) {
           if (allSlots[j] != allSlots[i] && *allSlots[j] == candidate) {
             taken = true;
             break;
@@ -647,6 +669,7 @@ static bool slotsMatchSaved()
           g_slotHD32 == savedSlotHD32 &&
           g_slotMouse == savedSlotMouse &&
           g_slotMockingboard == savedSlotMockingboard &&
+          g_slotUthernet == savedSlotUthernet &&
           g_ramworksSize == savedRamworksSize);
 }
 
@@ -658,16 +681,18 @@ uint16_t BIOS::CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key
     selectedMenuItem = sizeof(cardsActions)-1;
   selectedMenuItem %= sizeof(cardsActions);
 
-  if (key >= '0' && key <= '7' && key != '3') {
-    uint8_t newSlot = key - '0';
-    uint8_t action = cardsActions[selectedMenuItem];
-    uint8_t *var = slotVarForAction(action);
-    if (var) {
+  // Press a digit to put the selected card directly in that slot (0 disables
+  // it). Only acts on a card row, and only for a selectable slot; other digits
+  // (8, 9) are ignored rather than cycling anything.
+  if (key >= '0' && key <= '9') {
+    uint8_t newSlot = (uint8_t)(key - '0');
+    uint8_t *var = slotVarForAction(cardsActions[selectedMenuItem]);
+    if (var && isSelectableSlot(newSlot)) {
       g_display->clrScr(c_darkblue);
       g_display->drawString(M_SELECTED, 80, 100, "Updating slots...");
       g_display->flush();
       *var = newSlot;
-      if (newSlot != 0) resolveSlotConflict(var);
+      if (newSlot != 0) resolveSlotConflict(var); // move any card already there
       cardsConfigChanged = !slotsMatchSaved();
       localRedraw = true;
     }
@@ -689,20 +714,21 @@ uint16_t BIOS::CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key
       case ACT_SLOT_HD32:
       case ACT_SLOT_MOUSE:
       case ACT_SLOT_MOCKINGBOARD:
+      case ACT_SLOT_UTHERNET:
         {
           uint8_t *var = slotVarForAction(cardsActions[selectedMenuItem]);
           if (var) {
             g_display->clrScr(c_darkblue);
             g_display->drawString(M_SELECTED, 80, 100, "Updating slots...");
             g_display->flush();
-            uint8_t validSlots[] = { 0, 1, 2, 4, 5, 6, 7 };
+            const int n = sizeof(kSelectableSlots);
             uint8_t cur = *var;
             int idx = 0;
-            for (int i = 0; i < 7; i++) {
-              if (validSlots[i] == cur) { idx = i; break; }
+            for (int i = 0; i < n; i++) {
+              if (kSelectableSlots[i] == cur) { idx = i; break; }
             }
-            idx = (idx + 1) % 7;
-            *var = validSlots[idx];
+            idx = (idx + 1) % n;
+            *var = kSelectableSlots[idx];
             if (*var != 0) resolveSlotConflict(var);
             cardsConfigChanged = !slotsMatchSaved();
           }
@@ -734,6 +760,7 @@ uint16_t BIOS::CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key
         g_slotHD32 = 7;
         g_slotMouse = 2;
         g_slotMockingboard = 4;
+        g_slotUthernet = 0;
         g_ramworksSize = 0;
         cardsConfigChanged = !slotsMatchSaved();
         localRedraw = true;
@@ -1126,6 +1153,7 @@ bool BIOS::isActionActive(int8_t action)
   case ACT_SLOT_HD32:
   case ACT_SLOT_MOUSE:
   case ACT_SLOT_MOCKINGBOARD:
+  case ACT_SLOT_UTHERNET:
   case ACT_SLOT_RAMWORKS:
   case ACT_SLOT_DEFAULTS:
     return true;
@@ -1208,6 +1236,9 @@ void BIOS::DrawVMMenu()
 	  break;
 	case D_SHOWDSK:
 	  snprintf(buf, sizeof(buf), templateString, "Show Disk");
+	  break;
+	case D_SHOWNET:
+	  snprintf(buf, sizeof(buf), templateString, "Show network");
 	  break;
 	}
       }
@@ -1385,6 +1416,10 @@ void BIOS::DrawCardsMenu()
     case ACT_SLOT_MOCKINGBOARD:
       name = "Mockingboard";
       slot = g_slotMockingboard;
+      break;
+    case ACT_SLOT_UTHERNET:
+      name = "Uthernet";
+      slot = g_slotUthernet;
       break;
     case ACT_SLOT_RAMWORKS:
       {

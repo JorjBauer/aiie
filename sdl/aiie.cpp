@@ -14,6 +14,7 @@
 #include "sdl-paddles.h"
 #include "nix-filemanager.h"
 #include "sdl-printer.h"
+#include "sdl-uthernet2.h"
 #include "appleui.h"
 #include "bios.h"
 #include "nix-prefs.h"
@@ -277,6 +278,18 @@ void doDebugging()
     snprintf(buf, sizeof(buf), "%llX", g_cpu->cycles);
     g_display->debugMsg(buf);
     break;
+  case D_SHOWNET:
+    if (g_uthernet) {
+      char nb[48];
+      snprintf(nb, sizeof(nb), "TX%lu RX%lu CE%lu RT%lu TO%lu",
+               (unsigned long)g_uthernet->statFramesSent(),
+               (unsigned long)g_uthernet->statFramesReceived(),
+               (unsigned long)g_uthernet->statCrcErrors(),
+               (unsigned long)g_uthernet->statRetries(),
+               (unsigned long)g_uthernet->statTimeouts());
+      g_display->debugMsg(nb);
+    }
+    break;
     /*
   case D_SHOWBATTERY:
     //    sprintf(buf, "BAT %d", analogRead(BATTERYPIN));
@@ -392,12 +405,16 @@ int main(int argc, char *argv[])
   const char *floppy[2] = { NULL, NULL };
   const char *hd[2]     = { NULL, NULL };
   int numFloppy = 0, numHd = 0;
+  bool noHd = false;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "-9")) {
       use8875 = false;
     }
     else if (!strcmp(argv[i], "-8")) {
       use8875 = true;
+    }
+    else if (!strcmp(argv[i], "-nohd") || !strcmp(argv[i], "--no-hd")) {
+      noHd = true; // disconnect any hard drives restored from prefs
     }
     else if (!strcmp(argv[i], "-hd") || !strcmp(argv[i], "--hd")) {
       if (i + 1 >= argc) {
@@ -415,7 +432,7 @@ int main(int argc, char *argv[])
     }
     else if (argv[i][0] == '-') {
       fprintf(stderr, "Unknown option '%s'\n", argv[i]);
-      fprintf(stderr, "Usage: %s [-8|-9] [-hd <image>] [-hd <image>] [--cycle-beacon] [floppy1] [floppy2]\n", argv[0]);
+      fprintf(stderr, "Usage: %s [-8|-9] [-hd <image>] [-hd <image>] [-nohd] [--cycle-beacon] [floppy1] [floppy2]\n", argv[0]);
       exit(1);
     }
     else if (numFloppy < 2) {
@@ -431,6 +448,7 @@ int main(int argc, char *argv[])
 
   g_speaker = new SDLSpeaker();
   g_printer = new SDLPrinter();
+  g_uthernet = new SDLUthernet2();
 
   // create the filemanager - the interface to the host file system.
   g_filemanager = new NixFileManager();
@@ -468,6 +486,9 @@ int main(int argc, char *argv[])
       if (p.version >= 7) {
         g_ramworksSize = p.ramworksSize;
       }
+      if (p.version >= 9) {
+        g_slotUthernet = p.slotUthernet;
+      }
     }
   }
 
@@ -494,6 +515,13 @@ int main(int argc, char *argv[])
 
   /* Load remaining prefs (disk images, window size) now that the VM exists */
   readPrefs();
+  /* -nohd disconnects any hard drives that prefs restored (e.g. from an earlier
+   * -hd run), for a clean floppy-only boot. */
+  if (noHd) {
+    ((AppleVM *)g_vm)->ejectHD(0);
+    ((AppleVM *)g_vm)->ejectHD(1);
+    printf("Hard drives disconnected\n");
+  }
   /* Images named on the command line override whatever prefs restored. */
   if (floppy[0]) {
     printf("Inserting disk %s\n", floppy[0]);
@@ -559,6 +587,9 @@ void readPrefs()
     if (p.version >= 7) {
       g_ramworksSize = p.ramworksSize;
     }
+    if (p.version >= 9) {
+      g_slotUthernet = p.slotUthernet;
+    }
     if (p.disk1[0]) {
       ((AppleVM *)g_vm)->insertDisk(0, p.disk1);
       strcpy(disk1name, p.disk1);
@@ -608,6 +639,7 @@ void writePrefs()
   p.slotHD32 = g_slotHD32;
   p.slotMouse = g_slotMouse;
   p.slotMockingboard = g_slotMockingboard;
+  p.slotUthernet = g_slotUthernet;
 
   p.ramworksSize = g_ramworksSize;
 

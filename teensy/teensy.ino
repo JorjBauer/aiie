@@ -15,6 +15,8 @@
 #include "teensy-prefs.h"
 #include "teensy-println.h"
 #include "smalloc.h"
+#include <SoftwareSerial.h>
+#include "teensy-uthernet2.h"
 
 //#define DEBUG_TIMING
 
@@ -154,6 +156,19 @@ void onKeyrelease(uint8_t keycode)
   ((TeensyKeyboard *)g_keyboard)->releasedKey(usb_scanmap[keycode]);
 }
 
+// Half-duplex link to the ESP8266 network co-processor.
+// RX = pin 19 (ESP TXD), TX = pin 18 (ESP RXD).
+static SoftwareSerial espLink(19, 18);
+
+// Bench-test WiFi credentials for the ESP Uthernet link. Fill these in with
+// your AP to test on hardware. Left empty so no real credentials are committed;
+// when empty the ESP joins nothing. A shipping build should source these from
+// prefs or an SD config instead of hardcoding them here.
+#ifndef UTHERNET_WIFI_SSID
+#define UTHERNET_WIFI_SSID ""
+#define UTHERNET_WIFI_PASS ""
+#endif
+
 void setup()
 {
   Serial.begin(230400);
@@ -231,8 +246,23 @@ void setup()
       if (p.slotHD32 <= 7)         g_slotHD32 = p.slotHD32;
       if (p.slotMouse <= 7)        g_slotMouse = p.slotMouse;
       if (p.slotMockingboard <= 7) g_slotMockingboard = p.slotMockingboard;
+      if (p.slotUthernet <= 7)     g_slotUthernet = p.slotUthernet;
       if (p.version >= 7)          g_ramworksSize = p.ramworksSize;
     }
+  }
+
+  // Bring up the ESP8266 network co-processor if the Uthernet card is enabled.
+  // The link is half-duplex SoftwareSerial on the free A4/A5 pins:
+  //   ESP TXD -> Teensy pin 19 (we receive), ESP RXD -> Teensy pin 18 (we send).
+  // This must happen before AppleVM is constructed, since the Uthernet2 card's
+  // constructor resets the backend through g_uthernet.
+  if (g_slotUthernet) {
+    println(" uthernet");
+    espLink.begin(115200);
+    TeensyUthernet2 *u2 = new TeensyUthernet2(&espLink);
+    if (UTHERNET_WIFI_SSID[0]) u2->setNetwork(UTHERNET_WIFI_SSID, UTHERNET_WIFI_PASS);
+    g_uthernet = u2;
+    g_uthernet->begin();  // joins the AP if credentials were set
   }
 
   // Create the virtual machine. This may read from g_filemanager to
@@ -594,6 +624,17 @@ void doDebugging(uint32_t lastFps)
     sprintf(debugBuf, "%llX", g_cpu->cycles);
     g_display->debugMsg(debugBuf);
     break;
+  case D_SHOWNET:
+    if (g_uthernet) {
+      sprintf(debugBuf, "TX%lu RX%lu CE%lu RT%lu TO%lu",
+              (unsigned long)g_uthernet->statFramesSent(),
+              (unsigned long)g_uthernet->statFramesReceived(),
+              (unsigned long)g_uthernet->statCrcErrors(),
+              (unsigned long)g_uthernet->statRetries(),
+              (unsigned long)g_uthernet->statTimeouts());
+      g_display->debugMsg(debugBuf);
+    }
+    break;
   case D_SHOWBATTERY:
     sprintf(debugBuf, "B: %d %ld%%     ", currentBatteryReading,
 	    map(currentBatteryReading, BATTERYMIN, BATTERYMAX, 0, 100));
@@ -653,6 +694,7 @@ void readPrefs()
     if (p.slotHD32 <= 7) g_slotHD32 = p.slotHD32;
     if (p.slotMouse <= 7) g_slotMouse = p.slotMouse;
     if (p.slotMockingboard <= 7) g_slotMockingboard = p.slotMockingboard;
+    if (p.slotUthernet <= 7) g_slotUthernet = p.slotUthernet;
 
     g_ramworksSize = p.ramworksSize;
 
@@ -704,6 +746,7 @@ void writePrefs()
   p.slotHD32 = g_slotHD32;
   p.slotMouse = g_slotMouse;
   p.slotMockingboard = g_slotMockingboard;
+  p.slotUthernet = g_slotUthernet;
 
   p.ramworksSize = g_ramworksSize;
 

@@ -143,6 +143,17 @@ static uint16_t _pageNumberForRam(uint8_t highByte, uint8_t variant)
   return ((highByte - 0xE0) * 3 + variant + MP_E0);
 }
 
+// The RAM page a slot's card ROM should be written to. For most slots that is
+// variant 0 of the slot's $CsXX page. Slot 3 is special: its variant-0 bank
+// holds the internal 80-column firmware, so a slot-3 card's ROM goes in variant
+// 1 (the bank selected when slot3rom is set) to avoid clobbering 80 columns.
+// A card with no ROM (e.g. the Uthernet) then leaves 80-column firmware intact.
+static uint16_t _slotRomPageForSlot(uint8_t slotnum)
+{
+  if (slotnum == 3) return _pageNumberForRam(0xC3, 1);
+  return _pageNumberForRam(0xC0 + slotnum, 0);
+}
+
 AppleMMU::AppleMMU(AppleDisplay *display)
 {
   anyKeyDown = false;
@@ -1148,14 +1159,17 @@ void AppleMMU::resetRAM()
 
   // have each slot load its ROM
   for (uint8_t slotnum = 1; slotnum <= 7; slotnum++) {
-    uint16_t page0 = _pageNumberForRam(0xC0 + slotnum, 0);
+    uint16_t page0 = _slotRomPageForSlot(slotnum);
     if (slots[slotnum]) {
-      // Load the primary ROM for this peripheral (0xCsXX..0xCsFF)
-      uint8_t tmpBuf[256];
-      memset(tmpBuf, 0, sizeof(tmpBuf));
-      slots[slotnum]->loadROM(tmpBuf);
-      for (int i=0; i<256; i++) {
-	g_ram.writeByte( (page0 << 8) + i, tmpBuf[i] );
+      // Load the primary ROM for this peripheral (0xCsXX..0xCsFF). An I/O-only
+      // card supplies no ROM, so leave its slot's ROM space untouched.
+      if (slots[slotnum]->hasRom()) {
+	uint8_t tmpBuf[256];
+	memset(tmpBuf, 0, sizeof(tmpBuf));
+	slots[slotnum]->loadROM(tmpBuf);
+	for (int i=0; i<256; i++) {
+	  g_ram.writeByte( (page0 << 8) + i, tmpBuf[i] );
+	}
       }
 
       // See if there's an extended 2k ROM for this peripheral (0xC800..0xCFFF)
@@ -1193,8 +1207,8 @@ void AppleMMU::setSlot(int8_t slotnum, Slot *peripheral)
   }
 
   slots[slotnum] = peripheral;
-  if (slots[slotnum]) {
-    uint16_t page0 = _pageNumberForRam(0xC0 + slotnum, 0);
+  if (slots[slotnum] && slots[slotnum]->hasRom()) {
+    uint16_t page0 = _slotRomPageForSlot(slotnum);
     uint8_t tmpBuf[256];
     memset(tmpBuf, 0, sizeof(tmpBuf));
     slots[slotnum]->loadROM(tmpBuf);
@@ -1207,7 +1221,7 @@ void AppleMMU::setSlot(int8_t slotnum, Slot *peripheral)
 void AppleMMU::clearSlotRom(int8_t slotnum)
 {
   if (slotnum >= 1 && slotnum <= 7) {
-    uint16_t page0 = _pageNumberForRam(0xC0 + slotnum, 0);
+    uint16_t page0 = _slotRomPageForSlot(slotnum);
     for (int i = 0; i < 256; i++) {
       g_ram.writeByte((page0 << 8) + i, 0);
     }

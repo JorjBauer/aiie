@@ -18,6 +18,7 @@
 #include "physicalprinter.h"
 #include "vmui.h"
 #include "vmram.h"
+#include "uthernet2interface.h"
 
 // display modes
 enum {
@@ -38,7 +39,8 @@ enum {
   D_SHOWCYCLES  = 5,
   D_SHOWBATTERY = 6,
   D_SHOWTIME    = 7,
-  D_SHOWDSK     = 8
+  D_SHOWDSK     = 8,
+  D_SHOWNET     = 9
 };
 
 extern FileManager *g_filemanager;
@@ -50,6 +52,7 @@ extern PhysicalMouse *g_mouse;
 extern PhysicalSpeaker *g_speaker;
 extern PhysicalPaddles *g_paddles;
 extern PhysicalPrinter *g_printer;
+extern Uthernet2Interface *g_uthernet;
 extern VMui *g_ui;
 extern int8_t g_volume;
 extern uint8_t g_displayType;
@@ -77,6 +80,7 @@ extern uint8_t g_slotParallel;
 extern uint8_t g_slotHD32;
 extern uint8_t g_slotMouse;
 extern uint8_t g_slotMockingboard;
+extern uint8_t g_slotUthernet;
 
 // RamWorks-compatible aux-memory expansion size, in megabytes.
 // 0 = none (stock Extended 80-column card); 1, 3, or 16 = total aux RAM.

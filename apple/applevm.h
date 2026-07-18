@@ -9,6 +9,7 @@
 #include "parallelcard.h"
 #include "mouse.h"
 #include "mockingboard.h"
+#include "uthernet2.h"
 
 #include "vm.h"
 class AppleVM : public VM {
@@ -47,6 +48,7 @@ class AppleVM : public VM {
   VMKeyboard *keyboard;
   ParallelCard *parallel;
   Mouse *mouse;
+  Uthernet2 *uthernet;
 };
 
 

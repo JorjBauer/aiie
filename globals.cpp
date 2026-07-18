@@ -9,6 +9,7 @@ PhysicalMouse *g_mouse = NULL;
 PhysicalSpeaker *g_speaker = NULL;
 PhysicalPaddles *g_paddles = NULL;
 PhysicalPrinter *g_printer = NULL;
+Uthernet2Interface *g_uthernet = NULL;
 VMui *g_ui;
 int8_t g_volume = 7;
 uint8_t g_displayType = 3; // FIXME m_perfectcolor
@@ -27,6 +28,7 @@ uint8_t g_slotParallel = 1;
 uint8_t g_slotHD32 = 7;
 uint8_t g_slotMouse = 2;
 uint8_t g_slotMockingboard = 4;
+uint8_t g_slotUthernet = 0; // 0 = disabled; set to a slot number to enable
 
 uint8_t g_ramworksSize = 0; // 0=none, else total aux MB (1, 3, 16)
 
