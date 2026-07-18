@@ -488,6 +488,10 @@ int main(int argc, char *argv[])
       }
       if (p.version >= 9) {
         g_slotUthernet = p.slotUthernet;
+      if (p.version >= 10) {
+        strncpy(g_wifiSSID, p.wifiSSID, sizeof(g_wifiSSID)-1); g_wifiSSID[sizeof(g_wifiSSID)-1]=0;
+        strncpy(g_wifiPass, p.wifiPass, sizeof(g_wifiPass)-1); g_wifiPass[sizeof(g_wifiPass)-1]=0;
+      }
       }
     }
   }
@@ -589,6 +593,10 @@ void readPrefs()
     }
     if (p.version >= 9) {
       g_slotUthernet = p.slotUthernet;
+      if (p.version >= 10) {
+        strncpy(g_wifiSSID, p.wifiSSID, sizeof(g_wifiSSID)-1); g_wifiSSID[sizeof(g_wifiSSID)-1]=0;
+        strncpy(g_wifiPass, p.wifiPass, sizeof(g_wifiPass)-1); g_wifiPass[sizeof(g_wifiPass)-1]=0;
+      }
     }
     if (p.disk1[0]) {
       ((AppleVM *)g_vm)->insertDisk(0, p.disk1);
@@ -640,6 +648,8 @@ void writePrefs()
   p.slotMouse = g_slotMouse;
   p.slotMockingboard = g_slotMockingboard;
   p.slotUthernet = g_slotUthernet;
+  strncpy(p.wifiSSID, g_wifiSSID, sizeof(p.wifiSSID)); p.wifiSSID[sizeof(p.wifiSSID)-1]=0;
+  strncpy(p.wifiPass, g_wifiPass, sizeof(p.wifiPass)); p.wifiPass[sizeof(p.wifiPass)-1]=0;
 
   p.ramworksSize = g_ramworksSize;
 

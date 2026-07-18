@@ -37,6 +37,7 @@ class BIOS {
   uint16_t AboutScreenHandler(bool needsRedraw, bool performAction);
   uint16_t PaddlesScreenHandler(bool needsRedraw, bool performAction);
   uint16_t SelectFileScreenHandler(bool needsRedraw, bool performAction);
+  uint16_t WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t key);
 
   uint8_t GetAction(int8_t prevAction);
   bool isActionActive(int8_t action);

@@ -50,6 +50,7 @@ enum {
   BIOS_ABOUT = 5,
   BIOS_PADDLES = 6,
   BIOS_SELECTFILE = 7,
+  BIOS_WIFI = 8,
 
   BIOS_DONE = 99,
 };
@@ -87,6 +88,7 @@ enum {
   ACT_SLOT_RAMWORKS = 29,
   ACT_UPDATEFW = 30,
   ACT_SLOT_UTHERNET = 31,
+  ACT_WIFI = 32,
 };
 
 #define NUM_TITLES 5
@@ -109,6 +111,7 @@ const uint8_t hardwareActions[] = { ACT_DISPLAYTYPE,  ACT_LUMINANCEUP,
 const uint8_t cardsActions[] = { ACT_SLOT_DISKII, ACT_SLOT_PARALLEL,
 				 ACT_SLOT_HD32, ACT_SLOT_MOUSE,
 				 ACT_SLOT_MOCKINGBOARD, ACT_SLOT_UTHERNET,
+				 ACT_WIFI,
 				 ACT_SLOT_RAMWORKS,
 				 ACT_SLOT_DEFAULTS };
 const uint8_t diskActions[] = { ACT_DISK1, ACT_DISK2,
@@ -361,6 +364,9 @@ bool BIOS::loop()
     break;
   case BIOS_SELECTFILE:
     rv = SelectFileScreenHandler(needsRedraw, hitReturn);
+    break;
+  case BIOS_WIFI:
+    rv = WiFiScreenHandler(needsRedraw, hitReturn, lastKey);
     break;
   }
 
@@ -754,6 +760,9 @@ uint16_t BIOS::CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key
           localRedraw = true;
         }
         break;
+      case ACT_WIFI:
+        localRedraw = true;   // force a fresh draw when we return here
+        return BIOS_WIFI;
       case ACT_SLOT_DEFAULTS:
         g_slotDiskII = 6;
         g_slotParallel = 1;
@@ -1014,8 +1023,108 @@ uint16_t BIOS::PaddlesScreenHandler(bool needsRedraw, bool performAction)
   if (performAction) {
     return BIOS_HARDWARE;
   }
-  
+
   return BIOS_PADDLES;
+}
+
+// WiFi credentials for the Teensy's ESP co-processor. Four fields: SSID,
+// Password, Connect, Back. Up/Down move between them; on a text field, typing
+// edits it (DEL erases). Editing writes directly into the globals, which are
+// persisted to prefs when the BIOS exits. On SDL (no radio) this still lets you
+// store the values, and the status line reports the virtual network as up.
+uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t key)
+{
+  static bool localRedraw = true;
+  static bool entered = false;
+  static bool refreshStatus = true;
+  static bool connecting = false;
+  static int  cachedSt = 0;
+  static uint8_t cachedIp[4] = {0, 0, 0, 0};
+
+  if (!entered) { entered = true; refreshStatus = true; localRedraw = true; }
+
+  // 4 fields: 0 SSID, 1 Password, 2 Connect, 3 Back.
+  if (selectedMenuItem < 0) selectedMenuItem = 3;
+  selectedMenuItem %= 4;
+
+  if (key == PK_ESC) { entered = false; selectedMenuItem = 0; return BIOS_CARDS; }
+
+  // Text entry into the SSID / Password fields.
+  if (selectedMenuItem == 0 || selectedMenuItem == 1) {
+    char *field = (selectedMenuItem == 0) ? g_wifiSSID : g_wifiPass;
+    size_t cap = (selectedMenuItem == 0) ? 32 : 63;   // leave room for the NUL
+    size_t len = strlen(field);
+    if (key == PK_DEL) {
+      if (len > 0) { field[len - 1] = 0; localRedraw = true; }
+    } else if (key >= 0x20 && key <= 0x7E) {
+      if (len < cap) { field[len] = (char)key; field[len + 1] = 0; localRedraw = true; }
+    }
+  }
+
+  if (performAction) {
+    switch (selectedMenuItem) {
+    case 0: selectedMenuItem = 1; localRedraw = true; break;  // SSID -> Password
+    case 1: selectedMenuItem = 2; localRedraw = true; break;  // Password -> Connect
+    case 2:                                                   // Connect
+      if (g_uthernet) {
+        g_display->clrScr(c_darkblue);
+        g_display->drawString(M_SELECTED, MENUINDENT, 60, "Connecting...");
+        g_display->flush();
+        g_uthernet->wifiJoin(g_wifiSSID, g_wifiPass);
+      }
+      connecting = true; refreshStatus = true; localRedraw = true;
+      break;
+    case 3:                                                   // Back
+      entered = false; selectedMenuItem = 0;
+      return BIOS_CARDS;
+    }
+  }
+
+  if (needsRedraw || localRedraw) {
+    char buf[80];
+    if (refreshStatus) {
+      if (g_uthernet) cachedSt = g_uthernet->wifiStatus(cachedIp);
+      else            cachedSt = -1;
+      refreshStatus = false;
+    }
+
+    g_display->clrScr(c_darkblue);
+    g_display->drawString(M_NORMAL, MENUINDENT, 8, "WiFi Setup");
+
+    snprintf(buf, sizeof(buf), "SSID:     %s", g_wifiSSID);
+    g_display->drawString(selectedMenuItem == 0 ? M_SELECTED : M_NORMAL,
+                          MENUINDENT, 8 + LINEHEIGHT * 2, buf);
+    snprintf(buf, sizeof(buf), "Password: %s", g_wifiPass);
+    g_display->drawString(selectedMenuItem == 1 ? M_SELECTED : M_NORMAL,
+                          MENUINDENT, 8 + LINEHEIGHT * 3, buf);
+
+    g_display->drawString(selectedMenuItem == 2 ? M_SELECTED : M_NORMAL,
+                          MENUINDENT, 8 + LINEHEIGHT * 5, "[ Connect ]");
+    g_display->drawString(selectedMenuItem == 3 ? M_SELECTED : M_NORMAL,
+                          MENUINDENT, 8 + LINEHEIGHT * 6, "[ Back ]");
+
+    if (cachedSt < 0) {
+      strcpy(buf, "Status:   Card not enabled");
+    } else if (cachedSt == 0) {
+      strcpy(buf, "Status:   ESP-01 not responding");
+    } else if (cachedSt == 2) {
+      snprintf(buf, sizeof(buf), "Status:   Connected  %d.%d.%d.%d",
+               cachedIp[0], cachedIp[1], cachedIp[2], cachedIp[3]);
+    } else {
+      strcpy(buf, connecting ? "Status:   WiFi not joined (pass?)"
+                             : "Status:   WiFi not joined");
+    }
+    g_display->drawString(M_DISABLED, MENUINDENT, 8 + LINEHEIGHT * 8, buf);
+
+    g_display->drawString(M_DISABLED, MENUINDENT, 8 + LINEHEIGHT * 10,
+                          "Type to edit. DEL erases. Return = next.");
+    g_display->drawString(M_DISABLED, MENUINDENT, 8 + LINEHEIGHT * 11,
+                          "ESC or [Back] returns to Cards.");
+    g_display->flush();
+    localRedraw = false;
+  }
+
+  return BIOS_WIFI;
 }
 
 static void insertDisk(int forWhat, const char *path,
@@ -1156,6 +1265,7 @@ bool BIOS::isActionActive(int8_t action)
   case ACT_SLOT_UTHERNET:
   case ACT_SLOT_RAMWORKS:
   case ACT_SLOT_DEFAULTS:
+  case ACT_WIFI:
     return true;
 
   case ACT_LUMINANCEUP:
@@ -1432,6 +1542,10 @@ void BIOS::DrawCardsMenu()
         }
         snprintf(buf, sizeof(buf), "%-14s %s", "RamWorks", sz);
       }
+      goto drawit;
+    case ACT_WIFI:
+      snprintf(buf, sizeof(buf), "%-14s %s", "WiFi Setup",
+               g_wifiSSID[0] ? g_wifiSSID : "Configure...");
       goto drawit;
     case ACT_SLOT_DEFAULTS:
       strcpy(buf, "Reset to defaults");

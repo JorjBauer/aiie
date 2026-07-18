@@ -29,6 +29,8 @@ uint8_t g_slotHD32 = 7;
 uint8_t g_slotMouse = 2;
 uint8_t g_slotMockingboard = 4;
 uint8_t g_slotUthernet = 0; // 0 = disabled; set to a slot number to enable
+char g_wifiSSID[33] = {0};   // ESP WiFi credentials (Teensy Uthernet MAC-RAW)
+char g_wifiPass[64] = {0};
 
 uint8_t g_ramworksSize = 0; // 0=none, else total aux MB (1, 3, 16)
 

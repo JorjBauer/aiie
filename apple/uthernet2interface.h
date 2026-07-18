@@ -90,6 +90,17 @@ class Uthernet2Interface {
   virtual int sendRawFrame(const uint8_t *frame, uint16_t len) { return 0; }
   virtual int recvRawFrame(uint8_t *buf, uint16_t maxLen) { return 0; }
 
+  /* WiFi control for backends with a real radio (the Teensy's ESP). The BIOS
+   * uses these to configure and show connection status. Backends with no radio
+   * (SDL's virtual network) report "up" and ignore the join. */
+  virtual void wifiJoin(const char *ssid, const char *pass) { (void)ssid; (void)pass; }
+  // 0 = co-processor link down, 1 = link up but WiFi not joined, 2 = connected.
+  // A backend with no radio (SDL's virtual network) is always "connected".
+  virtual int  wifiStatus(uint8_t ip[4]) {
+    if (ip) { ip[0] = ip[1] = ip[2] = ip[3] = 0; }
+    return 2;
+  }
+
   /* Resolve a hostname to an IPv4 address. Returns true on success. */
   virtual bool resolveName(const char *host, uint8_t ip[4]) { return false; }
 

@@ -44,7 +44,7 @@ setup:
 	$(ARDUINO_CLI) core update-index
 	$(ARDUINO_CLI) core install esp8266:esp8266
 
-upload:
+upload: build
 	$(ARDUINO_CLI) upload -p $(PORT) --fqbn $(FQBN_FULL) --input-dir $(BUILD_DIR) .
 
 monitor:

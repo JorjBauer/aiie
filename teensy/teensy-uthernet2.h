@@ -63,6 +63,9 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
   virtual int sendRawFrame(const uint8_t *frame, uint16_t len);
   virtual int recvRawFrame(uint8_t *buf, uint16_t maxLen);
 
+  virtual void wifiJoin(const char *ssid, const char *pass);
+  virtual int  wifiStatus(uint8_t ip[4]);
+
   virtual bool resolveName(const char *host, uint8_t ip[4]);
   virtual void tick(int64_t cycleCount);
 
@@ -81,6 +84,8 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
   // Send one command and block until its matching reply arrives (or timeout).
   bool command(uint8_t type, const uint8_t *payload, uint16_t len,
                uint32_t timeoutMs = 200);
+  bool pingOnce();   // one link probe (sets linkUp on reply)
+  bool probeLink();  // throttled re-probe while the link is down
 
   Stream     *link;
   FrameParser parser;

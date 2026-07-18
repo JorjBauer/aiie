@@ -82,6 +82,11 @@ extern uint8_t g_slotMouse;
 extern uint8_t g_slotMockingboard;
 extern uint8_t g_slotUthernet;
 
+// WiFi credentials for the Teensy's ESP co-processor (Uthernet MAC-RAW mode).
+// Empty SSID means "not configured"; the ESP joins nothing.
+extern char g_wifiSSID[33];
+extern char g_wifiPass[64];
+
 // RamWorks-compatible aux-memory expansion size, in megabytes.
 // 0 = none (stock Extended 80-column card); 1, 3, or 16 = total aux RAM.
 extern uint8_t g_ramworksSize;

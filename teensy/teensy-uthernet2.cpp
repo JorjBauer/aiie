@@ -110,6 +110,45 @@ int TeensyUthernet2::recvRawFrame(uint8_t *buf, uint16_t maxLen)
   return (int)usernet.toApple(buf, maxLen);
 }
 
+void TeensyUthernet2::wifiJoin(const char *ssid, const char *pass)
+{
+  setNetwork(ssid, pass);
+  begin();  // re-probe the link and (re)join with the new credentials
+}
+
+bool TeensyUthernet2::pingOnce()
+{
+  // One link probe. The ESP is reply-only, so we ping and see if it answers.
+  uint8_t echo = 0x5A;
+  if (command(CMD_LINK_PING, &echo, 1, 60)) linkUp = true;
+  return linkUp;
+}
+
+bool TeensyUthernet2::probeLink()
+{
+  // Throttled re-probe for repeated polling (tick and the BIOS status screen):
+  // at most one ping every 3s while down, so a late-booting or absent ESP is
+  // detected without blocking the caller on every call.
+  if (linkUp) return true;
+  if (lastProbe && (uint32_t)(millis() - lastProbe) < 3000) return false;
+  lastProbe = millis();
+  return pingOnce();
+}
+
+int TeensyUthernet2::wifiStatus(uint8_t ip[4])
+{
+  if (ip) { ip[0] = ip[1] = ip[2] = ip[3] = 0; }
+  // Re-probe when down so the BIOS WiFi screen is a live link test: an ESP that
+  // was not ready when the card was enabled can still come up and be detected.
+  if (!linkUp) probeLink();
+  if (!linkUp) return 0;   // the ESP co-processor is not answering
+  if (command(CMD_WIFI_STATUS, nullptr, 0, 300) && rpType == EVT_WIFI && rpLen >= 5) {
+    if (ip) { ip[0] = rpBuf[1]; ip[1] = rpBuf[2]; ip[2] = rpBuf[3]; ip[3] = rpBuf[4]; }
+    return rpBuf[0] ? 2 : 1;   // 2 = joined (IP valid), 1 = link up, not joined
+  }
+  return 1;   // link is up but the status query failed
+}
+
 uint32_t TeensyUthernet2::statFramesSent()     { return cTx; }
 uint32_t TeensyUthernet2::statFramesReceived() { return parser.framesOk; }
 uint32_t TeensyUthernet2::statCrcErrors()      { return parser.crcErrors; }
@@ -119,12 +158,9 @@ uint32_t TeensyUthernet2::statTimeouts()       { return cTimeouts; }
 void TeensyUthernet2::begin()
 {
   linkUp = false;
-  // Probe the link: the ESP is reply-only, so poll it until it answers. Keep
-  // this short so an absent or unpowered ESP does not stall boot for long.
-  uint8_t echo = 0x5A;
-  for (int i = 0; i < 10 && !linkUp; i++) {
-    if (command(CMD_LINK_PING, &echo, 1, 60)) linkUp = true;
-  }
+  // Aggressive burst at startup so a ready ESP is found quickly; later re-probes
+  // (tick, wifiStatus) are throttled via probeLink().
+  for (int i = 0; i < 10 && !linkUp; i++) pingOnce();
   if (linkUp && haveCreds) {
     uint8_t buf[1 + 32 + 1 + 64];
     uint16_t o = 0;
@@ -289,12 +325,7 @@ void TeensyUthernet2::tick(int64_t cycleCount)
 {
   (void)cycleCount;
   if (!linkUp) {
-    // Retry the link occasionally so it recovers if the ESP came up late.
-    if ((uint32_t)(millis() - lastProbe) > 3000) {
-      lastProbe = millis();
-      uint8_t echo = 0x5A;
-      if (command(CMD_LINK_PING, &echo, 1, 60)) linkUp = true;
-    }
+    probeLink();  // throttled retry so the link recovers if the ESP came up late
     return;
   }
 

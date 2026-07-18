@@ -177,6 +177,26 @@ static SoftwareSerial espLink(19, 18);
 #define UTHERNET_HOSTFWD NULL
 #endif
 
+// Bring up the ESP8266 network co-processor and its transport backend.
+// Idempotent: does nothing if the Uthernet card has no slot, or if the backend
+// is already running. Runs at boot (from setup) and again when the BIOS exits,
+// so enabling the card in the BIOS takes effect without a physical power-cycle.
+// The emulated Uthernet2 card reads g_uthernet lazily on every access (each use
+// guarded by a NULL check), so constructing the backend after the card is safe.
+void bringUpUthernet()
+{
+  if (g_uthernet || !g_slotUthernet) return;
+  println(" uthernet");
+  espLink.begin(115200);
+  TeensyUthernet2 *u2 = new TeensyUthernet2(&espLink, UTHERNET_HOSTFWD);
+  // Credentials come from the BIOS (persisted in prefs). The compile-time
+  // UTHERNET_WIFI_* is only a fallback for bench builds with nothing saved.
+  if (g_wifiSSID[0])              u2->setNetwork(g_wifiSSID, g_wifiPass);
+  else if (UTHERNET_WIFI_SSID[0]) u2->setNetwork(UTHERNET_WIFI_SSID, UTHERNET_WIFI_PASS);
+  g_uthernet = u2;
+  g_uthernet->begin();  // joins the AP if credentials were set
+}
+
 void setup()
 {
   Serial.begin(230400);
@@ -255,6 +275,10 @@ void setup()
       if (p.slotMouse <= 7)        g_slotMouse = p.slotMouse;
       if (p.slotMockingboard <= 7) g_slotMockingboard = p.slotMockingboard;
       if (p.slotUthernet <= 7)     g_slotUthernet = p.slotUthernet;
+      if (p.version >= 10) {
+        strncpy(g_wifiSSID, p.wifiSSID, sizeof(g_wifiSSID)-1); g_wifiSSID[sizeof(g_wifiSSID)-1]=0;
+        strncpy(g_wifiPass, p.wifiPass, sizeof(g_wifiPass)-1); g_wifiPass[sizeof(g_wifiPass)-1]=0;
+      }
       if (p.version >= 7)          g_ramworksSize = p.ramworksSize;
     }
   }
@@ -262,16 +286,10 @@ void setup()
   // Bring up the ESP8266 network co-processor if the Uthernet card is enabled.
   // The link is half-duplex SoftwareSerial on the free A4/A5 pins:
   //   ESP TXD -> Teensy pin 19 (we receive), ESP RXD -> Teensy pin 18 (we send).
-  // This must happen before AppleVM is constructed, since the Uthernet2 card's
-  // constructor resets the backend through g_uthernet.
-  if (g_slotUthernet) {
-    println(" uthernet");
-    espLink.begin(115200);
-    TeensyUthernet2 *u2 = new TeensyUthernet2(&espLink, UTHERNET_HOSTFWD);
-    if (UTHERNET_WIFI_SSID[0]) u2->setNetwork(UTHERNET_WIFI_SSID, UTHERNET_WIFI_PASS);
-    g_uthernet = u2;
-    g_uthernet->begin();  // joins the AP if credentials were set
-  }
+  // This happens before AppleVM is constructed so the card sees its backend on
+  // the first access; if the card is enabled later (from the BIOS) the exit
+  // path calls bringUpUthernet() again.
+  bringUpUthernet();
 
   // Create the virtual machine. This may read from g_filemanager to
   // get ROMs if necessary.  (The actual Apple VM we've built has them
@@ -573,6 +591,12 @@ void loop()
       g_speaker->reset();
       writePrefs();
 
+      // If the Uthernet card was just enabled in the BIOS, its transport
+      // backend does not exist yet (it is built at boot from g_slotUthernet,
+      // and the BIOS "reboot" only resets the emulated Apple, not this
+      // firmware). Bring it up now so the card works without a power-cycle.
+      bringUpUthernet();
+
       TeensyPaddles *tmp = (TeensyPaddles *)g_paddles;
       tmp->setRev(g_invertPaddleX, g_invertPaddleY);
 
@@ -703,6 +727,10 @@ void readPrefs()
     if (p.slotMouse <= 7) g_slotMouse = p.slotMouse;
     if (p.slotMockingboard <= 7) g_slotMockingboard = p.slotMockingboard;
     if (p.slotUthernet <= 7) g_slotUthernet = p.slotUthernet;
+    if (p.version >= 10) {
+      strncpy(g_wifiSSID, p.wifiSSID, sizeof(g_wifiSSID)-1); g_wifiSSID[sizeof(g_wifiSSID)-1]=0;
+      strncpy(g_wifiPass, p.wifiPass, sizeof(g_wifiPass)-1); g_wifiPass[sizeof(g_wifiPass)-1]=0;
+    }
 
     g_ramworksSize = p.ramworksSize;
 
@@ -755,6 +783,8 @@ void writePrefs()
   p.slotMouse = g_slotMouse;
   p.slotMockingboard = g_slotMockingboard;
   p.slotUthernet = g_slotUthernet;
+  strncpy(p.wifiSSID, g_wifiSSID, sizeof(p.wifiSSID)); p.wifiSSID[sizeof(p.wifiSSID)-1]=0;
+  strncpy(p.wifiPass, g_wifiPass, sizeof(p.wifiPass)); p.wifiPass[sizeof(p.wifiPass)-1]=0;
 
   p.ramworksSize = g_ramworksSize;
 
