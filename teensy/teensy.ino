@@ -169,6 +169,14 @@ static SoftwareSerial espLink(19, 18);
 #define UTHERNET_WIFI_PASS ""
 #endif
 
+// Inbound port forwarding for MAC-RAW own-stack software running a server (e.g.
+// a Contiki/IP65 webserver on the Apple). Format "espPort:applePort[,...]":
+// e.g. "80:80" lets a LAN client reach the ESP's IP:80 and hit the Apple's
+// webserver on port 80. NULL disables it.
+#ifndef UTHERNET_HOSTFWD
+#define UTHERNET_HOSTFWD NULL
+#endif
+
 void setup()
 {
   Serial.begin(230400);
@@ -259,7 +267,7 @@ void setup()
   if (g_slotUthernet) {
     println(" uthernet");
     espLink.begin(115200);
-    TeensyUthernet2 *u2 = new TeensyUthernet2(&espLink);
+    TeensyUthernet2 *u2 = new TeensyUthernet2(&espLink, UTHERNET_HOSTFWD);
     if (UTHERNET_WIFI_SSID[0]) u2->setNetwork(UTHERNET_WIFI_SSID, UTHERNET_WIFI_PASS);
     g_uthernet = u2;
     g_uthernet->begin();  // joins the AP if credentials were set

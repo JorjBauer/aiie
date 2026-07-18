@@ -4,6 +4,9 @@
 #include <Arduino.h>
 #include "uthernet2interface.h"
 #include "frame.h"
+#include "esptransport.h"
+#include "usernet-esp.h"
+#include "usernet.h"
 
 /* TeensyUthernet2 carries Uthernet2 traffic to an ESP8266 co-processor over a
  * UART, using the framed binary protocol in protocol.h. The ESP runs the real
@@ -22,10 +25,19 @@
 #define TU2_RXBUF 1460
 #define TU2_MAX_RETRIES 2  // resends before a command gives up (3 tries total)
 
-class TeensyUthernet2 : public Uthernet2Interface {
+class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
  public:
-  TeensyUthernet2(Stream *link);
+  // hostfwd optionally forwards ESP (WiFi) ports to Apple server ports, e.g.
+  // "80:80" so a LAN client reaching the ESP's IP:80 hits the Apple's webserver.
+  // Format "espPort:applePort[,...]"; NULL disables inbound forwarding.
+  TeensyUthernet2(Stream *link, const char *hostfwd = nullptr);
   virtual ~TeensyUthernet2();
+
+  // EspTransport: lets UnBackendEsp issue socket commands over this link.
+  virtual bool espCommand(uint8_t type, const uint8_t *payload, uint16_t len,
+                          uint8_t &rType, uint8_t *rBuf, uint16_t rCap,
+                          uint16_t &rLen, uint32_t timeoutMs);
+  virtual uint32_t nowSecs();
 
   // Provide the AP credentials the ESP should join in begin(). Optional.
   void setNetwork(const char *ssid, const char *pass);
@@ -45,6 +57,11 @@ class TeensyUthernet2 : public Uthernet2Interface {
                          const uint8_t destIp[4], uint16_t destPort);
   virtual int socketRecv(uint8_t sock, uint8_t *buf, uint16_t maxLen,
                          uint8_t srcIp[4], uint16_t *srcPort);
+
+  // MAC-RAW (own-stack software): frames are handled by the on-Teensy UserNet,
+  // which NATs to the ESP's sockets.
+  virtual int sendRawFrame(const uint8_t *frame, uint16_t len);
+  virtual int recvRawFrame(uint8_t *buf, uint16_t maxLen);
 
   virtual bool resolveName(const char *host, uint8_t ip[4]);
   virtual void tick(int64_t cycleCount);
@@ -97,6 +114,13 @@ class TeensyUthernet2 : public Uthernet2Interface {
   char ssid[33];
   char pass[65];
   bool haveCreds;
+
+  // MAC-RAW: the same user-mode NAT stack the SDL build uses, driven here by an
+  // UnBackendEsp that maps onto this link's socket protocol. unEsp is declared
+  // before usernet so it is constructed first.
+  UnBackendEsp unEsp;
+  UserNet      usernet;
+  bool         macraw;   // true once the Apple opens socket 0 in MAC-RAW mode
 };
 
 #endif

@@ -83,6 +83,8 @@ static int dhcpBuildReply(const uint8_t *req, int reqlen, uint8_t *out)
 }
 
 SDLUthernet2::SDLUthernet2()
+  : usernet(&unBsd, getenv("AIIE_USERNET_DEBUG") != NULL,
+            getenv("AIIE_USERNET_HOSTFWD"))
 {
   for (int i = 0; i < U2_NUM_SOCKETS; i++) {
     fd[i] = -1;

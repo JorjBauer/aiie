@@ -1,15 +1,17 @@
 #include "usernet.h"
 #include <string.h>
+#include <stdarg.h>
+
+// Portable debug trace: writes to stderr on the host, no-op on the Teensy
+// (where stderr does not exist). Guarded by the per-instance dbg flag anyway.
+#ifdef TEENSYDUINO
+static inline void unLog(const char *, ...) {}
+#else
 #include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
-#include <poll.h>
-#include <errno.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
+static void unLog(const char *fmt, ...) {
+  va_list ap; va_start(ap, fmt); vfprintf(stderr, fmt, ap); va_end(ap);
+}
+#endif
 
 /* ---- the virtual LAN --------------------------------------------------- *
  * A QEMU-style user network. The Apple is the client; everything else here
@@ -85,11 +87,6 @@ static bool inSubnet(const uint8_t *ip) {
 static bool isOurIp(const uint8_t *ip) {
   return !memcmp(ip, GW_IP, 4) || !memcmp(ip, DNS_IP, 4);
 }
-static void setNonBlock(int fd) {
-  int fl = fcntl(fd, F_GETFL, 0);
-  if (fl >= 0) fcntl(fd, F_SETFL, fl | O_NONBLOCK);
-}
-static uint32_t nowSecs() { return (uint32_t)time(NULL); }
 
 // Where a destination the Apple addressed actually lives on the host side.
 // Following the QEMU user-net convention: the gateway (10.0.2.2) is the host
@@ -102,16 +99,18 @@ static void mapRealIp(const uint8_t *dip, uint8_t *realIp) {
   else                              memcpy(realIp, dip, 4);
 }
 
-UserNet::UserNet() {
+UserNet::UserNet(UnBackend *b, bool debug, const char *hostfwd) : backend(b) {
   for (int i = 0; i < USERNET_FLOWS; i++) flows[i].fd = -1;
   for (int i = 0; i < USERNET_FWDS; i++) fwds[i].lfd = -1;
-  dbg = getenv("AIIE_USERNET_DEBUG") != NULL;
+  dbg = debug;
   reset();
-  setupListeners(); // host listeners persist across card resets
+  setupListeners(hostfwd); // host listeners persist across card resets
 }
+
+uint32_t UserNet::nowSecs() { return backend->nowSecs(); }
 UserNet::~UserNet() {
-  for (int i = 0; i < USERNET_FLOWS; i++) if (flows[i].fd >= 0) close(flows[i].fd);
-  for (int i = 0; i < USERNET_FWDS; i++) if (fwds[i].lfd >= 0) close(fwds[i].lfd);
+  for (int i = 0; i < USERNET_FLOWS; i++) if (flows[i].fd >= 0) backend->sockClose(flows[i].fd);
+  for (int i = 0; i < USERNET_FWDS; i++) if (fwds[i].lfd >= 0) backend->sockClose(fwds[i].lfd);
 }
 
 void UserNet::reset() {
@@ -124,7 +123,7 @@ void UserNet::reset() {
   qHead = qTail = 0;
   for (int i = 0; i < USERNET_QUEUE; i++) qlen[i] = 0;
   for (int i = 0; i < USERNET_FLOWS; i++) {
-    if (flows[i].fd >= 0) close(flows[i].fd);
+    if (flows[i].fd >= 0) backend->sockClose(flows[i].fd);
     memset(&flows[i], 0, sizeof(flows[i]));
     flows[i].fd = -1;
     flows[i].state = UN_FREE;
@@ -140,8 +139,7 @@ void UserNet::appleServerIp(uint8_t out[4]) const {
 
 // Parse AIIE_USERNET_HOSTFWD ("hostport:appleport[,hostport:appleport...]") and
 // open a host TCP listener on 127.0.0.1 for each rule.
-void UserNet::setupListeners() {
-  const char *cfg = getenv("AIIE_USERNET_HOSTFWD");
+void UserNet::setupListeners(const char *cfg) {
   if (!cfg) return;
   uint8_t n = 0;
   const char *p = cfg;
@@ -152,25 +150,14 @@ void UserNet::setupListeners() {
     p++;
     while (*p >= '0' && *p <= '9') ap = ap * 10 + (*p++ - '0');
     if (hp > 0 && hp < 65536 && ap > 0 && ap < 65536) {
-      int s = socket(AF_INET, SOCK_STREAM, 0);
+      int s = backend->tcpListen((uint16_t)hp);
       if (s >= 0) {
-        int yes = 1; setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes));
-        struct sockaddr_in a;
-        memset(&a, 0, sizeof(a));
-        a.sin_family = AF_INET;
-        a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-        a.sin_port = htons((uint16_t)hp);
-        if (bind(s, (struct sockaddr *)&a, sizeof(a)) == 0 && listen(s, 4) == 0) {
-          setNonBlock(s);
-          fwds[n].lfd = s; fwds[n].applePort = (uint16_t)ap; n++;
-          fprintf(stderr, "Uthernet: host forward 127.0.0.1:%d -> Apple :%d\n", hp, ap);
-        } else {
-          // Do not fail silently: a busy or privileged host port is the usual
-          // reason an inbound forward "does nothing".
-          fprintf(stderr, "Uthernet: cannot open host forward port %d: %s\n",
-                  hp, strerror(errno));
-          close(s);
-        }
+        fwds[n].lfd = s; fwds[n].applePort = (uint16_t)ap; n++;
+        unLog("Uthernet: host forward 127.0.0.1:%d -> Apple :%d\n", hp, ap);
+      } else {
+        // Do not fail silently: a busy or privileged host port is the usual
+        // reason an inbound forward "does nothing".
+        unLog("Uthernet: cannot open host forward port %d\n", hp);
       }
     }
     if (*p == ',') p++; else break;
@@ -209,18 +196,18 @@ void UserNet::fromApple(const uint8_t *frame, uint16_t len) {
   uint16_t ethertype = rd16(frame + 12);
   if (dbg) {
     if (ethertype == ETH_ARP && len >= 42)
-      fprintf(stderr, "[un] < ARP who-has %u.%u.%u.%u\n",
+      unLog("[un] < ARP who-has %u.%u.%u.%u\n",
               frame[38], frame[39], frame[40], frame[41]);
     else if (ethertype == ETH_IPV4 && len >= 34) {
       const uint8_t *ip = frame + 14; uint16_t ihl = (ip[0] & 0xF) * 4;
       const uint8_t *l4 = ip + ihl;
-      fprintf(stderr, "[un] < IP proto=%u %u.%u.%u.%u -> %u.%u.%u.%u",
+      unLog("[un] < IP proto=%u %u.%u.%u.%u -> %u.%u.%u.%u",
               ip[9], ip[12], ip[13], ip[14], ip[15], ip[16], ip[17], ip[18], ip[19]);
-      if (ip[9] == IP_TCP) fprintf(stderr, " tcp :%u->:%u flags=0x%02X",
+      if (ip[9] == IP_TCP) unLog(" tcp :%u->:%u flags=0x%02X",
               rd16(l4), rd16(l4 + 2), l4[13]);
-      else if (ip[9] == IP_UDP) fprintf(stderr, " udp :%u->:%u", rd16(l4), rd16(l4 + 2));
-      fprintf(stderr, "\n");
-    } else fprintf(stderr, "[un] < ethertype 0x%04X\n", ethertype);
+      else if (ip[9] == IP_UDP) unLog(" udp :%u->:%u", rd16(l4), rd16(l4 + 2));
+      unLog("\n");
+    } else unLog("[un] < ethertype 0x%04X\n", ethertype);
   }
   if (ethertype == ETH_ARP)       handleArp(frame, len);
   else if (ethertype == ETH_IPV4) handleIp(frame, len);
@@ -313,17 +300,11 @@ void UserNet::handleUdp(const uint8_t *f, uint16_t len, const uint8_t *ip) {
     memcpy(fl->appleIp, aip, 4); fl->applePort = sport;
     memcpy(fl->dstIp, dip, 4);   fl->dstPort = dport;
     mapRealIp(dip, fl->realIp);
-    fl->fd = socket(AF_INET, SOCK_DGRAM, 0);
+    fl->fd = backend->udpOpen(0);
     if (fl->fd < 0) { closeFlow(fl); return; }
-    setNonBlock(fl->fd);
   }
   fl->lastActive = nowSecs();
-  struct sockaddr_in a;
-  memset(&a, 0, sizeof(a));
-  a.sin_family = AF_INET;
-  memcpy(&a.sin_addr.s_addr, fl->realIp, 4);
-  a.sin_port = htons(dport);
-  sendto(fl->fd, udp + 8, ulen - 8, 0, (struct sockaddr *)&a, sizeof(a));
+  backend->udpSend(fl->fd, fl->realIp, dport, udp + 8, ulen - 8);
 }
 
 void UserNet::handleDhcp(const uint8_t *req, uint16_t plen) {
@@ -468,30 +449,18 @@ void UserNet::handleTcp(const uint8_t *f, uint16_t len, const uint8_t *ip) {
     fl->appleWin = win;
     fl->finRcvd = fl->finSent = false;
     fl->lastActive = nowSecs();
-    fl->fd = socket(AF_INET, SOCK_STREAM, 0);
+    fl->fd = backend->tcpOpen();
     if (fl->fd < 0) { closeFlow(fl); return; }
-    setNonBlock(fl->fd);
-    struct sockaddr_in a;
-    memset(&a, 0, sizeof(a));
-    a.sin_family = AF_INET;
-    memcpy(&a.sin_addr.s_addr, fl->realIp, 4);
-    a.sin_port = htons(dport);
-    int r = connect(fl->fd, (struct sockaddr *)&a, sizeof(a));
-    if (dbg) fprintf(stderr, "[un]   connect %u.%u.%u.%u:%u r=%d errno=%d\n",
-                     fl->realIp[0], fl->realIp[1], fl->realIp[2], fl->realIp[3],
-                     dport, r, r == 0 ? 0 : (int)errno);
-    if (r == 0) {
-      // Connected already (typical for loopback): answer the handshake now.
-      fl->state = UN_TCP_SYNACK;
-      sendTcp(fl, TH_SYN | TH_ACK, 0, 0);
-    } else if (errno == EINPROGRESS || errno == EWOULDBLOCK) {
-      // Defer the SYN-ACK until connect() completes, so the Apple does not send
-      // data before the real connection exists. serviceTcp() finishes this.
-      fl->state = UN_TCP_CONN;
-    } else {
+    if (dbg) unLog("[un]   connect %u.%u.%u.%u:%u\n",
+                     fl->realIp[0], fl->realIp[1], fl->realIp[2], fl->realIp[3], dport);
+    if (!backend->tcpConnect(fl->fd, fl->realIp, dport)) {
       sendTcp(fl, TH_RST | TH_ACK, 0, 0); // refused/unreachable: reset the Apple
       closeFlow(fl);
+      return;
     }
+    // Always defer the SYN-ACK until the connect completes (serviceTcp polls),
+    // so the Apple does not send data before the real connection exists.
+    fl->state = UN_TCP_CONN;
     return;
   }
 
@@ -524,7 +493,7 @@ void UserNet::handleTcp(const uint8_t *f, uint16_t len, const uint8_t *ip) {
       const uint8_t *p = payload + off;
       uint16_t n = (uint16_t)(paylen - off);
       if (fl->fd >= 0) {
-        ssize_t w = send(fl->fd, p, n, 0);
+        int w = backend->tcpSend(fl->fd, p, n);
         if (w > 0) fl->rcvNext += (uint32_t)w;
       }
     }
@@ -535,7 +504,7 @@ void UserNet::handleTcp(const uint8_t *f, uint16_t len, const uint8_t *ip) {
   if ((flags & TH_FIN) && seq + paylen == fl->rcvNext && !fl->finRcvd) {
     fl->rcvNext += 1;              // FIN consumes one sequence number
     fl->finRcvd = true;
-    if (fl->fd >= 0) shutdown(fl->fd, SHUT_WR);
+    if (fl->fd >= 0) backend->tcpShutdownWrite(fl->fd);
     if (fl->state == UN_TCP_EST) fl->state = UN_TCP_FIN;
     sendTcp(fl, TH_ACK, 0, 0);
   }
@@ -562,7 +531,7 @@ UnFlow *UserNet::allocFlow() {
   return nullptr; // table full: drop (the Apple's stack will retry)
 }
 void UserNet::closeFlow(UnFlow *f) {
-  if (f->fd >= 0) close(f->fd);
+  if (f->fd >= 0) backend->sockClose(f->fd);
   memset(f, 0, sizeof(*f));
   f->fd = -1;
   f->state = UN_FREE;
@@ -574,11 +543,10 @@ void UserNet::closeFlow(UnFlow *f) {
 void UserNet::acceptInbound() {
   for (int i = 0; i < USERNET_FWDS; i++) {
     if (fwds[i].lfd < 0) continue;
-    int c = accept(fwds[i].lfd, NULL, NULL);
+    int c = backend->tcpAccept(fwds[i].lfd);
     if (c < 0) continue;
-    setNonBlock(c);
     UnFlow *fl = allocFlow();
-    if (!fl) { close(c); continue; }
+    if (!fl) { backend->sockClose(c); continue; }
     fl->proto = IP_TCP;
     fl->fd = c;
     appleServerIp(fl->appleIp);          // our SYN's destination = the Apple
@@ -592,7 +560,7 @@ void UserNet::acceptInbound() {
     fl->finRcvd = fl->finSent = false;
     fl->state = UN_TCP_ISYN;
     fl->lastActive = nowSecs();
-    if (dbg) fprintf(stderr, "[un] inbound accept -> SYN to %u.%u.%u.%u:%u from :%u\n",
+    if (dbg) unLog("[un] inbound accept -> SYN to %u.%u.%u.%u:%u from :%u\n",
                      fl->appleIp[0], fl->appleIp[1], fl->appleIp[2], fl->appleIp[3],
                      fl->applePort, fl->dstPort);
     sendTcp(fl, TH_SYN, 0, 0);            // SYN toward the Apple server
@@ -607,21 +575,17 @@ void UserNet::serviceTcp(UnFlow *f) {
     return;
   }
   if (f->state == UN_TCP_CONN) {
-    // The socket is "connecting" until it is writable; only then is SO_ERROR
-    // meaningful. Polling SO_ERROR before that can read a premature 0 and lead
-    // to ENOTCONN on the first send.
-    struct pollfd pfd; pfd.fd = f->fd; pfd.events = POLLOUT; pfd.revents = 0;
-    if (poll(&pfd, 1, 0) <= 0) return;             // still connecting
-    if (pfd.revents & (POLLERR | POLLHUP | POLLNVAL)) { closeFlow(f); return; }
-    if (!(pfd.revents & POLLOUT)) return;
-    int err = 0; socklen_t el = sizeof(err);
-    if (getsockopt(f->fd, SOL_SOCKET, SO_ERROR, &err, &el) != 0 || err != 0) {
-      if (dbg) fprintf(stderr, "[un]   connect failed err=%d\n", err);
+    // Poll the host connect; only answer the Apple's SYN once it actually
+    // completes, so the Apple does not send data into a half-open connection.
+    int cs = backend->tcpConnectPoll(f->fd);
+    if (cs == 0) return;                            // still connecting
+    if (cs < 0) {
+      if (dbg) unLog("[un]   connect failed\n");
       sendTcp(f, TH_RST | TH_ACK, 0, 0);  // refused/unreachable: reset the Apple
       closeFlow(f); return;
     }
     f->state = UN_TCP_SYNACK;
-    if (dbg) fprintf(stderr, "[un]   connect complete, SYN-ACK sent\n");
+    if (dbg) unLog("[un]   connect complete, SYN-ACK sent\n");
     sendTcp(f, TH_SYN | TH_ACK, 0, 0);              // real connection is up
     return;
   }
@@ -635,15 +599,12 @@ void UserNet::serviceTcp(UnFlow *f) {
     uint32_t room = f->appleWin - inflight;
     if (room > USERNET_TCP_MSS) room = USERNET_TCP_MSS;
     uint8_t buf[USERNET_TCP_MSS];
-    ssize_t n = recv(f->fd, buf, room, 0);
+    int n = backend->tcpRecv(f->fd, buf, (uint16_t)room);
     if (n > 0) {
       sendTcp(f, TH_PSH | TH_ACK, buf, (uint16_t)n);
       f->lastActive = nowSecs();
-    } else if (n == 0 && !f->finSent) {
+    } else if (n < 0 && !f->finSent) {
       sendTcp(f, TH_FIN | TH_ACK, 0, 0);   // host closed: FIN toward the Apple
-      f->finSent = true;
-    } else if (n < 0 && errno != EAGAIN && errno != EWOULDBLOCK && !f->finSent) {
-      sendTcp(f, TH_FIN | TH_ACK, 0, 0);
       f->finSent = true;
     }
   }
@@ -652,10 +613,10 @@ void UserNet::serviceTcp(UnFlow *f) {
 
 void UserNet::serviceUdp(UnFlow *f) {
   if (f->fd < 0) return;
-  struct sockaddr_in a; socklen_t al = sizeof(a);
   uint8_t buf[1472];
+  uint8_t sip[4]; uint16_t sport;
   for (int i = 0; i < 8 && queueHasRoom(); i++) {
-    ssize_t n = recvfrom(f->fd, buf, sizeof(buf), 0, (struct sockaddr *)&a, &al);
+    int n = backend->udpRecv(f->fd, buf, sizeof(buf), sip, &sport);
     if (n <= 0) break;
     // Reply appears to come from the address the Apple sent to (DNS_IP for DNS).
     sendUdpToApple(f->dstIp, f->dstPort, f->appleIp, f->applePort, buf, (uint16_t)n);

@@ -18,8 +18,9 @@ void TeensyUthernet2::onFrame(uint8_t type, uint8_t seq, const uint8_t *p, uint1
   rpGot = true;
 }
 
-TeensyUthernet2::TeensyUthernet2(Stream *l)
-  : link(l), parser(frameCb)
+TeensyUthernet2::TeensyUthernet2(Stream *l, const char *hostfwd)
+  : link(l), parser(frameCb), unEsp(this), usernet(&unEsp, false, hostfwd),
+    macraw(false)
 {
   s_instance = this;
   linkUp = false;
@@ -84,6 +85,31 @@ bool TeensyUthernet2::command(uint8_t type, const uint8_t *payload, uint16_t len
   return false;
 }
 
+// EspTransport: one command round-trip, reply copied out for UnBackendEsp.
+bool TeensyUthernet2::espCommand(uint8_t type, const uint8_t *payload, uint16_t len,
+                                 uint8_t &rType, uint8_t *rBuf, uint16_t rCap,
+                                 uint16_t &rLen, uint32_t timeoutMs)
+{
+  if (!command(type, payload, len, timeoutMs)) return false;
+  rType = rpType;
+  rLen = (rpLen > rCap) ? rCap : rpLen;
+  memcpy(rBuf, rpBuf, rLen);
+  return true;
+}
+
+uint32_t TeensyUthernet2::nowSecs() { return millis() / 1000; }
+
+int TeensyUthernet2::sendRawFrame(const uint8_t *frame, uint16_t len)
+{
+  usernet.fromApple(frame, len);
+  return len;
+}
+
+int TeensyUthernet2::recvRawFrame(uint8_t *buf, uint16_t maxLen)
+{
+  return (int)usernet.toApple(buf, maxLen);
+}
+
 uint32_t TeensyUthernet2::statFramesSent()     { return cTx; }
 uint32_t TeensyUthernet2::statFramesReceived() { return parser.framesOk; }
 uint32_t TeensyUthernet2::statCrcErrors()      { return parser.crcErrors; }
@@ -117,6 +143,8 @@ void TeensyUthernet2::reset()
     proto[i] = 0xFF;
     rxLen[i] = 0; rxOff[i] = 0;
   }
+  macraw = false;
+  usernet.reset();
   command(CMD_RESET, nullptr, 0);
 }
 
@@ -132,6 +160,16 @@ void TeensyUthernet2::socketOpen(uint8_t sock, uint8_t p, uint8_t ipproto,
   sr[sock] = U2_SR_CLOSED;
   proto[sock] = 0xFF;
   rxLen[sock] = 0; rxOff[sock] = 0;
+
+  // MAC-RAW is not a hardware socket on the ESP: the on-Teensy UserNet handles
+  // the Apple's frames and NATs them to the ESP's sockets.
+  if (p == U2_PROTO_MACRAW) {
+    usernet.reset();
+    macraw = true;
+    sr[sock] = U2_SR_MACRAW;
+    proto[sock] = p;
+    return;
+  }
 
   uint8_t pl[5] = { sock, p, ipproto,
                     (uint8_t)(localPort & 0xFF), (uint8_t)(localPort >> 8) };
@@ -259,6 +297,10 @@ void TeensyUthernet2::tick(int64_t cycleCount)
     }
     return;
   }
+
+  // MAC-RAW mode: the on-Teensy UserNet services its NAT flows (each flow polls
+  // its ESP socket). The hardware-socket path below is not used in this mode.
+  if (macraw) { usernet.tick(); return; }
 
   // Service at most one active socket per tick (round-robin), to bound the
   // half-duplex round-trip cost per maintenance call.

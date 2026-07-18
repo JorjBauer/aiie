@@ -2,6 +2,7 @@
 #define __USERNET_H
 
 #include <stdint.h>
+#include "unbackend.h"
 
 /* UserNet is a small user-mode network for W5100 MAC-RAW mode. In MAC-RAW the
  * Apple runs its own TCP/IP stack and emits whole Ethernet frames; there is no
@@ -52,7 +53,10 @@ struct UnFlow {
 
 class UserNet {
  public:
-  UserNet();
+  // debug enables frame tracing; hostfwd is the "hp:ap[,hp:ap...]" forward
+  // config (may be NULL). Both are supplied by the platform (SDL reads env vars;
+  // the Teensy passes fixed values) so this class needs no getenv.
+  UserNet(UnBackend *backend, bool debug, const char *hostfwd);
   ~UserNet();
   void reset();
 
@@ -81,9 +85,10 @@ class UserNet {
   void    serviceUdp(UnFlow *f);
 
   // host->guest port forwarding (the Apple as a server)
-  void    setupListeners();
+  void    setupListeners(const char *hostfwd);
   void    acceptInbound();
   void    appleServerIp(uint8_t out[4]) const;
+  uint32_t nowSecs();      // platform clock, via the backend
 
   // frame builders (toward the Apple)
   void queueFrame(const uint8_t *frame, uint16_t len);
@@ -93,6 +98,8 @@ class UserNet {
   void sendUdpToApple(const uint8_t *srcIp, uint16_t srcPort,
                       const uint8_t *dstIp, uint16_t dstPort,
                       const uint8_t *data, uint16_t dlen);
+
+  UnBackend *backend;      // host-network operations (BSD sockets or ESP link)
 
   uint8_t  appleMac[6];
   bool     haveAppleMac;

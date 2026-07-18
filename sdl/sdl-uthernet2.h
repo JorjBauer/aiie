@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "uthernet2interface.h"
 #include "usernet.h"
+#include "usernet-bsd.h"
 
 /* SDLUthernet2 carries Uthernet2 traffic over the host's own TCP/IP stack
  * using non-blocking Berkeley sockets. It needs no external hardware, which
@@ -67,6 +68,7 @@ class SDLUthernet2 : public Uthernet2Interface {
   uint16_t pendSrcPort[U2_NUM_SOCKETS];
 
   // Built-in user-mode network for MAC-RAW mode (own-stack software).
+  UnBackendBsd unBsd;      // declared before usernet: constructed first
   UserNet  usernet;
 };
 
