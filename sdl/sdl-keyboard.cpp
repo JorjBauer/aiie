@@ -246,6 +246,11 @@ bool SDLKeyboard::kbhit()
 	  keyPending = PK_LARR;
 	  hasKeyPending = true;
 	  break;
+	case SDLK_BACKSPACE:  // delete key: backspace in the BIOS text fields
+	case SDLK_DELETE:
+	  keyPending = PK_DEL;
+	  hasKeyPending = true;
+	  break;
 	}
       }
     }
