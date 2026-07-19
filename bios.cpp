@@ -644,6 +644,12 @@ static void resolveSlotConflict(uint8_t *changedVar)
   for (int i = 0; i < nSlots; i++) {
     if (allSlots[i] == changedVar) continue;
     if (*allSlots[i] == newSlot) {
+      // The mouse only works in slot 4; if something takes slot 4, disable the
+      // mouse rather than relocate it to a slot where its ROM won't work.
+      if (allSlots[i] == &g_slotMouse) {
+        *allSlots[i] = 0;
+        continue;
+      }
       // Find an available slot for the displaced card
       uint8_t validSlots[] = { 1, 2, 4, 5, 6, 7 };
       bool found = false;
@@ -692,15 +698,30 @@ uint16_t BIOS::CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key
   // (8, 9) are ignored rather than cycling anything.
   if (key >= '0' && key <= '9') {
     uint8_t newSlot = (uint8_t)(key - '0');
-    uint8_t *var = slotVarForAction(cardsActions[selectedMenuItem]);
-    if (var && isSelectableSlot(newSlot)) {
-      g_display->clrScr(c_darkblue);
-      g_display->drawString(M_SELECTED, 80, 100, "Updating slots...");
-      g_display->flush();
-      *var = newSlot;
-      if (newSlot != 0) resolveSlotConflict(var); // move any card already there
-      cardsConfigChanged = !slotsMatchSaved();
-      localRedraw = true;
+    uint8_t action = cardsActions[selectedMenuItem];
+    if (action == ACT_SLOT_RAMWORKS) {
+      // The RamWorks row has no slot; '0' clears it, matching how '0' disables
+      // the slot cards. Other digits do nothing here.
+      if (key == '0') {
+        g_ramworksSize = 0;
+        cardsConfigChanged = !slotsMatchSaved();
+        localRedraw = true;
+      }
+    } else {
+      uint8_t *var = slotVarForAction(action);
+      // The mouse card only works in slot 4 (its firmware ROM is slot-4-only),
+      // so restrict it to slot 4 or 0 (disabled). Others take any selectable slot.
+      bool slotOk = (action == ACT_SLOT_MOUSE) ? (newSlot == 0 || newSlot == 4)
+                                               : isSelectableSlot(newSlot);
+      if (var && slotOk) {
+        g_display->clrScr(c_darkblue);
+        g_display->drawString(M_SELECTED, 80, 100, "Updating slots...");
+        g_display->flush();
+        *var = newSlot;
+        if (newSlot != 0) resolveSlotConflict(var); // move any card already there
+        cardsConfigChanged = !slotsMatchSaved();
+        localRedraw = true;
+      }
     }
   }
 
@@ -712,13 +733,34 @@ uint16_t BIOS::CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key
     localRedraw = false;
   }
 
+  // Return, '+' and '=' all advance the selected entry to its next value; '-'
+  // steps backward. This gives the slot/size rows a two-way cycle from the
+  // keyboard, on top of the direct digit entry above.
+  int cycleStep = performAction ? 1 : 0;
+  if (key == '+' || key == '=') { cycleStep = 1; performAction = true; }
+  else if (key == '-')          { cycleStep = -1; performAction = true; }
+
   if (performAction) {
     if (isActionActive(cardsActions[selectedMenuItem])) {
       switch (cardsActions[selectedMenuItem]) {
+      case ACT_SLOT_MOUSE:
+        {
+          // The mouse only works in slot 4 (slot-4-only ROM); toggle 4 <-> off.
+          uint8_t *var = slotVarForAction(ACT_SLOT_MOUSE);
+          if (var) {
+            g_display->clrScr(c_darkblue);
+            g_display->drawString(M_SELECTED, 80, 100, "Updating slots...");
+            g_display->flush();
+            *var = (*var == 4) ? 0 : 4;
+            if (*var != 0) resolveSlotConflict(var);
+            cardsConfigChanged = !slotsMatchSaved();
+          }
+          localRedraw = true;
+        }
+        break;
       case ACT_SLOT_DISKII:
       case ACT_SLOT_PARALLEL:
       case ACT_SLOT_HD32:
-      case ACT_SLOT_MOUSE:
       case ACT_SLOT_MOCKINGBOARD:
       case ACT_SLOT_UTHERNET:
         {
@@ -733,7 +775,7 @@ uint16_t BIOS::CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key
             for (int i = 0; i < n; i++) {
               if (kSelectableSlots[i] == cur) { idx = i; break; }
             }
-            idx = (idx + 1) % n;
+            idx = (idx + cycleStep + n) % n;
             *var = kSelectableSlots[idx];
             if (*var != 0) resolveSlotConflict(var);
             cardsConfigChanged = !slotsMatchSaved();
@@ -755,7 +797,7 @@ uint16_t BIOS::CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key
           for (int i = 0; i < n; i++) {
             if (rwSizes[i] == g_ramworksSize) { idx = i; break; }
           }
-          g_ramworksSize = rwSizes[(idx + 1) % n];
+          g_ramworksSize = rwSizes[(idx + cycleStep + n) % n];
           cardsConfigChanged = !slotsMatchSaved();
           localRedraw = true;
         }
@@ -767,7 +809,7 @@ uint16_t BIOS::CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key
         g_slotDiskII = 6;
         g_slotParallel = 1;
         g_slotHD32 = 7;
-        g_slotMouse = 2;
+        g_slotMouse = 0;   // mouse works only in slot 4; off by default
         g_slotMockingboard = 4;
         g_slotUthernet = 0;
         g_ramworksSize = 0;
