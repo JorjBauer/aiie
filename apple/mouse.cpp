@@ -235,23 +235,35 @@ void Mouse::loadExtendedRom(uint8_t *toWhere, uint16_t byteOffset)
 
 void Mouse::maintainMouse(int64_t cycleCount)
 {
-  // Fire the fake VBL interrupt in phase with the emulated vertical-blank signal
-  // (RDVBLBAR / $C019), the way a real mouse card's VBL IRQ is driven by the
-  // video VBL. $C019 reports "in blanking" while (cycles & 0x3000) == 0x3000, so
-  // raise the interrupt on the edge into that window. If the IRQ instead ran on
-  // its own independent ~60Hz clock, software that cross-checks the blanking
-  // state after taking the interrupt (A2OSX) would see an inconsistent snapshot
-  // and eventually derail.
-  static bool wasInVbl = false;
-  bool inVbl = ((cycleCount & 0x3000) == 0x3000);
-  bool vblEdge = (inVbl && !wasInVbl);
-  wasInVbl = inVbl;
+  // Fake the ~60Hz vertical-blank interrupt. A real //e frame is 262 scanlines *
+  // 65 cycles = 17030 cycles (~59.9Hz); match that so software using the tick as
+  // a clock (A2OSX's scheduler jiffies) keeps accurate time.
+  const int64_t kVblPeriod = 17030;
+  static int64_t nextInterruptTime = cycleCount + kVblPeriod;
+
+  // Resync if the clock jumped -- VBL interrupts disabled for a while, or the
+  // cycle counter reset -- so we never fire a catch-up burst (an interrupt storm
+  // that a preemptive OS can't unwind).
+  if (cycleCount < nextInterruptTime - kVblPeriod ||
+      cycleCount > nextInterruptTime + kVblPeriod)
+    nextInterruptTime = cycleCount + kVblPeriod;
 
   if ( (status & ST_MOUSEENABLE) &&
        (status & ST_INTVBL)  &&
-       vblEdge ) {
+       (cycleCount >= nextInterruptTime) ) {
     g_cpu->assertIrq();
     interruptsTriggered |= ST_INTVBL;
+    nextInterruptTime = cycleCount + kVblPeriod;  // 60Hz from now; drop missed ticks
+#ifdef DEBUG_VBL_RATE
+    { // report the emulated VBL rate every 120 ticks (should read ~60Hz)
+      static int64_t last = 0; static int cnt = 0;
+      if (++cnt >= 120) {
+        printf("VBL: 120 ticks / %lld cycles = %.1f Hz emulated\n",
+               (long long)(cycleCount - last), 120.0 * 1023000.0 / (double)(cycleCount - last));
+        last = cycleCount; cnt = 0;
+      }
+    }
+#endif
   } else {
     uint16_t xpos, ypos;
     g_mouse->getPosition(&xpos, &ypos);
