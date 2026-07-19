@@ -131,7 +131,11 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
       uint16_t xpos, ypos;
       g_mouse->getPosition(&xpos, &ypos);
       curButton = g_mouse->getButton();
-      uint8_t newStatus = g_vm->getMMU()->read(0x778+4) & ~0xC7; // clears low 3 bits per docs
+      // ReadMouse reports only button (bits 7,6) and movement (bit 5). Start
+      // from a clean slate: the old $077C value here is whatever ServeMouse last
+      // stashed as the interrupt-status bits (incl. VBL = bit 3), and leaking
+      // those back to the caller as mouse status confuses A2OSX.
+      uint8_t newStatus = 0;
       if (curButton) { newStatus |= ST_BUTTONDOWN; };
       if (lastButton) { newStatus |= ST_BUTTONWASDOWN; };
       lastButton = curButton;
@@ -146,6 +150,11 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
       m->write(0x5F8+4, (ypos >> 8) & 0xFF); // high Y
       m->write(0x4F8+4, ypos); // low Y
       m->write(0x778+4, newStatus);
+
+      // ReadMouse is what clears the pending interrupt-reason bits (VBL / move /
+      // button) on the real card -- ServeMouse only lowers the IRQ line. Do the
+      // same here so the reason lifetime matches hardware.
+      interruptsTriggered &= ~(ST_INTMOUSE | ST_INTBUTTON | ST_INTVBL);
     }
     break;
   case SW_R_INITMOUSE:
@@ -162,8 +171,14 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
     // ($0778+slot); ServeMouse in the ROM reads them back from there. (An older
     // build also wrote them to $06B8+slot, which for slot 4 is $06BC -- visible
     // text memory at screen center -- painting a stray inverse 'H' every VBL.)
+    //
+    // Deassert the IRQ line, but DO NOT clear the interrupt-reason bits here: on
+    // the real card ServeMouse only lowers IRQ; ReadMouse is what clears the
+    // reason. Clearing it here instead means that when a fresh VBL arrives while
+    // a prior one is still being serviced, the follow-up ServeMouse reports a
+    // real interrupt where the hardware would report a "spurious" one (reason 0)
+    // -- and A2OSX is written expecting that spurious case.
     g_vm->getMMU()->write(0x778+4, interruptsTriggered);
-    interruptsTriggered = 0;
     g_cpu->deassertIrq();
     break;
   case SW_W_CLAMPMOUSE:
@@ -220,16 +235,23 @@ void Mouse::loadExtendedRom(uint8_t *toWhere, uint16_t byteOffset)
 
 void Mouse::maintainMouse(int64_t cycleCount)
 {
-  // Fake a 60Hz VBL in case we need it for our interrupts
-  static int64_t nextInterruptTime = cycleCount + 17050;
+  // Fire the fake VBL interrupt in phase with the emulated vertical-blank signal
+  // (RDVBLBAR / $C019), the way a real mouse card's VBL IRQ is driven by the
+  // video VBL. $C019 reports "in blanking" while (cycles & 0x3000) == 0x3000, so
+  // raise the interrupt on the edge into that window. If the IRQ instead ran on
+  // its own independent ~60Hz clock, software that cross-checks the blanking
+  // state after taking the interrupt (A2OSX) would see an inconsistent snapshot
+  // and eventually derail.
+  static bool wasInVbl = false;
+  bool inVbl = ((cycleCount & 0x3000) == 0x3000);
+  bool vblEdge = (inVbl && !wasInVbl);
+  wasInVbl = inVbl;
+
   if ( (status & ST_MOUSEENABLE) &&
        (status & ST_INTVBL)  &&
-       (cycleCount >= nextInterruptTime) ) {
+       vblEdge ) {
     g_cpu->assertIrq();
-    
     interruptsTriggered |= ST_INTVBL;
-    
-    nextInterruptTime += 17050;
   } else {
     uint16_t xpos, ypos;
     g_mouse->getPosition(&xpos, &ypos);
@@ -238,14 +260,12 @@ void Mouse::maintainMouse(int64_t cycleCount)
 	 (status & ST_INTMOUSE) &&
 	 (xpos != lastXForInt || ypos != lastYForInt) ) {
       g_cpu->assertIrq();
-      
-      interruptsTriggered |= ST_INTMOUSE;      
+      interruptsTriggered |= ST_INTMOUSE;
       lastXForInt = xpos; lastYForInt = ypos;
     } else if ( (status & ST_MOUSEENABLE) &&
 		(status & ST_INTBUTTON) &&
 		lastButtonForInt != g_mouse->getButton()) {
       g_cpu->assertIrq();
-
       interruptsTriggered |= ST_INTBUTTON;
       lastButtonForInt = g_mouse->getButton();
     }

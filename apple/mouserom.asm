@@ -98,12 +98,13 @@ ServeMouse:
 	PHA
 	SEI			; disable interrupts while we find out about interrupts
 	STA	$C0CE		; soft switch 0x0E, hard-coded slot 4 for now
-	LDX	#$04
-	LDA	$778,X		; check what interrupts we serviced (slot screen hole $077C)
+	LDA	$077C		; check what interrupts we serviced (slot-4 screen hole)
 	AND	#$0E
-	BNE	_sm1		; if we serviced any, leave carry clear
+	CLC			; assume we serviced an interrupt: return carry clear.
+	BNE	_sm1		; if we did, keep carry clear (do NOT rely on the caller's
+				; carry being clear -- A2osX enters IRQ.M with C set)
 	SEC			; ... but set carry if we serviced none
-_sm1:	
+_sm1:	NOP			; padding to keep this ROM image byte-for-byte sized
 	PLA
 	RTS
 
