@@ -99,7 +99,7 @@ ServeMouse:
 	SEI			; disable interrupts while we find out about interrupts
 	STA	$C0CE		; soft switch 0x0E, hard-coded slot 4 for now
 	LDX	#$04
-	LDA	$6B8,X		; check what interrupts we serviced
+	LDA	$778,X		; check what interrupts we serviced (slot screen hole $077C)
 	AND	#$0E
 	BNE	_sm1		; if we serviced any, leave carry clear
 	SEC			; ... but set carry if we serviced none

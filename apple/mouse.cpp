@@ -158,8 +158,11 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
     g_mouse->setClamp(YCLAMP, 0, 1023);
     break;
   case SW_R_SERVEMOUSE:
+    // Publish the serviced-interrupt bits in the slot's status screen hole
+    // ($0778+slot); ServeMouse in the ROM reads them back from there. (An older
+    // build also wrote them to $06B8+slot, which for slot 4 is $06BC -- visible
+    // text memory at screen center -- painting a stray inverse 'H' every VBL.)
     g_vm->getMMU()->write(0x778+4, interruptsTriggered);
-    g_vm->getMMU()->write(0x6B8+4, interruptsTriggered); // hack to appease ROM
     interruptsTriggered = 0;
     g_cpu->deassertIrq();
     break;
