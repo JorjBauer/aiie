@@ -17,3 +17,5 @@ mockingboard-d.rom
 suspend.vm
 AIIE.HEX
 teensy/build
+esp8266/build
+tests/test-diskii
