@@ -21,4 +21,9 @@ class TeensyUSB {
   void maintain();
 };
 
+// Service the input devices (USB host + keyboard) once. Call this from inside
+// any blocking loop that must still see keypresses (e.g. a confirmation
+// prompt); the main loop normally does this every pass.
+void teensyServiceInput();
+
 #endif

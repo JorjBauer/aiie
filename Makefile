@@ -60,10 +60,15 @@ sdl: roms $(COMMONOBJS) $(SDLOBJS)
 linuxfb: roms $(COMMONOBJS) $(FBOBJS)
 	g++ $(LDFLAGS) $(FBLIBS) -o aiie-fb $(COMMONOBJS) $(FBOBJS)
 
+# Optional extra compiler flags, e.g. diagnostics:
+#   make teensy-install TEENSY_EXTRA_FLAGS=-DDEBUG_FlexSerial
+TEENSY_EXTRA_FLAGS ?=
+TEENSY_EXTRA := $(if $(TEENSY_EXTRA_FLAGS),--build-property compiler.cpp.extra_flags=$(TEENSY_EXTRA_FLAGS),)
+
 # Compile the Teensy firmware. ROM headers (built by 'roms') are symlinked
 # into the sketch folder, so they must exist before arduino-cli runs.
 teensy: roms
-	$(ARDUINO_CLI) compile --fqbn $(TEENSY_FQBN) --output-dir $(TEENSY_BUILD) $(TEENSY_SKETCH)
+	$(ARDUINO_CLI) compile --fqbn $(TEENSY_FQBN) --output-dir $(TEENSY_BUILD) $(TEENSY_EXTRA) $(TEENSY_SKETCH)
 
 # One-time helper to install the libraries the sketch depends on.
 teensy-libs:
@@ -77,7 +82,7 @@ teensy-libs:
 # If the board isn't auto-detected, pass PORT=/dev/cu.usbmodemNNNN.
 # teensy-install is an alias for teensy-upload.
 teensy-upload teensy-install: roms
-	$(ARDUINO_CLI) compile --fqbn $(TEENSY_FQBN) -u $(if $(PORT),-p $(PORT),) $(TEENSY_SKETCH)
+	$(ARDUINO_CLI) compile --fqbn $(TEENSY_FQBN) -u $(if $(PORT),-p $(PORT),) $(TEENSY_EXTRA) $(TEENSY_SKETCH)
 
 teensy-clean:
 	rm -rf $(TEENSY_BUILD)

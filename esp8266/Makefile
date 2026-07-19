@@ -23,7 +23,7 @@ FQBN_FULL  := $(FQBN):$(BOARD_OPTS)
 
 # Serial port of your USB-serial adapter (NOT the Teensy).
 PORT        ?= /dev/cu.usbserial-0001
-LINK_BAUD   ?= 115200      # runtime UART speed to the Teensy (see esp8266.ino)
+LINK_BAUD   ?= 230400      # runtime UART speed to the Teensy (see esp8266.ino)
 
 BOARD_URL   := https://arduino.esp8266.com/stable/package_esp8266com_index.json
 BUILD_DIR   := build

@@ -1080,6 +1080,19 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
     }
   }
 
+  // Poll the link about once a second so the status line and the link counters
+  // update live, turning this screen into a link tester. needsRedraw ticks at
+  // ~10Hz; the ESP probe itself is throttled inside the backend.
+  // This handler is called on every BIOS loop tick (~10Hz) whether or not a key
+  // was pressed, but needsRedraw is only set on a keypress. Tick off the call
+  // itself so the status line and link counters refresh live while sitting here.
+  static uint8_t refreshTick = 0;
+  if (++refreshTick >= 10) {
+    refreshTick = 0;
+    refreshStatus = true;
+    localRedraw = true;
+  }
+
   if (needsRedraw || localRedraw) {
     char buf[80];
     if (refreshStatus) {
@@ -1115,6 +1128,18 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
                              : "Status:   WiFi not joined");
     }
     g_display->drawString(M_DISABLED, MENUINDENT, 8 + LINEHEIGHT * 8, buf);
+
+    // Live link counters, to see which side is dead: TX = commands sent to the
+    // ESP, RX = valid replies, err = bytes that arrived but failed CRC. TX>0
+    // with RX=err=0 means nothing is coming back; err>0 means bytes arrive but
+    // are corrupt (a baud/timing problem).
+    if (g_uthernet && cachedSt >= 0) {
+      snprintf(buf, sizeof(buf), "Link:     TX:%lu RX:%lu err:%lu",
+               (unsigned long)g_uthernet->statFramesSent(),
+               (unsigned long)g_uthernet->statFramesReceived(),
+               (unsigned long)g_uthernet->statCrcErrors());
+      g_display->drawString(M_DISABLED, MENUINDENT, 8 + LINEHEIGHT * 9, buf);
+    }
 
     g_display->drawString(M_DISABLED, MENUINDENT, 8 + LINEHEIGHT * 10,
                           "Type to edit. DEL erases. Return = next.");

@@ -25,6 +25,7 @@ TeensyUthernet2::TeensyUthernet2(Stream *l, const char *hostfwd)
   s_instance = this;
   linkUp = false;
   lastProbe = 0;
+  lastServiceMs = 0;
   seq = 0;
   cTx = 0; cRetries = 0; cTimeouts = 0;
   rpGot = false; rpType = 0; rpSeq = 0; rpLen = 0;
@@ -328,6 +329,16 @@ void TeensyUthernet2::tick(int64_t cycleCount)
     probeLink();  // throttled retry so the link recovers if the ESP came up late
     return;
   }
+
+  // Pace ESP servicing against real time, not CPU cycles: cpuMaintenance() calls
+  // this every ~24 emulated cycles, but each poll/send below blocks on a UART
+  // round-trip. Without this throttle an open socket froze the emulator (and the
+  // BIOS button) to a crawl. Between passes tick() returns immediately, so the
+  // 6502 runs full speed. (Proper async I/O is the real fix; this makes it
+  // usable now.)
+  uint32_t now = millis();
+  if ((uint32_t)(now - lastServiceMs) < TU2_SERVICE_MS) return;
+  lastServiceMs = now;
 
   // MAC-RAW mode: the on-Teensy UserNet services its NAT flows (each flow polls
   // its ESP socket). The hardware-socket path below is not used in this mode.

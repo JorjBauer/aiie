@@ -24,6 +24,12 @@
 // would silently drop datagrams larger than it, e.g. a 516-byte TFTP block.
 #define TU2_RXBUF 1460
 #define TU2_MAX_RETRIES 2  // resends before a command gives up (3 tries total)
+// Real-time pacing for ESP servicing in tick(). cpuMaintenance() calls tick()
+// roughly every 24 emulated CPU cycles, but each ESP poll/send is a blocking
+// UART round-trip -- doing one per call froze the 6502 (and the BIOS button) to
+// a crawl whenever a socket was open. Service the ESP at most this often (in
+// real milliseconds) so the emulator runs at full speed between passes.
+#define TU2_SERVICE_MS 3
 
 class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
  public:
@@ -91,6 +97,7 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
   FrameParser parser;
   bool        linkUp;
   uint32_t    lastProbe;   // millis of the last link re-probe while down
+  uint32_t    lastServiceMs; // millis of the last ESP socket-service pass
   uint8_t     seq;
 
   // link health counters (frames received / CRC errors come from the parser)

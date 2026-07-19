@@ -16,9 +16,12 @@
 #include <string.h>              // strlen
 
 #include "teensy-filemanager.h"   // SdFat, FsFile, TeensyFileManager::getSdFat()
-#include "globals.h"              // g_display, g_filemanager, M_NORMAL
+#include "globals.h"              // g_display, g_filemanager, g_keyboard, M_NORMAL
 #include "appledisplay.h"         // c_darkblue
 #include "teensy-selfupdate.h"
+#include "teensy-fwversion.h"     // g_fwVersion, AIIE_FW_MAGIC
+#include "physicalkeyboard.h"     // PK_RET, PK_ESC
+#include "teensy-usb.h"           // teensyServiceInput()
 
 extern "C" {
   #include "FlashTxx.h"           // firmware_buffer_init/flash_write_block/...
@@ -173,6 +176,30 @@ static int readHexLine(FsFile &f, char *line, int maxbytes)
   return n;
 }
 
+// Search a buffered firmware image for the embedded version marker
+// (AIIE_FW_MAGIC, see teensy-fwversion.h). Copies the version text between the
+// magic and the next 0x1e into out (NUL-terminated). Returns true if found; an
+// older image built before the marker existed simply won't have it.
+static bool scanImageVersion(const uint8_t *img, uint32_t len,
+                             char *out, int outLen)
+{
+  const char *magic = AIIE_FW_MAGIC;
+  const int mlen = (int)strlen(magic);
+  if (len < (uint32_t)mlen) return false;
+  for (uint32_t i = 0; i + (uint32_t)mlen <= len; i++) {
+    if (memcmp(img + i, magic, mlen) != 0) continue;
+    const uint8_t *v = img + i + mlen;
+    int j = 0;
+    while (j < outLen - 1 && (v + j) < (img + len) && v[j] != 0x1e && v[j] != 0) {
+      out[j] = (char)v[j];
+      j++;
+    }
+    out[j] = '\0';
+    return true;
+  }
+  return false;
+}
+
 //******************************************************************************
 // teensySelfUpdateFromSD()
 //******************************************************************************
@@ -184,7 +211,7 @@ bool teensySelfUpdateFromSD(const char *path)
 
   g_display->clrScr(c_darkblue);
   uiLine(0, "Firmware update from SD");
-  uiLine(2, "*** DO NOT POWER OFF ***");
+  uiLine(2, "Reading and checking image...");
 
   if (!sd || !hexFile.open(path, O_RDONLY)) {
     snprintf(buf, sizeof(buf), "Not found: %s", path);
@@ -266,6 +293,51 @@ bool teensySelfUpdateFromSD(const char *path)
     uiLine(6, "Firmware unchanged.");
     delay(4000);
     return false;
+  }
+
+  // Confirmation. The image is fully buffered and verified as a Teensy 4.1
+  // build, but nothing irreversible has happened yet -- the running program is
+  // untouched until flash_move() below -- so cancelling here is completely
+  // safe. Show installed-vs-new version and the time/power warning, and require
+  // an explicit keypress before crossing the point of no return.
+  {
+    char newVer[48];
+    if (!scanImageVersion((const uint8_t *)buffer_addr, hex.max - hex.min,
+                          newVer, sizeof(newVer)))
+      strcpy(newVer, "unknown (pre-versioning build)");
+
+    g_display->clrScr(c_darkblue);
+    uiLine(0, "Firmware update from SD");
+    snprintf(buf, sizeof(buf), "Installed: %s", g_fwVersion);
+    uiLine(2, buf);
+    snprintf(buf, sizeof(buf), "New image: %s", newVer);
+    uiLine(3, buf);
+    uiLine(5, "Update takes about 2 minutes.");
+    uiLine(6, "Keep power connected the whole time -");
+    uiLine(7, "a power loss mid-flash bricks it until");
+    uiLine(8, "you re-flash over USB.");
+    uiLine(10, "[Return] update     [ESC] cancel");
+    g_display->flush();
+
+    for (;;) {
+      if (g_keyboard->kbhit()) {
+        int8_t k = g_keyboard->read();
+        if (k == PK_RET) break;          // confirmed -> fall through to flash
+        if (k == PK_ESC) {
+          firmware_buffer_free(buffer_addr, buffer_size);
+          g_display->clrScr(c_darkblue);
+          uiLine(0, "Firmware update from SD");
+          uiLine(3, "Cancelled. Firmware unchanged.");
+          g_display->flush();
+          delay(2500);
+          return false;
+        }
+      }
+      teensyServiceInput();  // keep pumping USB/keyboard while we block here
+      yield();
+    }
+    g_display->clrScr(c_darkblue);
+    uiLine(0, "Firmware update from SD");
   }
 
   drawProgressBar(4, 100); // image fully buffered

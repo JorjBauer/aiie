@@ -33,7 +33,9 @@
 
 /* ---- configuration ----------------------------------------------------- */
 #ifndef LINK_BAUD
-#define LINK_BAUD 115200      /* UART speed to the Teensy. No HW flow control */
+#define LINK_BAUD 230400      /* UART speed to the Teensy. No HW flow control;
+                               * kept moderate so the ESP's UART FIFO/ring can
+                               * ride out WiFi/flash interrupt-disable stalls. */
 #endif
 #define FW_MAJOR 0
 #define FW_MINOR 2

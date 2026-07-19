@@ -15,7 +15,7 @@
 #include "teensy-prefs.h"
 #include "teensy-println.h"
 #include "smalloc.h"
-#include <SoftwareSerial.h>
+// (ESP link is Serial3, a built-in hardware UART - no extra include needed.)
 #include "teensy-uthernet2.h"
 
 //#define DEBUG_TIMING
@@ -34,6 +34,14 @@
 #define BATTERYSELECT 21 // digital select that turns on the power reading ckt
 
 #include "globals.h"
+#include "teensy-fwversion.h"
+
+// Firmware version, embedded so the SD self-update can find it in a raw image.
+// __attribute__((used)) keeps the linker from discarding it (nothing references
+// the blob directly). See teensy-fwversion.h for the on-flash layout.
+extern "C" const char aiie_fw_version_blob[] __attribute__((used)) =
+    AIIE_FW_MAGIC AIIE_FW_VERSION "\x1e";
+const char *g_fwVersion = AIIE_FW_VERSION;
 
 BIOS bios;
 
@@ -156,9 +164,22 @@ void onKeyrelease(uint8_t keycode)
   ((TeensyKeyboard *)g_keyboard)->releasedKey(usb_scanmap[keycode]);
 }
 
-// Half-duplex link to the ESP8266 network co-processor.
-// RX = pin 19 (ESP TXD), TX = pin 18 (ESP RXD).
-static SoftwareSerial espLink(19, 18);
+// Pump the input devices once, for blocking loops (e.g. the firmware-update
+// confirmation) that would otherwise starve the USB host of Task() calls and
+// never see a keypress. Mirrors what the main loop does each pass.
+void teensyServiceInput()
+{
+  g_keyboard->maintainKeyboard();
+  usb.maintain();
+}
+
+// Link to the ESP8266 network co-processor over Serial3, a real hardware UART:
+//   Teensy TX3 = pin 14 -> ESP RXD
+//   Teensy RX3 = pin 15 <- ESP TXD
+// A hardware UART gives us proper interrupt-driven RX with a ring buffer, so
+// none of the SoftwareSerial (no receive) / FlexIO (resource juggling) trouble
+// on pins 18/19 applies. The transport is just a Stream, unchanged downstream.
+static HardwareSerial &espLink = Serial3;
 
 // Bench-test WiFi credentials for the ESP Uthernet link. Fill these in with
 // your AP to test on hardware. Left empty so no real credentials are committed;
@@ -187,7 +208,7 @@ void bringUpUthernet()
 {
   if (g_uthernet || !g_slotUthernet) return;
   println(" uthernet");
-  espLink.begin(115200);
+  espLink.begin(230400);
   TeensyUthernet2 *u2 = new TeensyUthernet2(&espLink, UTHERNET_HOSTFWD);
   // Credentials come from the BIOS (persisted in prefs). The compile-time
   // UTHERNET_WIFI_* is only a fallback for bench builds with nothing saved.
@@ -208,9 +229,13 @@ void setup()
   delay(2000);
 #endif
   delay(200); // let the power settle & serial to get its bearings
+  // A pending crash report from the previous run is saved to the SD card once
+  // the filemanager is up (this device has no usable serial console at boot,
+  // and the old code blocked here for 5 seconds printing to a port nobody could
+  // read - which showed up as a multi-second boot delay whenever a stale report
+  // was present). See the crash-report save just after the filemanager below.
   if (CrashReport) {
-    Serial.print(CrashReport);
-    delay(5000);
+    Serial.print(CrashReport); // only useful on the bench with serial attached
   }
 
   pinMode(DEBUGPIN, OUTPUT); // for debugging
@@ -244,6 +269,18 @@ void setup()
   println(" fm");
   // First create the filemanager - the interface to the host file system.
   g_filemanager = new TeensyFileManager();
+
+  // Persist any crash report from the previous run to the SD card so it can be
+  // read after the fact (no usable serial console on this device at boot), then
+  // clear it. Clearing also stops a stale report from re-triggering every boot.
+  if (CrashReport) {
+    FsFile cf = ((TeensyFileManager *)g_filemanager)->getSdFat()->open("/CRASH.TXT", O_WRITE | O_CREAT | O_TRUNC);
+    if (cf) {
+      cf.print(CrashReport);
+      cf.close();
+    }
+    CrashReport.clear();
+  }
 
   // Construct the interface to the host display. This will need the
   // VM's video buffer in order to draw the VM, but we don't have that
