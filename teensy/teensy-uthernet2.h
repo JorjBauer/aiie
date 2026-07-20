@@ -30,6 +30,13 @@
 // a crawl whenever a socket was open. Service the ESP at most this often (in
 // real milliseconds) so the emulator runs at full speed between passes.
 #define TU2_SERVICE_MS 3
+// Idle-poll backoff for the hardware-socket path (mirrors the MAC-RAW path). A
+// hardware socket with no data pending is polled no faster than TU2_SERVICE_MS,
+// and the interval doubles on each empty poll up to this ceiling; a poll that
+// returns data snaps it back to the minimum. Keeps an idle/quiet connection from
+// spinning ~330 empty CMD_SOCK_POLL round-trips per second on the half-duplex
+// link while an active receive still streams at full speed.
+#define TU2_POLL_MAX_MS 250
 
 class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
  public:
@@ -158,6 +165,8 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
   uint8_t  rxSrcIp[U2_NUM_SOCKETS][4];
   uint16_t rxSrcPort[U2_NUM_SOCKETS];
   uint8_t  pollCursor;
+  uint32_t sockNextPollMs[U2_NUM_SOCKETS]; // per-socket earliest next idle poll
+  uint16_t sockPollIvMs[U2_NUM_SOCKETS];   // per-socket current poll interval
 
   char ssid[33];
   char pass[65];

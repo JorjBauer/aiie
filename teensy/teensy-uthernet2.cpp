@@ -65,6 +65,7 @@ TeensyUthernet2::TeensyUthernet2(Stream *l, const char *hostfwd)
     proto[i] = 0xFF;
     rxLen[i] = 0; rxOff[i] = 0;
     rxHasSrc[i] = false; rxSrcPort[i] = 0;
+    sockNextPollMs[i] = 0; sockPollIvMs[i] = TU2_SERVICE_MS;
   }
 }
 
@@ -279,6 +280,7 @@ void TeensyUthernet2::reset()
     sr[i] = U2_SR_CLOSED;
     proto[i] = 0xFF;
     rxLen[i] = 0; rxOff[i] = 0;
+    sockNextPollMs[i] = 0; sockPollIvMs[i] = TU2_SERVICE_MS;
   }
   macraw = false;
   usernet.reset();
@@ -309,6 +311,7 @@ void TeensyUthernet2::socketOpen(uint8_t sock, uint8_t p, uint8_t ipproto,
     return;
   }
 
+  sockNextPollMs[sock] = 0; sockPollIvMs[sock] = TU2_SERVICE_MS; // poll promptly
   uint8_t pl[5] = { sock, p, ipproto,
                     (uint8_t)(localPort & 0xFF), (uint8_t)(localPort >> 8) };
   if (command(CMD_SOCK_OPEN, pl, 5) && rpType == EVT_SOCK_STATE && rpLen >= 2) {
@@ -320,6 +323,7 @@ void TeensyUthernet2::socketOpen(uint8_t sock, uint8_t p, uint8_t ipproto,
 void TeensyUthernet2::socketConnect(uint8_t sock, const uint8_t ip[4], uint16_t port)
 {
   if (sock >= U2_NUM_SOCKETS) return;
+  sockNextPollMs[sock] = 0; sockPollIvMs[sock] = TU2_SERVICE_MS; // data coming: poll fast
   uint8_t pl[7] = { sock, ip[0], ip[1], ip[2], ip[3],
                     (uint8_t)(port & 0xFF), (uint8_t)(port >> 8) };
   if (command(CMD_SOCK_CONNECT, pl, 7) && rpType == EVT_SOCK_STATE && rpLen >= 2) {
@@ -461,12 +465,13 @@ void TeensyUthernet2::tick(int64_t cycleCount)
   for (uint8_t k = 0; k < U2_NUM_SOCKETS; k++) {
     uint8_t s = (pollCursor + k) % U2_NUM_SOCKETS;
     if (proto[s] == 0xFF || proto[s] == U2_PROTO_MACRAW) continue;
+    if (rxLen[s] != 0) continue;                            // still draining: skip
+    if ((int32_t)(now - sockNextPollMs[s]) < 0) continue;   // paced: not due yet
     pollCursor = (s + 1) % U2_NUM_SOCKETS;
-
-    if (rxLen[s] != 0) return; // still draining this socket's buffer
 
     uint16_t maxlen = TU2_RXBUF;
     uint8_t pl[3] = { s, (uint8_t)(maxlen & 0xFF), (uint8_t)(maxlen >> 8) };
+    bool gotData = false;
     if (command(CMD_SOCK_POLL, pl, 3) && rpType == EVT_SOCK_DATA && rpLen >= 5) {
       sr[s] = rpBuf[1];
       uint8_t flags = rpBuf[4];
@@ -482,9 +487,25 @@ void TeensyUthernet2::tick(int64_t cycleCount)
       }
       uint16_t dlen = (rpLen > o) ? (rpLen - o) : 0;
       if (dlen > TU2_RXBUF) dlen = TU2_RXBUF;
-      if (dlen) memcpy(rxData[s], rpBuf + o, dlen);
+      if (dlen) { memcpy(rxData[s], rpBuf + o, dlen); gotData = true; }
       rxLen[s] = dlen;
       rxOff[s] = 0;
+    }
+    // Pace the next poll. Poll at full speed whenever data is flowing OR the
+    // connection is live (ESTABLISHED): the Apple polls its receive-size register
+    // synchronously with a timeout, and our poll IS its data path, so adding
+    // latency to a live connection makes it miss data and report the connection
+    // lost. Only back off once the socket is no longer established
+    // (closing/closed/idle/listening) -- which is where the unbounded post-transfer
+    // poll chatter actually lives (e.g. a socket left open at a "press any key").
+    if (gotData || sr[s] == U2_SR_ESTABLISHED) {
+      sockPollIvMs[s] = TU2_SERVICE_MS;
+      sockNextPollMs[s] = now;
+    } else {
+      uint32_t iv = (uint32_t)sockPollIvMs[s] * 2;
+      if (iv > TU2_POLL_MAX_MS) iv = TU2_POLL_MAX_MS;
+      sockPollIvMs[s] = (uint16_t)iv;
+      sockNextPollMs[s] = now + iv;
     }
     return; // one socket per tick
   }
