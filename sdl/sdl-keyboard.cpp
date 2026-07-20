@@ -32,10 +32,33 @@ void SDLKeyboard::handleKeypress(SDL_KeyboardEvent *key)
 
   if (key->type == SDL_KEYDOWN &&
       key->keysym.sym == SDLK_F9) {
-    // Save printer output
-    ((SDLPrinter *)g_printer)->savePageAsBitmap(0);
-    printf("Saved printer output to page-0.bmp\n");
+    // Global save shortcut (works even when the main emulator window has focus).
+    ((SDLPrinter *)g_printer)->savePng();
     return;
+  }
+
+  // Printer controls, active when the roll is full (halted, VM paused) or when the
+  // printer window has keyboard focus. Letters/arrows are used so macOS Mission
+  // Control doesn't swallow them the way it does F11 ("Show Desktop"). While active,
+  // all key events are consumed so nothing leaks into the paused/unfocused VM.
+  {
+    SDLPrinter *pr = (SDLPrinter *)g_printer;
+    if (pr && (pr->isHalted() || pr->isFocused())) {
+      if (key->type == SDL_KEYDOWN) {
+        switch (key->keysym.sym) {
+        case 's': case 'S': pr->savePng(); break;
+        case 'c': case 'C': pr->clear();             printf("Cleared printer roll\n");             break;
+        case SDLK_UP:       pr->scrollByRows(-40);            break;
+        case SDLK_DOWN:     pr->scrollByRows(40);             break;
+        case SDLK_PAGEUP:   pr->scrollByRows(-(HEIGHT - 80)); break;
+        case SDLK_PAGEDOWN: pr->scrollByRows(HEIGHT - 80);    break;
+        case SDLK_HOME:     pr->scrollByRows(-1000000);       break;
+        case SDLK_END:      pr->scrollByRows(1000000);        break;
+        default: break;
+        }
+      }
+      return; // consume down+up so nothing reaches the VM while the printer is active
+    }
   }
 
   if ( (key->keysym.sym >= 'a' && key->keysym.sym <= 'z') ||
@@ -165,6 +188,15 @@ void SDLKeyboard::maintainKeyboard()
       break;
     case SDL_MOUSEBUTTONDOWN:
     case SDL_MOUSEBUTTONUP:
+      // A click in the printer window claims keyboard focus for it (macOS won't
+      // reliably do this for a secondary window on its own) and must not reach
+      // the emulated Apple mouse.
+      if (g_printer &&
+          event.button.windowID == ((SDLPrinter *)g_printer)->windowID()) {
+        if (event.type == SDL_MOUSEBUTTONDOWN)
+          ((SDLPrinter *)g_printer)->focusWindow();
+        break;
+      }
       ((SDLMouse *)g_mouse)->mouseButtonEvent(event.type == SDL_MOUSEBUTTONDOWN);
       break;
     case SDL_MOUSEMOTION:
@@ -172,9 +204,23 @@ void SDLKeyboard::maintainKeyboard()
       // FIXME: nasty rooting around in other objects and typecasting.
       // FIXME: event.motion.state & SDL_BUTTON_LMASK, et al?
 
+      // Motion over the printer window shouldn't jiggle the emulated paddles/mouse.
+      if (g_printer &&
+          event.motion.windowID == ((SDLPrinter *)g_printer)->windowID())
+        break;
+
       ((SDLPaddles *)g_paddles)->gotMouseMovement(event.motion.x, event.motion.y);
       ((SDLMouse *)g_mouse)->gotMouseEvent(event.motion.state, // button
 					   event.motion.xrel, event.motion.yrel);
+      break;
+
+    case SDL_MOUSEWHEEL:
+      // Scroll the printer roll when the wheel is over the printer window.
+      // wheel.y > 0 is "away/up", which should reveal earlier pages.
+      if (g_printer &&
+          event.wheel.windowID == ((SDLPrinter *)g_printer)->windowID()) {
+        ((SDLPrinter *)g_printer)->scrollByRows(-event.wheel.y * 48);
+      }
       break;
 
     case SDL_WINDOWEVENT:
@@ -186,13 +232,30 @@ void SDLKeyboard::maintainKeyboard()
   }
 }
 
-bool hasKeyPending;
-uint8_t keyPending;
+// A small FIFO of decoded keys for the BIOS. kbhit() drains the ENTIRE SDL event
+// queue on each call and pushes any decoded keys here; read() pops one. The old
+// code pulled a single SDL event per call, so a backlog of mouse-motion or
+// key-up events sat in front of your keystrokes and the ~30Hz BIOS poll only
+// cleared one event per tick -- which is exactly why typing an SSID or password
+// felt halting and unnatural. Draining the queue every call means a keystroke is
+// never stuck behind unrelated events.
+#define BIOS_KEYRING 32
+static uint8_t keyRing[BIOS_KEYRING];
+static uint8_t keyRingHead = 0, keyRingTail = 0;
+
+static void pushBiosKey(uint8_t k)
+{
+  uint8_t next = (uint8_t)((keyRingHead + 1) % BIOS_KEYRING);
+  if (next != keyRingTail) {   // silently drop if the ring is somehow full
+    keyRing[keyRingHead] = k;
+    keyRingHead = next;
+  }
+}
 
 bool SDLKeyboard::kbhit()
 {
   SDL_Event event;
-  if (SDL_PollEvent( &event )) {
+  while (SDL_PollEvent( &event )) {
     if (event.type == SDL_QUIT) {
       exit(0);
     }
@@ -201,68 +264,66 @@ bool SDLKeyboard::kbhit()
       // We are handling the SDL input loop, so need to pass this off to the paddles. :/
       // FIXME: nasty rooting around in other objects and typecasting.
       // FIXME: event.motion.state & SDL_BUTTON_LMASK, et al?
-      
+
       ((SDLPaddles *)g_paddles)->gotMouseMovement(event.motion.x, event.motion.y);
       ((SDLMouse *)g_mouse)->gotMouseEvent(event.motion.state, // button
 					   event.motion.xrel, event.motion.yrel);
 
     } else if (event.type == SDL_KEYDOWN) {
       SDL_KeyboardEvent *key = &event.key;
-      
-      if ( (key->keysym.sym >= 'a' && key->keysym.sym <= 'z') ||
-	   (key->keysym.sym >= '0' && key->keysym.sym <= '9') ||
-	   key->keysym.sym == '-' ||
-	   key->keysym.sym == '=' ||
-	   key->keysym.sym == '[' ||
-	   key->keysym.sym == '`' ||
-	   key->keysym.sym == ']' ||
-	   key->keysym.sym == '\\' ||
-	   key->keysym.sym == ';' ||
-	   key->keysym.sym == '\'' ||
-	   key->keysym.sym == ',' ||
-	   key->keysym.sym == '.' ||
-	   key->keysym.sym == '/' ||
-	   key->keysym.sym == ' ' ||
-	   key->keysym.sym == 27 || // ESC
-	   key->keysym.sym == 13 || // return
-	   key->keysym.sym == 9) { // tab
-	keyPending = key->keysym.sym;
-	hasKeyPending = true;
+      // Keep the full SDL_Keycode: special keys (arrows, etc.) are large values
+      // with the scancode bit set, and truncating to a narrow type mangles them
+      // so their cases below never match.
+      SDL_Keycode sym = key->keysym.sym;
+      bool shift = (key->keysym.mod & KMOD_SHIFT) != 0;
+
+      if ( (sym >= 'a' && sym <= 'z') ||
+	   (sym >= '0' && sym <= '9') ||
+	   sym == '-' ||
+	   sym == '=' ||
+	   sym == '[' ||
+	   sym == '`' ||
+	   sym == ']' ||
+	   sym == '\\' ||
+	   sym == ';' ||
+	   sym == '\'' ||
+	   sym == ',' ||
+	   sym == '.' ||
+	   sym == '/' ||
+	   sym == ' ' ||
+	   sym == 27 || // ESC
+	   sym == 13 || // return
+	   sym == 9) { // tab
+	// SDL reports the physical (unshifted, lowercase) key. Shift a letter up
+	// to uppercase so mixed-case SSIDs and passwords can actually be typed.
+	if (shift && sym >= 'a' && sym <= 'z')
+	  pushBiosKey((uint8_t)(sym - ('a' - 'A')));
+	else
+	  pushBiosKey((uint8_t)sym);
       } else {
-	switch (key->keysym.sym) {
-	case SDLK_UP:
-	  keyPending = PK_UARR;
-	  hasKeyPending = true;
-	  break;
-	case SDLK_DOWN:
-	  keyPending = PK_DARR;
-	  hasKeyPending = true;
-	  break;
-	case SDLK_RIGHT:
-	  keyPending = PK_RARR;
-	  hasKeyPending = true;
-	  break;
-	case SDLK_LEFT:
-	  keyPending = PK_LARR;
-	  hasKeyPending = true;
-	  break;
+	switch (sym) {
+	case SDLK_UP:    pushBiosKey(PK_UARR); break;
+	case SDLK_DOWN:  pushBiosKey(PK_DARR); break;
+	case SDLK_RIGHT: pushBiosKey(PK_RARR); break;
+	case SDLK_LEFT:  pushBiosKey(PK_LARR); break;
 	case SDLK_BACKSPACE:  // delete key: backspace in the BIOS text fields
 	case SDLK_DELETE:
-	  keyPending = PK_DEL;
-	  hasKeyPending = true;
+	  pushBiosKey(PK_DEL);
 	  break;
 	}
       }
     }
   }
-  return hasKeyPending;
+  return (keyRingHead != keyRingTail);
 }
 
 int8_t SDLKeyboard::read()
 {
-  // Meh
-  hasKeyPending = false;
-  return keyPending;
+  if (keyRingHead == keyRingTail)
+    return PK_NONE;
+  uint8_t k = keyRing[keyRingTail];
+  keyRingTail = (uint8_t)((keyRingTail + 1) % BIOS_KEYRING);
+  return (int8_t)k;
 }
 
 
