@@ -436,15 +436,21 @@ void TeensyUthernet2::tick(int64_t cycleCount)
   // service() issues the next slot's command when the engine is idle, and
   // usernet.tick() runs the NAT state machine against the now-non-blocking
   // backend. No real-time throttle needed -- nothing here stalls the emulator.
+  //
+  // This does NOT return afterward: an app can run its own IP stack over MAC-RAW
+  // (ARP/DNS/ICMP) while ALSO opening W5100 hardware sockets for TCP. Those
+  // hardware sockets still need servicing below, or a hardware connection
+  // connects but is never polled for received data and hangs forever on
+  // "receiving" (e.g. IP65's WGET: DNS over MAC-RAW, TCP over a hardware socket).
   if (macraw) {
     pump();
     unEsp.service();
     usernet.tick();
-    return;
   }
 
-  // Hardware-socket path (not MAC-RAW): still uses the blocking command(), so
-  // pace it against real time as before.
+  // Hardware-socket path: poll any real (non-MAC-RAW) sockets. Uses the blocking
+  // command(), so pace it against real time. Runs whether or not MAC-RAW is also
+  // active; the MAC-RAW socket itself is skipped (it is not a real ESP socket).
   uint32_t now = millis();
   if ((uint32_t)(now - lastServiceMs) < TU2_SERVICE_MS) return;
   lastServiceMs = now;
@@ -453,7 +459,7 @@ void TeensyUthernet2::tick(int64_t cycleCount)
   // half-duplex round-trip cost per maintenance call.
   for (uint8_t k = 0; k < U2_NUM_SOCKETS; k++) {
     uint8_t s = (pollCursor + k) % U2_NUM_SOCKETS;
-    if (proto[s] == 0xFF) continue;
+    if (proto[s] == 0xFF || proto[s] == U2_PROTO_MACRAW) continue;
     pollCursor = (s + 1) % U2_NUM_SOCKETS;
 
     if (rxLen[s] != 0) return; // still draining this socket's buffer
