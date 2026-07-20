@@ -189,6 +189,10 @@ static bool scanImageVersion(const uint8_t *img, uint32_t len,
   for (uint32_t i = 0; i + (uint32_t)mlen <= len; i++) {
     if (memcmp(img + i, magic, mlen) != 0) continue;
     const uint8_t *v = img + i + mlen;
+    // The magic string is ALSO present as this function's own AIIE_FW_MAGIC
+    // constant ("AiiEFWV\x1e\0"), whose "version" is empty. Skip any empty match
+    // and keep scanning; the real version blob has version text before its 0x1e.
+    if (v >= img + len || v[0] == 0x1e || v[0] == 0) continue;
     int j = 0;
     while (j < outLen - 1 && (v + j) < (img + len) && v[j] != 0x1e && v[j] != 0) {
       out[j] = (char)v[j];

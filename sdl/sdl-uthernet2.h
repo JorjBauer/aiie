@@ -40,6 +40,7 @@ class SDLUthernet2 : public Uthernet2Interface {
 
   virtual bool resolveName(const char *host, uint8_t ip[4]);
   virtual void tick(int64_t cycleCount);
+  virtual void applyForwardConfig();
 
  private:
   void serviceSocket(uint8_t s);

@@ -66,6 +66,9 @@ class UserNet {
   uint16_t toApple(uint8_t *buf, uint16_t maxLen);
   // Service host sockets: pull inbound data/close, complete connects, time out.
   void tick();
+  // Close the current host listeners and re-open per a new config. Live: lets the
+  // BIOS change the forward list and have it take effect without a VM restart.
+  void reconfigureForwards(const char *hostfwd);
 
  private:
   // link-layer / local services

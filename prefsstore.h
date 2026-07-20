@@ -6,7 +6,7 @@
 // Fun trivia: the Apple //e was in production from January 1983 to
 // November 1993. And the 65C02 in them supported weird BCD math modes.
 #define PREFSMAGIC 0x01831093
-#define PREFSVERSION 10
+#define PREFSVERSION 11
 
 #ifndef MAXPATH
 #define MAXPATH 255
@@ -55,7 +55,15 @@ typedef struct _prefs {
   char wifiSSID[33];
   char wifiPass[64];
 
-  char reserved[MAXPATH - 4 - 5 - 1 - 2 - 1 - 33 - 64]; // 255 is the Teensy MAXPATH size (less fields above)
+  // v11+: inbound NAT (Uthernet) port forwarding. natFwd is a comma-separated
+  // list of Apple listen ports to expose to the outside (e.g. "6580,23"); the
+  // host/ESP port is derived per-platform (SDL bumps privileged ports by
+  // natPortOffset to avoid needing root; Teensy uses the port as-is). Carved
+  // from reserved so the disk/hd path offsets and footer do not move.
+  uint16_t natPortOffset;
+  char natFwd[48];
+
+  char reserved[MAXPATH - 4 - 5 - 1 - 2 - 1 - 33 - 64 - 2 - 48]; // 255 is the Teensy MAXPATH size (less fields above)
 
   char disk1[MAXPATH];
   char disk2[MAXPATH];

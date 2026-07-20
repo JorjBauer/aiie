@@ -1,6 +1,6 @@
 LDFLAGS=-L/usr/local/lib -L/opt/homebrew/lib
 
-SDLLIBS=-lSDL2 -lpthread
+SDLLIBS=-lSDL2 -lpthread -lz
 FBLIBS=-lpthread
 
 CFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -O2 -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE

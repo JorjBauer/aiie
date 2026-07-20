@@ -87,6 +87,15 @@ extern uint8_t g_slotUthernet;
 extern char g_wifiSSID[33];
 extern char g_wifiPass[64];
 
+// Inbound NAT port forwarding (Uthernet). g_natFwd is a comma-separated list of
+// Apple listen ports to expose to the outside world (e.g. "6580,23"). On the
+// SDL build, privileged Apple ports (<1024) are bumped by g_natPortOffset on the
+// host side so no root is needed; the Teensy exposes the port as-is (it forwards
+// through the ESP's WiFi stack, not the host OS, so there is no privileged-port
+// problem and g_natPortOffset is unused there).
+extern char g_natFwd[48];
+extern uint16_t g_natPortOffset;
+
 // RamWorks-compatible aux-memory expansion size, in megabytes.
 // 0 = none (stock Extended 80-column card); 1, 3, or 16 = total aux RAM.
 extern uint8_t g_ramworksSize;

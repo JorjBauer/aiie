@@ -125,14 +125,20 @@ static void service(uint8_t s) {
     Sock &k = socks[s];
 
     if (k.proto == AIIE_PROTO_TCP) {
-        // Accept one client on a listening socket.
-        if (k.server && k.server->hasClient()) {
-            if (!k.client.connected()) {
-                k.client = k.server->available();
-                k.sr = W5100_SR_ESTABLISHED;
-            } else {
-                k.server->available().stop();   // already busy: refuse extra
-            }
+        // Accept one client on a listening socket, then STOP listening. This is a
+        // one-connection-at-a-time server, and on the ESP8266 a WiFiServer left
+        // running alongside an accepted client can invalidate or close that client
+        // during a slow request -- which is why, on real hardware, the Apple's
+        // reply never went out and the socket never closed (both SDL and the
+        // off-hardware mock use a separate accepted fd, so they never hit this).
+        // Claim the client first, THEN tear the server down so it can't touch it;
+        // the Teensy re-LISTENs (a fresh server) once this connection closes.
+        if (k.server && k.server->hasClient() && !k.client.connected()) {
+            k.client = k.server->available();
+            k.sr = W5100_SR_ESTABLISHED;
+            k.server->stop();
+            delete k.server;
+            k.server = nullptr;
         }
         // Refill staging when empty.
         if (k.rxLen == 0 && k.client.available() > 0) {

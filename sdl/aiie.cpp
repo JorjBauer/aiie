@@ -102,7 +102,7 @@ static struct timespec runBIOS(struct timespec now)
     initialized = true;
   }
 
-  timespec_add_us(&startTime, 100000*cycleCount, &nextRuntime); // FIXME: what's a good time here? 1/10 sec?
+  timespec_add_us(&startTime, 33333*cycleCount, &nextRuntime); // ~30Hz: snappy BIOS input without busy-spinning
 
   // Check if it's time to run - and if not, return how long it will
   // be until we need to run
@@ -344,7 +344,9 @@ void loop()
   do_gettime(&now);
 
   struct timespec shortest;
-  
+  shortest.tv_sec = 0;
+  shortest.tv_nsec = 5000000; // 5ms idle when the VM isn't running (BIOS or printer-full)
+
   static bool wasBios = false; // so we can tell when it's done
   if (g_biosInterrupt) {
     shortest = runBIOS(now);
@@ -373,7 +375,8 @@ void loop()
     }
   }
 
-  if (!g_biosInterrupt) {
+  if (!g_biosInterrupt && !((SDLPrinter *)g_printer)->isHalted()) {
+    // Freeze the VM while the printer roll is full and waiting to be saved/cleared.
     shortest = runCPU(now); // about 13% CPU utilization on my laptop
   }
   struct timespec diff;
@@ -492,6 +495,10 @@ int main(int argc, char *argv[])
         strncpy(g_wifiSSID, p.wifiSSID, sizeof(g_wifiSSID)-1); g_wifiSSID[sizeof(g_wifiSSID)-1]=0;
         strncpy(g_wifiPass, p.wifiPass, sizeof(g_wifiPass)-1); g_wifiPass[sizeof(g_wifiPass)-1]=0;
       }
+      if (p.version >= 11) {
+        strncpy(g_natFwd, p.natFwd, sizeof(g_natFwd)-1); g_natFwd[sizeof(g_natFwd)-1]=0;
+        g_natPortOffset = p.natPortOffset;
+      }
       }
     }
   }
@@ -597,6 +604,10 @@ void readPrefs()
         strncpy(g_wifiSSID, p.wifiSSID, sizeof(g_wifiSSID)-1); g_wifiSSID[sizeof(g_wifiSSID)-1]=0;
         strncpy(g_wifiPass, p.wifiPass, sizeof(g_wifiPass)-1); g_wifiPass[sizeof(g_wifiPass)-1]=0;
       }
+      if (p.version >= 11) {
+        strncpy(g_natFwd, p.natFwd, sizeof(g_natFwd)-1); g_natFwd[sizeof(g_natFwd)-1]=0;
+        g_natPortOffset = p.natPortOffset;
+      }
     }
     if (p.disk1[0]) {
       ((AppleVM *)g_vm)->insertDisk(0, p.disk1);
@@ -650,6 +661,8 @@ void writePrefs()
   p.slotUthernet = g_slotUthernet;
   strncpy(p.wifiSSID, g_wifiSSID, sizeof(p.wifiSSID)); p.wifiSSID[sizeof(p.wifiSSID)-1]=0;
   strncpy(p.wifiPass, g_wifiPass, sizeof(p.wifiPass)); p.wifiPass[sizeof(p.wifiPass)-1]=0;
+  strncpy(p.natFwd, g_natFwd, sizeof(p.natFwd)); p.natFwd[sizeof(p.natFwd)-1]=0;
+  p.natPortOffset = g_natPortOffset;
 
   p.ramworksSize = g_ramworksSize;
 

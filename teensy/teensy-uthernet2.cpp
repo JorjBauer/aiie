@@ -1,8 +1,31 @@
 #include "teensy-uthernet2.h"
 #include "protocol.h"
+#include "globals.h"
 #include <string.h>
+#include <stdio.h>
 
 TeensyUthernet2 *TeensyUthernet2::s_instance = nullptr;
+
+// Build the "hostport:appleport,..." forward string from the BIOS setting
+// g_natFwd (a bare Apple-port list, e.g. "80,23"). The Teensy forwards through
+// the ESP's WiFi stack, so the host port equals the Apple port -- no privileged-
+// port offset is needed. Returns `fallback` if the BIOS list is empty.
+static const char *teensyBuildFwd(const char *fallback)
+{
+  if (!g_natFwd[0]) return fallback;
+  static char buf[160];
+  int o = 0; buf[0] = 0;
+  const char *p = g_natFwd;
+  while (*p) {
+    while (*p == ' ' || *p == ',') p++;
+    int ap = 0; bool got = false;
+    while (*p >= '0' && *p <= '9') { ap = ap * 10 + (*p++ - '0'); got = true; }
+    if (got && ap > 0 && ap < 65536)
+      o += snprintf(buf + o, sizeof(buf) - o, "%s%d:%d", o ? "," : "", ap, ap);
+    while (*p && *p != ',' && !(*p >= '0' && *p <= '9')) p++;
+  }
+  return buf[0] ? buf : fallback;
+}
 
 void TeensyUthernet2::frameCb(uint8_t type, uint8_t seq, const uint8_t *p, uint16_t len)
 {
@@ -19,7 +42,8 @@ void TeensyUthernet2::onFrame(uint8_t type, uint8_t seq, const uint8_t *p, uint1
 }
 
 TeensyUthernet2::TeensyUthernet2(Stream *l, const char *hostfwd)
-  : link(l), parser(frameCb), unEsp(this), usernet(&unEsp, false, hostfwd),
+  : link(l), parser(frameCb), unEsp(this),
+    usernet(&unEsp, false, teensyBuildFwd(hostfwd)),
     macraw(false)
 {
   s_instance = this;
@@ -29,6 +53,10 @@ TeensyUthernet2::TeensyUthernet2(Stream *l, const char *hostfwd)
   seq = 0;
   cTx = 0; cRetries = 0; cTimeouts = 0;
   rpGot = false; rpType = 0; rpSeq = 0; rpLen = 0;
+  cmdInFlight = false; cmdDoneFlag = false; cmdOkFlag = false;
+  cmdType = 0; cmdSeq = 0; cmdTries = 0;
+  cmdSentMs = 0; cmdTimeoutMs = 0; cmdPayLen = 0;
+  cmdOwner = 0; cmdTag = 0;
   pollCursor = 0;
   haveCreds = false;
   ssid[0] = 0; pass[0] = 0;
@@ -45,6 +73,13 @@ TeensyUthernet2::~TeensyUthernet2()
   if (s_instance == this) s_instance = nullptr;
 }
 
+void TeensyUthernet2::applyForwardConfig()
+{
+  // Re-read the BIOS forward list and apply it to the running NAT, so a change
+  // takes effect without restarting the VM.
+  usernet.reconfigureForwards(teensyBuildFwd(nullptr));
+}
+
 void TeensyUthernet2::setNetwork(const char *s, const char *p)
 {
   strncpy(ssid, s ? s : "", sizeof(ssid) - 1); ssid[sizeof(ssid) - 1] = 0;
@@ -59,31 +94,95 @@ uint8_t TeensyUthernet2::nextSeq()
   return seq;
 }
 
+// Start a command without waiting. One seq is reused across retries: the ESP
+// dedups by seq, so a resend either gets reprocessed (first never arrived) or
+// re-fetches the cached reply (only the reply was lost), never double-executing.
+bool TeensyUthernet2::issue(uint8_t type, const uint8_t *payload, uint16_t len,
+                            uint32_t timeoutMs, uint8_t owner, uint8_t tag)
+{
+  if (cmdInFlight) return false;
+  if (len > sizeof(cmdPayload)) return false;
+  cmdType = type;
+  cmdSeq = nextSeq();
+  cmdPayLen = len;
+  if (len && payload) memcpy(cmdPayload, payload, len);
+  cmdTimeoutMs = timeoutMs;
+  cmdOwner = owner;
+  cmdTag = tag;
+  cmdTries = 0;
+  rpGot = false;
+  cmdDoneFlag = false;
+  cmdOkFlag = false;
+  frameSend(*link, cmdType, cmdSeq, cmdPayLen ? cmdPayload : nullptr, cmdPayLen);
+  cTx++;
+  cmdSentMs = millis();
+  cmdInFlight = true;
+  return true;
+}
+
+// Advance the outstanding command without blocking: consume whatever bytes the
+// UART already buffered, and if the matching reply completes, finish (rp* holds
+// it). On timeout, resend up to TU2_MAX_RETRIES, then give up. Safe to call when
+// nothing is in flight (no-op).
+// Finish the in-flight command. If it belonged to UnBackendEsp (owner 1), hand
+// the reply to it IMMEDIATELY -- even when called from a blocking command()'s
+// pump loop -- so its socket data is never clobbered by the next issue().
+void TeensyUthernet2::completeCommand(bool ok)
+{
+  cmdInFlight = false;
+  cmdDoneFlag = true;
+  cmdOkFlag = ok;
+  if (cmdOwner == 1) {
+    cmdOwner = 0;
+    unEsp.onCommandDone(cmdTag, ok, rpType, rpBuf, rpLen);
+  }
+}
+
+void TeensyUthernet2::pump()
+{
+  if (!cmdInFlight) return;
+
+  while (link->available()) {
+    parser.feed((uint8_t)link->read());
+    if (rpGot && rpSeq == cmdSeq) {   // our reply, captured in rp* by onFrame
+      completeCommand(true);
+      return;
+    }
+    rpGot = false;                    // unmatched frame; keep hunting
+  }
+
+  if ((uint32_t)(millis() - cmdSentMs) >= cmdTimeoutMs) {
+    if (cmdTries < TU2_MAX_RETRIES) {
+      cmdTries++;
+      cRetries++;
+      rpGot = false;
+      frameSend(*link, cmdType, cmdSeq, cmdPayLen ? cmdPayload : nullptr, cmdPayLen);
+      cTx++;
+      cmdSentMs = millis();
+    } else {
+      cTimeouts++;
+      completeCommand(false);
+    }
+  }
+}
+
+// EspTransport async surface: start a command owned by UnBackendEsp.
+bool TeensyUthernet2::espIssue(uint8_t type, const uint8_t *payload, uint16_t len,
+                               uint32_t timeoutMs, uint8_t tag)
+{
+  return issue(type, payload, len, timeoutMs, /*owner=*/1, tag);
+}
+
+// Blocking wrapper for the control path (boot ping, WiFi join, DNS): wait for any
+// in-flight async command, issue this one, then pump until it completes. Same
+// external behavior as before; now built on the async engine.
 bool TeensyUthernet2::command(uint8_t type, const uint8_t *payload, uint16_t len,
                               uint32_t timeoutMs)
 {
-  // Reuse ONE seq across retries: the ESP dedups by seq, so a resend either
-  // gets reprocessed (if the first never arrived) or re-fetches the cached
-  // reply (if only the reply was lost), never double-executing the command.
-  const uint8_t s = nextSeq();
-
-  for (uint8_t attempt = 0; attempt <= TU2_MAX_RETRIES; attempt++) {
-    if (attempt) cRetries++;
-    rpGot = false;
-    frameSend(*link, type, s, payload, len);
-    cTx++;
-
-    const uint32_t start = millis();
-    while ((uint32_t)(millis() - start) < timeoutMs) {
-      while (link->available()) {
-        parser.feed((uint8_t)link->read());
-        if (rpGot && rpSeq == s) return true;
-      }
-      yield();
-    }
-  }
-  cTimeouts++;
-  return false;
+  while (cmdInFlight) { pump(); yield(); }
+  if (!issue(type, payload, len, timeoutMs)) return false;
+  while (!cmdDoneFlag) { pump(); yield(); }
+  return cmdOkFlag;
 }
 
 // EspTransport: one command round-trip, reply copied out for UnBackendEsp.
@@ -182,6 +281,7 @@ void TeensyUthernet2::reset()
   }
   macraw = false;
   usernet.reset();
+  unEsp.reset();
   command(CMD_RESET, nullptr, 0);
 }
 
@@ -330,19 +430,24 @@ void TeensyUthernet2::tick(int64_t cycleCount)
     return;
   }
 
-  // Pace ESP servicing against real time, not CPU cycles: cpuMaintenance() calls
-  // this every ~24 emulated cycles, but each poll/send below blocks on a UART
-  // round-trip. Without this throttle an open socket froze the emulator (and the
-  // BIOS button) to a crawl. Between passes tick() returns immediately, so the
-  // 6502 runs full speed. (Proper async I/O is the real fix; this makes it
-  // usable now.)
+  // MAC-RAW mode: fully async. pump() advances the outstanding ESP command
+  // without blocking (it consumes only bytes the UART already buffered); a long
+  // reply is assembled over many tick() passes while the 6502 keeps running.
+  // service() issues the next slot's command when the engine is idle, and
+  // usernet.tick() runs the NAT state machine against the now-non-blocking
+  // backend. No real-time throttle needed -- nothing here stalls the emulator.
+  if (macraw) {
+    pump();
+    unEsp.service();
+    usernet.tick();
+    return;
+  }
+
+  // Hardware-socket path (not MAC-RAW): still uses the blocking command(), so
+  // pace it against real time as before.
   uint32_t now = millis();
   if ((uint32_t)(now - lastServiceMs) < TU2_SERVICE_MS) return;
   lastServiceMs = now;
-
-  // MAC-RAW mode: the on-Teensy UserNet services its NAT flows (each flow polls
-  // its ESP socket). The hardware-socket path below is not used in this mode.
-  if (macraw) { usernet.tick(); return; }
 
   // Service at most one active socket per tick (round-robin), to bound the
   // half-duplex round-trip cost per maintenance call.

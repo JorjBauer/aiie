@@ -164,6 +164,16 @@ void UserNet::setupListeners(const char *cfg) {
   }
 }
 
+void UserNet::reconfigureForwards(const char *cfg) {
+  // Tear down the current listeners so a shrunk or changed list does not leave
+  // stale ports bound, then re-open from the new config. setupListeners refills
+  // fwds[] from slot 0; the closed tail keeps lfd == -1 and is skipped on accept.
+  for (int i = 0; i < USERNET_FWDS; i++) {
+    if (fwds[i].lfd >= 0) { backend->sockClose(fwds[i].lfd); fwds[i].lfd = -1; }
+  }
+  setupListeners(cfg);
+}
+
 /* ---- frame queue toward the Apple -------------------------------------- */
 bool UserNet::queueHasRoom() const {
   return (uint8_t)((qTail + 1) % USERNET_QUEUE) != qHead;

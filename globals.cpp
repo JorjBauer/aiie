@@ -32,6 +32,9 @@ uint8_t g_slotUthernet = 0; // 0 = disabled; set to a slot number to enable
 char g_wifiSSID[33] = {0};   // ESP WiFi credentials (Teensy Uthernet MAC-RAW)
 char g_wifiPass[64] = {0};
 
+char g_natFwd[48] = "80,23";        // inbound NAT: Apple ports to expose, e.g. "6580,23"
+uint16_t g_natPortOffset = 8000; // SDL-only: bump privileged Apple ports on the host
+
 uint8_t g_ramworksSize = 0; // 0=none, else total aux MB (1, 3, 16)
 
 #ifdef TEENSYDUINO

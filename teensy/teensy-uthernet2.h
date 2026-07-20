@@ -44,6 +44,10 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
                           uint8_t &rType, uint8_t *rBuf, uint16_t rCap,
                           uint16_t &rLen, uint32_t timeoutMs);
   virtual uint32_t nowSecs();
+  // Async engine surface for UnBackendEsp's non-blocking scheduler.
+  virtual bool espBusy() { return cmdInFlight; }
+  virtual bool espIssue(uint8_t type, const uint8_t *payload, uint16_t len,
+                        uint32_t timeoutMs, uint8_t tag);
 
   // Provide the AP credentials the ESP should join in begin(). Optional.
   void setNetwork(const char *ssid, const char *pass);
@@ -51,6 +55,7 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
   virtual void begin();
   virtual void reset();
   virtual bool linkReady();
+  virtual void applyForwardConfig();
 
   virtual void socketOpen(uint8_t sock, uint8_t proto, uint8_t ipproto,
                           uint16_t localPort);
@@ -87,7 +92,23 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
   void onFrame(uint8_t type, uint8_t seq, const uint8_t *p, uint16_t len);
 
   uint8_t nextSeq();
-  // Send one command and block until its matching reply arrives (or timeout).
+
+  // Async command engine: the ESP protocol is strict request/reply, so only one
+  // command is outstanding at a time. issue() sends without waiting; pump()
+  // advances the outstanding command WITHOUT blocking (reads whatever the UART
+  // has buffered, matches the reply, retries on timeout). This lets a long reply
+  // arrive over many tick() passes while the 6502 keeps running. command() is a
+  // thin blocking wrapper for the infrequent control path (boot ping, WiFi join,
+  // DNS), which never overlaps socket data.
+  bool cmdIdle() const { return !cmdInFlight; }
+  bool cmdDone() const { return cmdDoneFlag; }  // last command finished (ok or not)
+  bool cmdOk()   const { return cmdOkFlag; }     // finished with a matching reply
+  // owner: 0 = control path (reply left in rp* for command()); 1 = UnBackendEsp
+  // (on completion pump() dispatches the reply to unEsp.onCommandDone(tag)).
+  bool issue(uint8_t type, const uint8_t *payload, uint16_t len,
+             uint32_t timeoutMs, uint8_t owner = 0, uint8_t tag = 0);
+  void pump();
+  void completeCommand(bool ok); // finish the in-flight command + dispatch
   bool command(uint8_t type, const uint8_t *payload, uint16_t len,
                uint32_t timeoutMs = 200);
   bool pingOnce();   // one link probe (sets linkUp on reply)
@@ -111,6 +132,20 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
   uint8_t  rpSeq;
   uint16_t rpLen;
   uint8_t  rpBuf[AIIE_ESP_MAX_PAYLOAD];
+
+  // Async command-engine bookkeeping (see issue()/pump()).
+  bool     cmdInFlight;   // a command is out, awaiting its reply
+  bool     cmdDoneFlag;   // the last-issued command has completed
+  bool     cmdOkFlag;     // it completed with a matching reply (rp* valid)
+  uint8_t  cmdType;
+  uint8_t  cmdSeq;
+  uint8_t  cmdTries;
+  uint32_t cmdSentMs;
+  uint32_t cmdTimeoutMs;
+  uint16_t cmdPayLen;
+  uint8_t  cmdOwner;      // 0 = control path, 1 = UnBackendEsp (dispatch on done)
+  uint8_t  cmdTag;        // owner-defined tag (the ESP slot, for UnBackendEsp)
+  uint8_t  cmdPayload[AIIE_ESP_MAX_PAYLOAD]; // copy kept for retries
 
   // Per-socket shadow state and local receive buffer.
   uint8_t  sr[U2_NUM_SOCKETS];

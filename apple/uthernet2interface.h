@@ -107,6 +107,11 @@ class Uthernet2Interface {
   /* Service asynchronous I/O; the card calls this from its maintenance tick. */
   virtual void tick(int64_t cycleCount) {}
 
+  /* Re-read the BIOS inbound-forward settings and apply them to the live NAT,
+   * so a change to the forward list takes effect without restarting the VM.
+   * Backends with no host->guest forwarding leave this a no-op. */
+  virtual void applyForwardConfig() {}
+
   /* Link health counters, for measuring the transport rather than guessing at
    * it. Backends with no wire link (e.g. host sockets) leave these at 0. */
   virtual uint32_t statFramesSent()     { return 0; } // commands sent (incl. retries)

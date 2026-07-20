@@ -41,16 +41,19 @@ uint16_t fileSelectionFor; // define what the returned name is for
 
 // menu screen enums
 enum {
+  // Tabs shown in the menu bar (0 .. NUM_TITLES-1), navigated with left/right.
   BIOS_AIIE = 0,
   BIOS_VM = 1,
   BIOS_HARDWARE = 2,
   BIOS_CARDS = 3,
-  BIOS_DISKS = 4,
+  BIOS_WIFI = 4,        // the "Net" tab (network / Uthernet / WiFi setup)
+  BIOS_DISKS = 5,
 
-  BIOS_ABOUT = 5,
-  BIOS_PADDLES = 6,
-  BIOS_SELECTFILE = 7,
-  BIOS_WIFI = 8,
+  // Modal sub-screens, reached from within a tab (must be >= NUM_TITLES so the
+  // left/right tab navigation skips them).
+  BIOS_ABOUT = 6,
+  BIOS_PADDLES = 7,
+  BIOS_SELECTFILE = 8,
 
   BIOS_DONE = 99,
 };
@@ -91,9 +94,12 @@ enum {
   ACT_WIFI = 32,
 };
 
-#define NUM_TITLES 5
-const char *menuTitles[NUM_TITLES] = { "Aiie", "VM", "Hardware", "Cards", "Disks" };
-const uint8_t titleWidths[NUM_TITLES] = {45, 28, 80, 48, 45 };
+// The tab bar is drawn across a 320px-wide display with a fixed 8px font, so the
+// sum of (titleWidths[i] + 2*XPADDING) must stay under 320. The five original
+// tabs use ~266px; "Net" is kept short so the sixth tab still fits.
+#define NUM_TITLES 6
+const char *menuTitles[NUM_TITLES] = { "Aiie", "VM", "Hardware", "Cards", "Net", "Disks" };
+const uint8_t titleWidths[NUM_TITLES] = {45, 28, 80, 48, 32, 45 };
 
 const uint8_t aiieActions[] = { ACT_ABOUT };
 
@@ -108,10 +114,11 @@ const uint8_t hardwareActions[] = { ACT_DISPLAYTYPE,  ACT_LUMINANCEUP,
                                     ACT_LUMINANCEDOWN, ACT_SPEED,
 				    ACT_PADX_INV, ACT_PADY_INV,
 				    ACT_PADDLES, ACT_VOLPLUS, ACT_VOLMINUS };
+// Network / WiFi setup moved to its own "Net" tab (BIOS_WIFI); it is no longer
+// a row in the Cards menu.
 const uint8_t cardsActions[] = { ACT_SLOT_DISKII, ACT_SLOT_PARALLEL,
 				 ACT_SLOT_HD32, ACT_SLOT_MOUSE,
 				 ACT_SLOT_MOCKINGBOARD, ACT_SLOT_UTHERNET,
-				 ACT_WIFI,
 				 ACT_SLOT_RAMWORKS,
 				 ACT_SLOT_DEFAULTS };
 const uint8_t diskActions[] = { ACT_DISK1, ACT_DISK2,
@@ -196,7 +203,9 @@ BIOS::~BIOS()
 
 void BIOS::DrawMenuBar()
 {
-  uint8_t xpos = 0;
+  // Wide enough to hold the full tab-bar width: six tabs run past 255px, so a
+  // uint8_t here would wrap and draw the last tab back over the first.
+  uint16_t xpos = 0;
 
   if (selectedMenu < 0) {
     selectedMenu = NUM_TITLES-1;
@@ -263,9 +272,26 @@ bool BIOS::loop()
 
   uint16_t rv = BIOS_DONE;
   bool changingMenu = false;
+  uint16_t enteredMenu = selectedMenu;   // to notice when we leave the Net tab
   if (g_keyboard->kbhit()) {
     lastKey = g_keyboard->read();
     switch (lastKey) {
+    case PK_ESC:
+      if (selectedMenu == BIOS_VM) {
+        // On the VM tab, ESC does exactly what Return on "Resume" does: attempt
+        // to resume. Highlight Resume (item 0) first so that if it ever cannot
+        // resume (e.g. a card change disables it), the user sees the same result
+        // as pressing Return on Resume rather than silently doing nothing.
+        selectedMenuItem = 0;   // Resume == vmActions[0] (ACT_EXIT)
+        hitReturn = true;
+      } else {
+        // From any other menu, jump to the VM tab with Resume selected.
+        selectedMenu = BIOS_VM;
+        selectedMenuItem = 0;
+        changingMenu = true;
+      }
+      needsRedraw = true;
+      break;
     case PK_DARR:
       selectedMenuItem++; // modded by current action
       needsRedraw = true;
@@ -377,6 +403,13 @@ bool BIOS::loop()
   }
   else
     needsRedraw = false; // assume the handler drew
+
+  if (enteredMenu == BIOS_WIFI && selectedMenu != BIOS_WIFI) {
+    // Left the Net tab (via ESC, a tab switch, or resume): push any edited
+    // inbound-forward list / port offset to the live NAT so it takes effect
+    // this session without a restart.
+    if (g_uthernet) g_uthernet->applyForwardConfig();
+  }
 
   if (selectedMenu == BIOS_DONE && cardsConfigChanged) {
     g_display->clrScr(c_darkblue);
@@ -802,9 +835,6 @@ uint16_t BIOS::CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key
           localRedraw = true;
         }
         break;
-      case ACT_WIFI:
-        localRedraw = true;   // force a fresh draw when we return here
-        return BIOS_WIFI;
       case ACT_SLOT_DEFAULTS:
         g_slotDiskII = 6;
         g_slotParallel = 1;
@@ -1069,45 +1099,103 @@ uint16_t BIOS::PaddlesScreenHandler(bool needsRedraw, bool performAction)
   return BIOS_PADDLES;
 }
 
-// WiFi credentials for the Teensy's ESP co-processor. Four fields: SSID,
-// Password, Connect, Back. Up/Down move between them; on a text field, typing
-// edits it (DEL erases). Editing writes directly into the globals, which are
-// persisted to prefs when the BIOS exits. On SDL (no radio) this still lets you
-// store the values, and the status line reports the virtual network as up.
+// The "Net" tab. What it shows depends on the platform, because the two builds
+// reach the network very differently:
+//   Teensy - a real ESP-01 WiFi co-processor, so it needs the SSID/password and
+//            a Connect action, and it reports live link status.
+//   SDL    - rides the host's own network through a built-in user-mode NAT, so
+//            there is no radio to configure (no SSID, password, or Connect); it
+//            does have a port offset knob for exposing privileged ports.
+// Common to both: the Uthernet card's slot, and the inbound forward-port list.
+// Up/Down move between fields; on a text field typing edits it and DEL erases;
+// on the Slot field a digit or +/- picks the slot. Return advances to the next
+// field (or, on the Teensy Connect field, joins). Left/right switch tabs; ESC
+// returns to the VM menu. Edits go straight into the globals (persisted to prefs
+// on BIOS exit); the forward list is pushed to the live NAT when you leave this
+// tab (see BIOS::loop). Changing the slot marks the card config changed, so the
+// slots are reassigned when the VM resumes.
 uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t key)
 {
   static bool localRedraw = true;
-  static bool entered = false;
+#ifdef TEENSYDUINO
   static bool refreshStatus = true;
   static bool connecting = false;
   static int  cachedSt = 0;
   static uint8_t cachedIp[4] = {0, 0, 0, 0};
+#endif
 
-  if (!entered) { entered = true; refreshStatus = true; localRedraw = true; }
+#ifdef TEENSYDUINO
+  const int F_SLOT = 0, F_SSID = 1, F_PASS = 2, F_FWD = 3, F_CONNECT = 4, F_COUNT = 5;
+#else
+  const int F_SLOT = 0, F_FWD = 1, F_OFFSET = 2, F_COUNT = 3;
+#endif
 
-  // 4 fields: 0 SSID, 1 Password, 2 Connect, 3 Back.
-  if (selectedMenuItem < 0) selectedMenuItem = 3;
-  selectedMenuItem %= 4;
+  if (selectedMenuItem < 0) selectedMenuItem = F_COUNT - 1;
+  selectedMenuItem %= F_COUNT;
 
-  if (key == PK_ESC) { entered = false; selectedMenuItem = 0; return BIOS_CARDS; }
-
-  // Text entry into the SSID / Password fields.
-  if (selectedMenuItem == 0 || selectedMenuItem == 1) {
-    char *field = (selectedMenuItem == 0) ? g_wifiSSID : g_wifiPass;
-    size_t cap = (selectedMenuItem == 0) ? 32 : 63;   // leave room for the NUL
-    size_t len = strlen(field);
-    if (key == PK_DEL) {
-      if (len > 0) { field[len - 1] = 0; localRedraw = true; }
-    } else if (key >= 0x20 && key <= 0x7E) {
-      if (len < cap) { field[len] = (char)key; field[len + 1] = 0; localRedraw = true; }
+  // --- per-field key handling ----------------------------------------------
+  if (selectedMenuItem == F_SLOT) {
+    // Assign the Uthernet card's slot here (same effect as the Cards menu): a
+    // digit picks a slot directly, +/= steps forward, - steps back, 0 disables.
+    uint8_t *var = &g_slotUthernet;
+    int step = 0;
+    if (key >= '0' && key <= '9') {
+      uint8_t ns = (uint8_t)(key - '0');
+      if (isSelectableSlot(ns)) {
+        *var = ns;
+        if (ns != 0) resolveSlotConflict(var);   // move any card already there
+        cardsConfigChanged = !slotsMatchSaved();
+        localRedraw = true;
+      }
+    } else if (key == '+' || key == '=') step = 1;
+    else if (key == '-')                 step = -1;
+    if (step) {
+      const int n = sizeof(kSelectableSlots);
+      int idx = 0;
+      for (int i = 0; i < n; i++) if (kSelectableSlots[i] == *var) { idx = i; break; }
+      idx = (idx + step + n) % n;
+      *var = kSelectableSlots[idx];
+      if (*var != 0) resolveSlotConflict(var);
+      cardsConfigChanged = !slotsMatchSaved();
+      localRedraw = true;
     }
   }
 
+  // Text entry: the forward-port list on both platforms, plus SSID/Password on
+  // the Teensy.
+  {
+    char *tfield = nullptr; size_t tcap = 0; bool restrictFwd = false;
+    if (selectedMenuItem == F_FWD) { tfield = g_natFwd; tcap = sizeof(g_natFwd) - 1; restrictFwd = true; }
+#ifdef TEENSYDUINO
+    else if (selectedMenuItem == F_SSID) { tfield = g_wifiSSID; tcap = 32; }
+    else if (selectedMenuItem == F_PASS) { tfield = g_wifiPass; tcap = 63; }
+#endif
+    if (tfield) {
+      size_t len = strlen(tfield);
+      if (key == PK_DEL) {
+        if (len > 0) { tfield[len - 1] = 0; localRedraw = true; }
+      } else if (key >= 0x20 && key <= 0x7E &&
+                 (!restrictFwd || (key >= '0' && key <= '9') || key == ',' || key == ' ')) {
+        if (len < tcap) { tfield[len] = (char)key; tfield[len + 1] = 0; localRedraw = true; }
+      }
+    }
+  }
+
+#ifndef TEENSYDUINO
+  // The SDL-only port offset is a number: digits append, DEL trims a digit.
+  if (selectedMenuItem == F_OFFSET) {
+    if (key == PK_DEL) { g_natPortOffset /= 10; localRedraw = true; }
+    else if (key >= '0' && key <= '9') {
+      uint32_t v = (uint32_t)g_natPortOffset * 10 + (uint32_t)(key - '0');
+      g_natPortOffset = (v > 65535) ? 65535 : (uint16_t)v;
+      localRedraw = true;
+    }
+  }
+#endif
+
   if (performAction) {
-    switch (selectedMenuItem) {
-    case 0: selectedMenuItem = 1; localRedraw = true; break;  // SSID -> Password
-    case 1: selectedMenuItem = 2; localRedraw = true; break;  // Password -> Connect
-    case 2:                                                   // Connect
+#ifdef TEENSYDUINO
+    if (selectedMenuItem == F_CONNECT) {
       if (g_uthernet) {
         g_display->clrScr(c_darkblue);
         g_display->drawString(M_SELECTED, MENUINDENT, 60, "Connecting...");
@@ -1115,78 +1203,156 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
         g_uthernet->wifiJoin(g_wifiSSID, g_wifiPass);
       }
       connecting = true; refreshStatus = true; localRedraw = true;
-      break;
-    case 3:                                                   // Back
-      entered = false; selectedMenuItem = 0;
-      return BIOS_CARDS;
+    } else
+#endif
+    {
+      selectedMenuItem++;   // Return advances to the next field
+      localRedraw = true;
     }
   }
 
-  // Poll the link about once a second so the status line and the link counters
-  // update live, turning this screen into a link tester. needsRedraw ticks at
-  // ~10Hz; the ESP probe itself is throttled inside the backend.
-  // This handler is called on every BIOS loop tick (~10Hz) whether or not a key
-  // was pressed, but needsRedraw is only set on a keypress. Tick off the call
-  // itself so the status line and link counters refresh live while sitting here.
+#ifdef TEENSYDUINO
+  // Poll the ESP link about once a second so the status line and counters update
+  // live, turning this tab into a link tester. This handler runs on every BIOS
+  // loop tick whether or not a key was pressed; the ESP probe itself is throttled
+  // inside the backend.
   static uint8_t refreshTick = 0;
-  if (++refreshTick >= 10) {
+  if (++refreshTick >= 30) {
     refreshTick = 0;
     refreshStatus = true;
     localRedraw = true;
   }
+#endif
 
   if (needsRedraw || localRedraw) {
     char buf[80];
+#ifdef TEENSYDUINO
     if (refreshStatus) {
       if (g_uthernet) cachedSt = g_uthernet->wifiStatus(cachedIp);
       else            cachedSt = -1;
       refreshStatus = false;
     }
+#endif
 
     g_display->clrScr(c_darkblue);
-    g_display->drawString(M_NORMAL, MENUINDENT, 8, "WiFi Setup");
+    DrawMenuBar();
 
-    snprintf(buf, sizeof(buf), "SSID:     %s", g_wifiSSID);
-    g_display->drawString(selectedMenuItem == 0 ? M_SELECTED : M_NORMAL,
-                          MENUINDENT, 8 + LINEHEIGHT * 2, buf);
-    snprintf(buf, sizeof(buf), "Password: %s", g_wifiPass);
-    g_display->drawString(selectedMenuItem == 1 ? M_SELECTED : M_NORMAL,
-                          MENUINDENT, 8 + LINEHEIGHT * 3, buf);
+    // Lay the screen out with a running y so the platform-specific rows do not
+    // need every following line renumbered. NL = next line; GAP = a blank line.
+    int y = 8 + LINEHEIGHT * 2;
+#define NL  do { y += LINEHEIGHT; } while (0)
+#define GAP do { y += LINEHEIGHT + LINEHEIGHT / 2; } while (0)
 
-    g_display->drawString(selectedMenuItem == 2 ? M_SELECTED : M_NORMAL,
-                          MENUINDENT, 8 + LINEHEIGHT * 5, "[ Connect ]");
-    g_display->drawString(selectedMenuItem == 3 ? M_SELECTED : M_NORMAL,
-                          MENUINDENT, 8 + LINEHEIGHT * 6, "[ Back ]");
+    // --- the emulated card (both platforms) ---
+    g_display->drawString(M_NORMAL, MENUINDENT, y, "Uthernet II network card"); NL;
+    if (g_slotUthernet == 0)
+      strcpy(buf, "  Slot: off   (0-7 or +/-)");
+    else
+      snprintf(buf, sizeof(buf), "  Slot: %d     (0-7 or +/-)", g_slotUthernet);
+    g_display->drawString(selectedMenuItem == F_SLOT ? M_SELECTED : M_NORMAL,
+                          MENUINDENT, y, buf); NL;
+    g_display->drawString(M_DISABLED, MENUINDENT, y,
+                          "  The network card itself. 0 = off."); GAP;
 
-    if (cachedSt < 0) {
-      strcpy(buf, "Status:   Card not enabled");
-    } else if (cachedSt == 0) {
-      strcpy(buf, "Status:   ESP-01 not responding");
-    } else if (cachedSt == 2) {
-      snprintf(buf, sizeof(buf), "Status:   Connected  %d.%d.%d.%d",
-               cachedIp[0], cachedIp[1], cachedIp[2], cachedIp[3]);
-    } else {
-      strcpy(buf, connecting ? "Status:   WiFi not joined (pass?)"
-                             : "Status:   WiFi not joined");
+#ifdef TEENSYDUINO
+    // --- the WiFi radio it talks through (Teensy only) ---
+    g_display->drawString(M_NORMAL, MENUINDENT, y, "WiFi radio (needs an ESP-01)"); NL;
+    snprintf(buf, sizeof(buf), "  SSID:     %s", g_wifiSSID);
+    g_display->drawString(selectedMenuItem == F_SSID ? M_SELECTED : M_NORMAL,
+                          MENUINDENT, y, buf); NL;
+    snprintf(buf, sizeof(buf), "  Password: %s", g_wifiPass);
+    g_display->drawString(selectedMenuItem == F_PASS ? M_SELECTED : M_NORMAL,
+                          MENUINDENT, y, buf); GAP;
+#endif
+
+    // --- inbound: let the outside reach a server on the Apple (both) ---
+    g_display->drawString(M_NORMAL, MENUINDENT, y, "Inbound port forwarding"); NL;
+    snprintf(buf, sizeof(buf), "  Fwd ports: %s", g_natFwd);
+    g_display->drawString(selectedMenuItem == F_FWD ? M_SELECTED : M_NORMAL,
+                          MENUINDENT, y, buf); NL;
+    g_display->drawString(M_DISABLED, MENUINDENT, y,
+                          "  Comma-separated, e.g. 80,23."); NL;
+    g_display->drawString(M_DISABLED, MENUINDENT, y,
+                          "  Apple listen ports; up to 4."); NL;
+    // Each forward permanently holds one of the ESP's four sockets, and every
+    // outbound flow needs a free one, so surface the budget as it gets tight
+    // rather than silently dropping ports (the NAT only opens the first four).
+    {
+      int nports = 0;
+      for (const char *p = g_natFwd; *p; ) {
+        if (*p >= '0' && *p <= '9') { nports++; while (*p >= '0' && *p <= '9') p++; }
+        else p++;
+      }
+      if (nports > 4) {
+        g_display->drawString(M_SELECTED, MENUINDENT, y,
+                              "  Too many: only the first 4 open."); NL;
+      }
+#ifdef TEENSYDUINO
+      else if (nports == 4) {
+        g_display->drawString(M_SELECTED, MENUINDENT, y,
+                              "  4 ports: no outbound flows left"); NL;
+        g_display->drawString(M_SELECTED, MENUINDENT, y,
+                              "  (all 4 ESP sockets are listeners)."); NL;
+      }
+      else if (nports == 3) {
+        g_display->drawString(M_SELECTED, MENUINDENT, y,
+                              "  3 ports: only 1 outbound flow at"); NL;
+        g_display->drawString(M_SELECTED, MENUINDENT, y,
+                              "  a time (each needs a free slot)."); NL;
+      }
+      else {
+        g_display->drawString(M_DISABLED, MENUINDENT, y,
+                              "  Each uses 1 of the ESP's 4 sockets."); NL;
+      }
+#endif
     }
-    g_display->drawString(M_DISABLED, MENUINDENT, 8 + LINEHEIGHT * 8, buf);
+#ifndef TEENSYDUINO
+    snprintf(buf, sizeof(buf), "  Offset:    %u", (unsigned)g_natPortOffset);
+    g_display->drawString(selectedMenuItem == F_OFFSET ? M_SELECTED : M_NORMAL,
+                          MENUINDENT, y, buf); NL;
+    g_display->drawString(M_DISABLED, MENUINDENT, y,
+                          "  Added to ports <1024 (avoids sudo)."); NL;
+#endif
+    GAP;
+
+#ifdef TEENSYDUINO
+    // --- action + live ESP/WiFi status (Teensy only) ---
+    g_display->drawString(selectedMenuItem == F_CONNECT ? M_SELECTED : M_NORMAL,
+                          MENUINDENT, y, "[ Connect to WiFi ]"); GAP;
+
+    if (cachedSt < 0)       strcpy(buf, "Status: card off (set a Slot above)");
+    else if (cachedSt == 0) strcpy(buf, "Status: ESP-01 not responding");
+    else if (cachedSt == 2) snprintf(buf, sizeof(buf), "Status: connected  %d.%d.%d.%d",
+                                     cachedIp[0], cachedIp[1], cachedIp[2], cachedIp[3]);
+    else                    strcpy(buf, connecting ? "Status: WiFi not joined (password?)"
+                                                    : "Status: WiFi not joined");
+    g_display->drawString(M_DISABLED, MENUINDENT, y, buf); NL;
 
     // Live link counters, to see which side is dead: TX = commands sent to the
-    // ESP, RX = valid replies, err = bytes that arrived but failed CRC. TX>0
-    // with RX=err=0 means nothing is coming back; err>0 means bytes arrive but
-    // are corrupt (a baud/timing problem).
+    // ESP, RX = valid replies, err = bytes that arrived but failed CRC.
     if (g_uthernet && cachedSt >= 0) {
-      snprintf(buf, sizeof(buf), "Link:     TX:%lu RX:%lu err:%lu",
+      snprintf(buf, sizeof(buf), "Link:   TX:%lu RX:%lu err:%lu",
                (unsigned long)g_uthernet->statFramesSent(),
                (unsigned long)g_uthernet->statFramesReceived(),
                (unsigned long)g_uthernet->statCrcErrors());
-      g_display->drawString(M_DISABLED, MENUINDENT, 8 + LINEHEIGHT * 9, buf);
+      g_display->drawString(M_DISABLED, MENUINDENT, y, buf); NL;
     }
+    GAP;
+#else
+    // --- desktop note (SDL): no radio to configure ---
+    g_display->drawString(M_DISABLED, MENUINDENT, y,
+                          "Networking uses the host's own"); NL;
+    g_display->drawString(M_DISABLED, MENUINDENT, y,
+                          "connection - no WiFi name or"); NL;
+    g_display->drawString(M_DISABLED, MENUINDENT, y,
+                          "password is needed on the desktop."); GAP;
+#endif
 
-    g_display->drawString(M_DISABLED, MENUINDENT, 8 + LINEHEIGHT * 10,
-                          "Type to edit. DEL erases. Return = next.");
-    g_display->drawString(M_DISABLED, MENUINDENT, 8 + LINEHEIGHT * 11,
-                          "ESC or [Back] returns to Cards.");
+    g_display->drawString(M_DISABLED, MENUINDENT, y,
+                          "Return=next  arrows=move  ESC=menu"); NL;
+
+#undef NL
+#undef GAP
     g_display->flush();
     localRedraw = false;
   }
@@ -1609,10 +1775,6 @@ void BIOS::DrawCardsMenu()
         }
         snprintf(buf, sizeof(buf), "%-14s %s", "RamWorks", sz);
       }
-      goto drawit;
-    case ACT_WIFI:
-      snprintf(buf, sizeof(buf), "%-14s %s", "WiFi Setup",
-               g_wifiSSID[0] ? g_wifiSSID : "Configure...");
       goto drawit;
     case ACT_SLOT_DEFAULTS:
       strcpy(buf, "Reset to defaults");

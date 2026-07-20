@@ -1,4 +1,5 @@
 #include "sdl-uthernet2.h"
+#include "globals.h"   // g_natFwd, g_natPortOffset
 
 #include <string.h>
 #include <stdio.h>
@@ -82,9 +83,48 @@ static int dhcpBuildReply(const uint8_t *req, int reqlen, uint8_t *out)
   return o;
 }
 
+// The host-side inbound port offset: BIOS setting g_natPortOffset (default 8000),
+// with AIIE_UTHERNET_PORT_OFFSET as an override for scripted runs.
+static uint16_t natOffset()
+{
+  const char *env = getenv("AIIE_UTHERNET_PORT_OFFSET");
+  if (env) {
+    long v = strtol(env, NULL, 10);
+    if (v >= 0 && v <= 65535) return (uint16_t)v;
+  }
+  return g_natPortOffset;
+}
+
+// Build the UserNet "hostport:appleport,..." forward string from the BIOS setting
+// g_natFwd (a bare list of Apple ports, e.g. "6580,23"), applying the offset to
+// privileged Apple ports. AIIE_USERNET_HOSTFWD (full host:apple spec) overrides.
+static const char *natHostfwd()
+{
+  const char *env = getenv("AIIE_USERNET_HOSTFWD");
+  if (env) return env;
+  if (!g_natFwd[0]) return NULL;
+
+  static char buf[160];
+  uint16_t off = natOffset();
+  int o = 0;
+  buf[0] = 0;
+  const char *p = g_natFwd;
+  while (*p) {
+    while (*p == ' ' || *p == ',') p++;
+    int ap = 0; bool got = false;
+    while (*p >= '0' && *p <= '9') { ap = ap * 10 + (*p++ - '0'); got = true; }
+    if (got && ap > 0 && ap < 65536) {
+      int hp = (ap < 1024 && off) ? (ap + off) : ap;
+      if (hp > 65535) hp = ap;
+      o += snprintf(buf + o, sizeof(buf) - o, "%s%d:%d", o ? "," : "", hp, ap);
+    }
+    while (*p && *p != ',' && !(*p >= '0' && *p <= '9')) p++; // skip separators/junk
+  }
+  return buf[0] ? buf : NULL;
+}
+
 SDLUthernet2::SDLUthernet2()
-  : usernet(&unBsd, getenv("AIIE_USERNET_DEBUG") != NULL,
-            getenv("AIIE_USERNET_HOSTFWD"))
+  : usernet(&unBsd, getenv("AIIE_USERNET_DEBUG") != NULL, natHostfwd())
 {
   for (int i = 0; i < U2_NUM_SOCKETS; i++) {
     fd[i] = -1;
@@ -95,15 +135,16 @@ SDLUthernet2::SDLUthernet2()
     boundApplePort[i] = 0;
     pendLen[i] = 0;
   }
-  // Privileged Apple listen ports are bumped by this offset on the host side.
-  // Default 8000 (so Apple port 80 is reachable at host 8080 without root).
-  // Set AIIE_UTHERNET_PORT_OFFSET=0 to bind the exact port (needs root for <1024).
-  inboundOffset = 8000;
-  const char *env = getenv("AIIE_UTHERNET_PORT_OFFSET");
-  if (env) {
-    long v = strtol(env, NULL, 10);
-    if (v >= 0 && v <= 65535) inboundOffset = (uint16_t)v;
-  }
+  inboundOffset = natOffset();
+}
+
+void SDLUthernet2::applyForwardConfig()
+{
+  // Re-read the BIOS settings and apply them to the running NAT. Pick up any
+  // change to the port offset first so the rebuilt forward string and the live
+  // inbound mapping agree, then re-open the host listeners.
+  inboundOffset = natOffset();
+  usernet.reconfigureForwards(natHostfwd());
 }
 
 uint16_t SDLUthernet2::mapInboundPort(uint16_t applePort) const

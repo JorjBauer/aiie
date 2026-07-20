@@ -316,6 +316,9 @@ void setup()
         strncpy(g_wifiSSID, p.wifiSSID, sizeof(g_wifiSSID)-1); g_wifiSSID[sizeof(g_wifiSSID)-1]=0;
         strncpy(g_wifiPass, p.wifiPass, sizeof(g_wifiPass)-1); g_wifiPass[sizeof(g_wifiPass)-1]=0;
       }
+      if (p.version >= 11) {
+        strncpy(g_natFwd, p.natFwd, sizeof(g_natFwd)-1); g_natFwd[sizeof(g_natFwd)-1]=0;
+      }
       if (p.version >= 7)          g_ramworksSize = p.ramworksSize;
     }
   }
@@ -768,6 +771,9 @@ void readPrefs()
       strncpy(g_wifiSSID, p.wifiSSID, sizeof(g_wifiSSID)-1); g_wifiSSID[sizeof(g_wifiSSID)-1]=0;
       strncpy(g_wifiPass, p.wifiPass, sizeof(g_wifiPass)-1); g_wifiPass[sizeof(g_wifiPass)-1]=0;
     }
+    if (p.version >= 11) {
+      strncpy(g_natFwd, p.natFwd, sizeof(g_natFwd)-1); g_natFwd[sizeof(g_natFwd)-1]=0;
+    }
 
     g_ramworksSize = p.ramworksSize;
 
@@ -822,6 +828,8 @@ void writePrefs()
   p.slotUthernet = g_slotUthernet;
   strncpy(p.wifiSSID, g_wifiSSID, sizeof(p.wifiSSID)); p.wifiSSID[sizeof(p.wifiSSID)-1]=0;
   strncpy(p.wifiPass, g_wifiPass, sizeof(p.wifiPass)); p.wifiPass[sizeof(p.wifiPass)-1]=0;
+  strncpy(p.natFwd, g_natFwd, sizeof(p.natFwd)); p.natFwd[sizeof(p.natFwd)-1]=0;
+  p.natPortOffset = g_natPortOffset;
 
   p.ramworksSize = g_ramworksSize;
 
