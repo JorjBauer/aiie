@@ -198,6 +198,7 @@ bool TeensyUthernet2::espCommand(uint8_t type, const uint8_t *payload, uint16_t 
 }
 
 uint32_t TeensyUthernet2::nowSecs() { return millis() / 1000; }
+uint32_t TeensyUthernet2::nowMs()   { return millis(); }
 
 int TeensyUthernet2::sendRawFrame(const uint8_t *frame, uint16_t len)
 {

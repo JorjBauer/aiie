@@ -44,6 +44,7 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
                           uint8_t &rType, uint8_t *rBuf, uint16_t rCap,
                           uint16_t &rLen, uint32_t timeoutMs);
   virtual uint32_t nowSecs();
+  virtual uint32_t nowMs();
   // Async engine surface for UnBackendEsp's non-blocking scheduler.
   virtual bool espBusy() { return cmdInFlight; }
   virtual bool espIssue(uint8_t type, const uint8_t *payload, uint16_t len,

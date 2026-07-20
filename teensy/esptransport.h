@@ -19,6 +19,10 @@ class EspTransport {
                           uint16_t &rLen, uint32_t timeoutMs) = 0;
 
   virtual uint32_t nowSecs() = 0;  // seconds clock (millis()/1000 on Teensy)
+  // Millisecond clock, for the idle-poll pacing in UnBackendEsp. Default derives
+  // it from nowSecs() so an off-hardware mock needs no extra plumbing; the real
+  // TeensyUthernet2 overrides it with millis().
+  virtual uint32_t nowMs() { return nowSecs() * 1000; }
 
   // Async command engine, so UnBackendEsp can drive the ESP without blocking the
   // emulator: espBusy() reports whether a command is outstanding; espIssue()

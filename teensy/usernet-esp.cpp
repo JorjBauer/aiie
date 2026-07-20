@@ -13,6 +13,7 @@ void UnBackendEsp::freeSlot(int h) {
   s.used = false; s.proto = 0xFF; s.sr = W5100_SR_CLOSED;
   s.role = ROLE_FLOW; s.phase = PH_FREE; s.op = OP_NONE; s.lport = 0;
   s.wantConnect = false; s.connectFailed = false;
+  s.nextPollMs = 0; s.pollIvMs = UNESP_POLL_MIN_MS;
   s.rxLen = 0; s.rxOff = 0; s.rxHasSrc = false; s.rxSrcPort = 0;
   s.txLen = 0; s.txHasDest = false; s.txDestPort = 0;
 }
@@ -199,6 +200,11 @@ bool UnBackendEsp::issueFor(int h) {
         return false;
       }
       if (s.rxLen == 0) {   // buffer empty: poll (also refreshes sr for connect/close)
+        // Pace idle polls so we don't flood the half-duplex link. onCommandDone
+        // sets nextPollMs from the outcome (immediate re-poll on data, backed-off
+        // interval when empty), so an active receive streams while a quiet socket
+        // is throttled.
+        if ((int32_t)(t->nowMs() - s.nextPollMs) < 0) return false;
         uint16_t maxlen = UNESP_RXBUF;
         uint8_t pl[3] = { (uint8_t)h, (uint8_t)(maxlen & 0xFF), (uint8_t)(maxlen >> 8) };
         if (t->espIssue(CMD_SOCK_POLL, pl, 3, 200, (uint8_t)h)) { s.op = OP_POLL; return true; }
@@ -256,7 +262,8 @@ void UnBackendEsp::onCommandDone(uint8_t h, bool ok, uint8_t rType,
       s.phase = PH_READY;   // polls now detect an incoming connection (sr->ESTABLISHED)
       break;
 
-    case OP_POLL:
+    case OP_POLL: {
+      bool gotData = false;
       if (rType == EVT_SOCK_DATA && rLen >= 5) {
         s.sr = rBuf[1];
         uint8_t flags = rBuf[4];
@@ -269,9 +276,19 @@ void UnBackendEsp::onCommandDone(uint8_t h, bool ok, uint8_t rType,
         }
         uint16_t dlen = (rLen > o) ? (uint16_t)(rLen - o) : 0;
         if (dlen > UNESP_RXBUF) dlen = UNESP_RXBUF;
-        if (dlen) { memcpy(s.rx, rBuf + o, dlen); s.rxLen = dlen; s.rxOff = 0; }
+        if (dlen) { memcpy(s.rx, rBuf + o, dlen); s.rxLen = dlen; s.rxOff = 0; gotData = true; }
+      }
+      if (gotData) {
+        s.pollIvMs = UNESP_POLL_MIN_MS;   // active: poll again as soon as the Apple drains
+        s.nextPollMs = t->nowMs();
+      } else {
+        uint32_t iv = (uint32_t)s.pollIvMs * 2;   // idle: back off up to the max
+        if (iv > UNESP_POLL_MAX_MS) iv = UNESP_POLL_MAX_MS;
+        s.pollIvMs = (uint16_t)iv;
+        s.nextPollMs = t->nowMs() + iv;
       }
       break;
+    }
 
     case OP_SEND:
       if (rType == EVT_SOCK_SENT && rLen >= 3) {

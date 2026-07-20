@@ -17,6 +17,15 @@
 #define UNESP_SLOTS 4
 #define UNESP_RXBUF 1460   // one MTU of buffered receive per slot
 #define UNESP_TXBUF 1460   // one segment of staged send per slot
+// Idle-poll pacing with backoff. A slot with nothing flowing is polled no faster
+// than UNESP_POLL_MIN_MS, and the interval DOUBLES on each empty poll up to the
+// max: otherwise the scheduler spins thousands of empty CMD_SOCK_POLL round-trips
+// per second, saturating the half-duplex link (a DNS/UDP flow lingers 60s and
+// would be polled the whole time). A poll that RETURNS data snaps the interval
+// back to the minimum and re-polls immediately, so an active receive still
+// streams at full speed.
+#define UNESP_POLL_MIN_MS   8
+#define UNESP_POLL_MAX_MS 250
 
 class UnBackendEsp : public UnBackend {
  public:
@@ -69,6 +78,9 @@ class UnBackendEsp : public UnBackend {
     bool     connectFailed;
     uint8_t  connIp[4];
     uint16_t connPort;
+
+    uint32_t nextPollMs; // earliest ms to issue the next idle poll (pacing)
+    uint16_t pollIvMs;   // current idle-poll interval, doubles while empty
 
     // receive buffer: filled by a POLL reply, drained by tcpRecv/udpRecv.
     uint16_t rxLen;
