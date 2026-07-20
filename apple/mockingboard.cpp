@@ -9,12 +9,37 @@
 #include "iocompat.h"
 #endif
 
-// AY-3-8910 amplitude table (measured values, 16 levels)
+#ifndef TEENSYDUINO
+#include <stdlib.h>   // getenv, for the optional capture hook
+// Optional capture of the raw CPU->card write stream, for offline replay and
+// regression testing. Set AIIE_MB_CAPTURE=<path> before launching to dump a CSV
+// of "cycle,addr,val"; the standalone mb-replay tool turns that back into a WAV.
+static FILE *s_mbCapture = NULL;
+static bool  s_mbCaptureInit = false;
+static void mbCaptureWrite(int64_t cycle, uint8_t addr, uint8_t val)
+{
+  if (!s_mbCaptureInit) {
+    s_mbCaptureInit = true;
+    const char *path = getenv("AIIE_MB_CAPTURE");
+    if (path && path[0]) {
+      s_mbCapture = fopen(path, "w");
+      if (s_mbCapture)
+        fprintf(s_mbCapture, "# aiie-mockingboard-capture v1 clockHz=1023000\n");
+    }
+  }
+  if (s_mbCapture) {
+    fprintf(s_mbCapture, "%lld,%u,%u\n", (long long)cycle, (unsigned)addr, (unsigned)val);
+    fflush(s_mbCapture);   // survive an abrupt quit at the end of a capture run
+  }
+}
+#endif
+
+// Matthew Westcott's 2001 measurements, DC-offset removed, 0x1FFF peak
 static const int16_t ayAmplitudes[16] = {
-  0x0000, 0x0034, 0x004B, 0x006D,
-  0x00A0, 0x00ED, 0x0152, 0x0223,
-  0x0292, 0x03C0, 0x04F2, 0x0710,
-  0x0906, 0x0B53, 0x0F13, 0x1FFF
+  0x0000, 0x0056, 0x007E, 0x00B1,
+  0x0101, 0x0179, 0x0208, 0x0365,
+  0x0438, 0x06EC, 0x0983, 0x0C81,
+  0x1069, 0x1463, 0x1A31, 0x1FFF
 };
 
 // AY control lines via 6522 Port B
@@ -75,6 +100,18 @@ uint8_t Mockingboard::readSlotRom(uint8_t addr)
 void Mockingboard::writeSlotRom(uint8_t addr, uint8_t val)
 {
   update(g_cpu->cycles);
+#ifndef TEENSYDUINO
+  mbCaptureWrite(g_cpu->cycles, addr, val);
+#endif
+  int whichVia = (addr & 0x80) ? 1 : 0;
+  viaWrite(whichVia, addr & 0x0F, val);
+}
+
+// Offline replay of a captured write (see mockingboard.h). Deliberately skips
+// update(): that only ticks the VIA timers / CPU IRQ, which do not affect the
+// generated audio, and avoids needing a live CPU in the standalone tool.
+void Mockingboard::applyWrite(uint8_t addr, uint8_t val)
+{
   int whichVia = (addr & 0x80) ? 1 : 0;
   viaWrite(whichVia, addr & 0x0F, val);
 }
@@ -326,11 +363,34 @@ int16_t Mockingboard::renderOneSample()
     psg.noiseCounter += NOISE_CLK_PER_SAMPLE_X16;
     while (psg.noiseCounter >= (psg.noisePeriod << 16)) {
       psg.noiseCounter -= (psg.noisePeriod << 16);
-      // 17-bit LFSR: bit 0 XOR bit 2, feedback to bit 16
-      uint32_t bit = ((psg.noiseShift) ^ (psg.noiseShift >> 2)) & 1;
+      // 17-bit LFSR: bit 0 XOR bit 3, feedback to bit 16
+      uint32_t bit = ((psg.noiseShift) ^ (psg.noiseShift >> 3)) & 1;
       psg.noiseShift = (psg.noiseShift >> 1) | (bit << 16);
     }
     bool noiseOut = psg.noiseShift & 1;
+      
+    /* 17-bit LFSR note: there's some confusion about which bit is
+       "correct" here. AppleWin uses bit 2 as feedback; MAME and KEGS
+       use bit 3.  Empirically, I don't hear the difference. US Patent
+       4933980 (cited by MAME) does not publish anything about the
+       LFSR; the only true primary source that exists is a single
+       decapping of an AY-3-8910, which was then reconstructed
+       gate-by-gate -
+       https://github.com/lvd2/ay-3-8910_reverse_engineered/blob/master/sch/ay-3-8910.jpg
+       The generated verilog code -
+       https://github.com/lvd2/ay-3-8910_reverse_engineered/blob/master/rtl/ay_model.v
+       constructs the noise polynomial as
+       
+       wire [16:0] noise_reg; // 17-bit shift register
+       ...
+       .shift_in( (noise_reg[16] ^ noise_reg[13]) | (~|noise_reg) ), // feedback
+       ...
+       assign noise = ~noise_reg[16]; // output
+
+       That feedback is the mirror of bits 0 and 3, the same LFSR as I'm using
+       here but bit-ordered backward; and the silicon inverts the bit (and
+       implements a "0 | noise_reg" guard).
+    */
 
     // Advance envelope
     if (!psg.envHolding) {

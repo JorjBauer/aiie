@@ -78,6 +78,12 @@ class Mockingboard : public Slot {
   void renderToBuffer(int16_t *buf, int count);
   int16_t mixSample();
 
+  // Offline replay: apply one captured slot write straight to the VIA/AY, with
+  // no CPU-timing side effects. addr is the low byte the CPU wrote (VIA select in
+  // bit 7, register in bits 3..0). Used by the standalone mb-replay test tool to
+  // regenerate audio from a captured dataset.
+  void applyWrite(uint8_t addr, uint8_t val);
+
  private:
   uint8_t viaRead(int whichVia, uint8_t reg);
   void viaWrite(int whichVia, uint8_t reg, uint8_t val);
