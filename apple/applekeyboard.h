@@ -14,6 +14,7 @@ class AppleKeyboard : public VMKeyboard {
   virtual void keyDepressed(uint8_t k);
   virtual void keyReleased(uint8_t k);
   virtual void maintainKeyboard(int64_t cycleCount);
+  virtual void releaseAllKeys();
 
  protected:
   bool isVirtualKey(uint8_t kc);

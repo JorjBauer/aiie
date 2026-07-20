@@ -31,6 +31,13 @@ void SDLKeyboard::handleKeypress(SDL_KeyboardEvent *key)
   }
 
   if (key->type == SDL_KEYDOWN &&
+      key->keysym.sym == SDLK_F8) {
+    // Panic: clear a stuck key repeat (a lost key-up leaves a key "held down").
+    vmkeyboard->releaseAllKeys();
+    return;
+  }
+
+  if (key->type == SDL_KEYDOWN &&
       key->keysym.sym == SDLK_F9) {
     // Global save shortcut (works even when the main emulator window has focus).
     ((SDLPrinter *)g_printer)->savePng();
@@ -224,6 +231,14 @@ void SDLKeyboard::maintainKeyboard()
       break;
 
     case SDL_WINDOWEVENT:
+      // On any focus transition, drop all held keys. A key whose key-up lands in
+      // another window (or is swallowed by the OS during the switch) would
+      // otherwise repeat forever; this makes returning to the emulator -- or just
+      // clicking away and back -- always start from a clean keyboard.
+      if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST ||
+          event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
+        vmkeyboard->releaseAllKeys();
+      }
       break;
 
     case SDL_QUIT:

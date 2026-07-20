@@ -188,6 +188,23 @@ void AppleKeyboard::keyReleased(uint8_t k)
   }  
 }
 
+// Force every key up and stop any repeat in progress. Recovers from a stuck key
+// when a key-up went missing (focus change, or the host OS swallowing the release
+// of a key held with a modifier), which would otherwise repeat forever.
+void AppleKeyboard::releaseAllKeys()
+{
+  for (size_t i=0; i<sizeof(keysDown); i++) {
+    keysDown[i] = false;
+  }
+  anyKeyIsDown = false;
+  startRepeatTimer = 0;
+  repeatTimer = 0;
+  mmu->setKeyDown(false);
+  mmu->setAppleKey(0, false); // open apple
+  mmu->setAppleKey(1, false); // closed apple
+  // capsLockEnabled is a latched toggle, not a held key; leave it as-is.
+}
+
 void AppleKeyboard::maintainKeyboard(int64_t cycleCount)
 {
   if (anyKeyIsDown) {
