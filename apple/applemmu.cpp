@@ -1322,6 +1322,13 @@ void AppleMMU::updateMemoryPages()
     for (uint8_t idx = 0xc1; idx < 0xd0; idx++) {
       readPages[idx] = _pageNumberForRam(idx, 1);
     }
+    // $C300 is special: its internal firmware lives in variant 0 (variant 1
+    // holds an external slot-3 card's ROM), the reverse of the other slots.
+    // With INTCXROM on the //e shows the internal ROM at $C300, so $C3 must
+    // map to variant 0. Otherwise the IRQ/BRK handler entry at $C3FA -- which
+    // runs after STA $C007 forces INTCXROM on -- reads the empty slot-3 page
+    // ($00 = BRK) and spins in an interrupt loop that overflows the stack.
+    readPages[0xc3] = _pageNumberForRam(0xc3, 0);
   } else {
     for (uint8_t idx = 0xc1; idx < 0xd0; idx++) {
       readPages[idx] = _pageNumberForRam(idx, 0);
