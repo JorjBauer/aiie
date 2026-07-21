@@ -209,6 +209,18 @@ void bringUpUthernet()
   if (g_uthernet || !g_slotUthernet) return;
   println(" uthernet");
   espLink.begin(230400);
+  // Enlarge the Serial3 receive buffer to hold a full ESP reply frame (~1.6KB).
+  // The async engine drains the UART from tick() (inside runCPU), but between CPU
+  // bursts the main loop spends several ms blitting the display -- during which
+  // nothing reads the UART. With the default ~64-byte buffer a large reply (a
+  // 1460-byte socket-poll) arriving during a blit overflows and is lost, showing
+  // up as CRC errors, retries, timeouts, and dropped MAC-RAW receive data. A
+  // buffer bigger than the largest frame rides out any blit. (The blocking
+  // hardware-socket path is immune because command() tight-loops the drain.)
+  // addMemoryForRead lives on the concrete Serial3 (HardwareSerialIMXRT), not the
+  // HardwareSerial& alias; espLink is Serial3, so enlarge it directly.
+  static uint8_t espRxBuffer[AIIE_ESP_MAX_FRAME + 512];
+  Serial3.addMemoryForRead(espRxBuffer, sizeof(espRxBuffer));
   TeensyUthernet2 *u2 = new TeensyUthernet2(&espLink, UTHERNET_HOSTFWD);
   // Credentials come from the BIOS (persisted in prefs). The compile-time
   // UTHERNET_WIFI_* is only a fallback for bench builds with nothing saved.
@@ -698,12 +710,7 @@ void doDebugging(uint32_t lastFps)
     break;
   case D_SHOWNET:
     if (g_uthernet) {
-      sprintf(debugBuf, "TX%lu RX%lu CE%lu RT%lu TO%lu",
-              (unsigned long)g_uthernet->statFramesSent(),
-              (unsigned long)g_uthernet->statFramesReceived(),
-              (unsigned long)g_uthernet->statCrcErrors(),
-              (unsigned long)g_uthernet->statRetries(),
-              (unsigned long)g_uthernet->statTimeouts());
+      ((TeensyUthernet2 *)g_uthernet)->debugNetState(debugBuf, sizeof(debugBuf));
       g_display->debugMsg(debugBuf);
     }
     break;

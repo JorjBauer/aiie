@@ -103,6 +103,8 @@ UserNet::UserNet(UnBackend *b, bool debug, const char *hostfwd) : backend(b) {
   for (int i = 0; i < USERNET_FLOWS; i++) flows[i].fd = -1;
   for (int i = 0; i < USERNET_FWDS; i++) fwds[i].lfd = -1;
   dbg = debug;
+  dbgToHost = 0; dbgToApple = 0;   // cumulative; not cleared by reset()
+  dbgLastState = 0; dbgLastWin = 0; dbgLastInflight = 0;
   reset();
   setupListeners(hostfwd); // host listeners persist across card resets
 }
@@ -504,7 +506,7 @@ void UserNet::handleTcp(const uint8_t *f, uint16_t len, const uint8_t *ip) {
       uint16_t n = (uint16_t)(paylen - off);
       if (fl->fd >= 0) {
         int w = backend->tcpSend(fl->fd, p, n);
-        if (w > 0) fl->rcvNext += (uint32_t)w;
+        if (w > 0) { fl->rcvNext += (uint32_t)w; dbgToHost += (uint32_t)w; }
       }
     }
     sendTcp(fl, TH_ACK, 0, 0); // ack current cumulative position (or dup-ack)
@@ -541,6 +543,11 @@ UnFlow *UserNet::allocFlow() {
   return nullptr; // table full: drop (the Apple's stack will retry)
 }
 void UserNet::closeFlow(UnFlow *f) {
+  if (f->proto == IP_TCP) {   // latch the flow's final window state for diagnostics
+    dbgLastState = f->state;
+    dbgLastWin = f->appleWin;
+    dbgLastInflight = f->sndNext - f->sndUna;
+  }
   if (f->fd >= 0) backend->sockClose(f->fd);
   memset(f, 0, sizeof(*f));
   f->fd = -1;
@@ -575,6 +582,28 @@ void UserNet::acceptInbound() {
                      fl->applePort, fl->dstPort);
     sendTcp(fl, TH_SYN, 0, 0);            // SYN toward the Apple server
   }
+}
+
+bool UserNet::debugTcpFlow(uint8_t &state, uint32_t &appleWin, uint32_t &inflight) const {
+  for (int i = 0; i < USERNET_FLOWS; i++) {
+    const UnFlow &f = flows[i];
+    if (f.state == UN_FREE || f.proto != IP_TCP) continue;
+    state = f.state; appleWin = f.appleWin; inflight = f.sndNext - f.sndUna;
+    return true;
+  }
+  return false;
+}
+
+uint8_t UserNet::debugQueueDepth() const {
+  return (uint8_t)((qTail - qHead + USERNET_QUEUE) % USERNET_QUEUE);
+}
+
+void UserNet::debugBytes(uint32_t &toHost, uint32_t &toApple) const {
+  toHost = dbgToHost; toApple = dbgToApple;
+}
+
+void UserNet::debugLastClose(uint8_t &state, uint32_t &win, uint32_t &inflight) const {
+  state = dbgLastState; win = dbgLastWin; inflight = dbgLastInflight;
 }
 
 void UserNet::serviceTcp(UnFlow *f) {
@@ -612,6 +641,7 @@ void UserNet::serviceTcp(UnFlow *f) {
     int n = backend->tcpRecv(f->fd, buf, (uint16_t)room);
     if (n > 0) {
       sendTcp(f, TH_PSH | TH_ACK, buf, (uint16_t)n);
+      dbgToApple += (uint32_t)n;
       f->lastActive = nowSecs();
     } else if (n < 0 && !f->finSent) {
       sendTcp(f, TH_FIN | TH_ACK, 0, 0);   // host closed: FIN toward the Apple

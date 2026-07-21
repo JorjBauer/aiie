@@ -17,6 +17,11 @@
 #define UNESP_SLOTS 4
 #define UNESP_RXBUF 1460   // one MTU of buffered receive per slot
 #define UNESP_TXBUF 1460   // one segment of staged send per slot
+// Max bytes requested per CMD_SOCK_POLL. Deliberately well under a full MTU so each
+// reply frame is small: it arrives in ~23ms and fits easily in the UART RX buffer,
+// so it survives a display-blit gap (when nothing drains the UART) instead of
+// overflowing and being lost. Trades a few extra round-trips for reliable receive.
+#define UNESP_POLL_CHUNK 512
 // Idle-poll pacing with backoff. A slot with nothing flowing is polled no faster
 // than UNESP_POLL_MIN_MS, and the interval DOUBLES on each empty poll up to the
 // max: otherwise the scheduler spins thousands of empty CMD_SOCK_POLL round-trips
@@ -57,6 +62,12 @@ class UnBackendEsp : public UnBackend {
   void onCommandDone(uint8_t slot, bool ok, uint8_t rType,
                      const uint8_t *rBuf, uint16_t rLen);
   void reset();   // drop all slots (on a card/VM reset)
+
+  // Diagnostic snapshot of the first in-use slot: its phase, cached W5100 status,
+  // and how much data is buffered to hand up to the Apple (rxLen) / staged to send
+  // out to the host (txLen). Shows whether a stalled transfer has data stuck in the
+  // backend. Returns false if no slot is in use.
+  bool debugSlot(uint8_t &phase, uint8_t &sr, uint16_t &rxLen, uint16_t &txLen) const;
 
  private:
   enum { ROLE_FLOW = 0, ROLE_LISTEN = 1, ROLE_LISTEN_CONN = 2 };

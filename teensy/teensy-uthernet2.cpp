@@ -257,6 +257,23 @@ uint32_t TeensyUthernet2::statCrcErrors()      { return parser.crcErrors; }
 uint32_t TeensyUthernet2::statRetries()        { return cRetries; }
 uint32_t TeensyUthernet2::statTimeouts()       { return cTimeouts; }
 
+void TeensyUthernet2::debugNetState(char *buf, uint16_t n)
+{
+  // One persistent line for the MAC-RAW NAT (the transfer fails too fast to read
+  // live flow state). All fields survive the flow closing:
+  //   RX  = reply frames from the ESP (liveness)     TO = command timeouts (lost data)
+  //   tH  = request bytes forwarded to the host       rA = response bytes to the Apple
+  //   ls  = last flow state at close (3 EST 4 FIN)     lw/li = its Apple-window / unACKed
+  // rA stalling while li<lw => the window was open but the backend stopped feeding
+  // data; li>=lw => the Apple's window shut (it stopped ACKing). TO climbing => the
+  // link is losing command replies.
+  uint32_t tH = 0, rA = 0; usernet.debugBytes(tH, rA);
+  uint8_t ls = 0; uint32_t lw = 0, li = 0; usernet.debugLastClose(ls, lw, li);
+  snprintf(buf, n, "RX%lu tH%lu rA%lu ls%u lw%lu li%lu TO%lu   ",
+           (unsigned long)statFramesReceived(), (unsigned long)tH, (unsigned long)rA,
+           ls, (unsigned long)lw, (unsigned long)li, (unsigned long)statTimeouts());
+}
+
 void TeensyUthernet2::begin()
 {
   linkUp = false;

@@ -23,7 +23,13 @@
 // datagram (which must be delivered atomically) always fits; a smaller buffer
 // would silently drop datagrams larger than it, e.g. a 516-byte TFTP block.
 #define TU2_RXBUF 1460
-#define TU2_MAX_RETRIES 2  // resends before a command gives up (3 tries total)
+// Resends before a command gives up. High on purpose: a POLL that gives up loses
+// data the ESP already consumed, tearing a gap in the TCP stream that stalls the
+// Apple's stack. On this async path a reply is occasionally lost -- a large frame
+// can pile up in the UART RX buffer while the main loop is busy blitting the
+// display, or an odd byte corrupts -- so retrying re-fetches the ESP's cached
+// reply and recovers before a gap forms.
+#define TU2_MAX_RETRIES 8  // resends before a command gives up (9 tries total)
 // Real-time pacing for ESP servicing in tick(). cpuMaintenance() calls tick()
 // roughly every 24 emulated CPU cycles, but each ESP poll/send is a blocking
 // UART round-trip -- doing one per call froze the 6502 (and the BIOS button) to
@@ -93,6 +99,10 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
   virtual uint32_t statCrcErrors();
   virtual uint32_t statRetries();
   virtual uint32_t statTimeouts();
+
+  // One-line MAC-RAW NAT diagnostic for the D_SHOWNET overlay: the active TCP
+  // flow's state/window plus the backend slot state and cumulative bytes each way.
+  void debugNetState(char *buf, uint16_t n);
 
  private:
   static TeensyUthernet2 *s_instance;

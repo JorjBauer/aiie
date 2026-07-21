@@ -27,6 +27,21 @@ void UnBackendEsp::reset() {
   for (int i = 0; i < UNESP_SLOTS; i++) freeSlot(i);
 }
 
+bool UnBackendEsp::debugSlot(uint8_t &phase, uint8_t &sr, uint16_t &rxLen, uint16_t &txLen) const {
+  // Prefer a TCP slot over a lingering UDP (DNS) one, which would otherwise mask
+  // the connection of interest.
+  int pick = -1;
+  for (int i = 0; i < UNESP_SLOTS; i++) {
+    if (!slots[i].used) continue;
+    if (slots[i].proto == AIIE_PROTO_TCP) { pick = i; break; }
+    if (pick < 0) pick = i;
+  }
+  if (pick < 0) return false;
+  phase = slots[pick].phase; sr = slots[pick].sr;
+  rxLen = slots[pick].rxLen; txLen = slots[pick].txLen;
+  return true;
+}
+
 // ---- non-blocking backend surface --------------------------------------------
 
 int UnBackendEsp::tcpOpen() {
@@ -205,7 +220,12 @@ bool UnBackendEsp::issueFor(int h) {
         // interval when empty), so an active receive streams while a quiet socket
         // is throttled.
         if ((int32_t)(t->nowMs() - s.nextPollMs) < 0) return false;
-        uint16_t maxlen = UNESP_RXBUF;
+        // Cap each poll's reply well under a full MTU. Smaller frames expose fewer
+        // bytes to UART corruption, so on the noisy ESP-01 link far fewer polls need
+        // a retry -- and a poll that exhausts its retries loses data (a TCP-stream
+        // gap that stalls the Apple), so keeping frames small is worth the extra
+        // round-trips. Fits in the slot rx buffer (UNESP_RXBUF) with room to spare.
+        uint16_t maxlen = UNESP_POLL_CHUNK;
         uint8_t pl[3] = { (uint8_t)h, (uint8_t)(maxlen & 0xFF), (uint8_t)(maxlen >> 8) };
         if (t->espIssue(CMD_SOCK_POLL, pl, 3, 200, (uint8_t)h)) { s.op = OP_POLL; return true; }
         return false;

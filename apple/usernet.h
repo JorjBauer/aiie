@@ -66,6 +66,22 @@ class UserNet {
   uint16_t toApple(uint8_t *buf, uint16_t maxLen);
   // Service host sockets: pull inbound data/close, complete connects, time out.
   void tick();
+
+  // Diagnostics for the on-screen network readout. debugTcpFlow reports the first
+  // active TCP flow (its state, the Apple's advertised window, and bytes we have
+  // sent it but it has not ACKed); debugQueueDepth is the toApple frame-queue
+  // depth. debugBytes returns cumulative payload forwarded to the host (requests)
+  // and delivered toward the Apple (responses). Together these show which gate a
+  // stalled MAC-RAW transfer is stuck behind.
+  bool debugTcpFlow(uint8_t &state, uint32_t &appleWin, uint32_t &inflight) const;
+  uint8_t debugQueueDepth() const;
+  void debugBytes(uint32_t &toHost, uint32_t &toApple) const;
+  // The most recent TCP flow's state / Apple window / unACKed-inflight latched at
+  // the instant it closed -- these survive the flow being torn down, so a
+  // fast-failing transfer is still readable. If inflight>=win at close, the Apple's
+  // window was shut (it stopped ACKing); if inflight<win, the window was open and
+  // the stall was upstream (the backend stopped delivering).
+  void debugLastClose(uint8_t &state, uint32_t &win, uint32_t &inflight) const;
   // Close the current host listeners and re-open per a new config. Live: lets the
   // BIOS change the forward list and have it take effect without a VM restart.
   void reconfigureForwards(const char *hostfwd);
@@ -119,6 +135,14 @@ class UserNet {
   uint8_t  q[USERNET_QUEUE][USERNET_MAXFRAME];
   uint16_t qlen[USERNET_QUEUE];
   uint8_t  qHead, qTail;
+
+  // Cumulative diagnostic byte counters (session lifetime; see debugBytes).
+  uint32_t dbgToHost;    // TCP payload forwarded to a host socket (the request)
+  uint32_t dbgToApple;   // TCP payload delivered toward the Apple (the response)
+  // Latched state of the last TCP flow at close (see debugLastClose).
+  uint8_t  dbgLastState;
+  uint32_t dbgLastWin;
+  uint32_t dbgLastInflight;
 };
 
 #endif
