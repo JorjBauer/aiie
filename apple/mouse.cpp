@@ -248,40 +248,57 @@ void Mouse::maintainMouse(int64_t cycleCount)
       cycleCount > nextInterruptTime + kVblPeriod)
     nextInterruptTime = cycleCount + kVblPeriod;
 
-  if ( (status & ST_MOUSEENABLE) &&
-       (status & ST_INTVBL)  &&
-       (cycleCount >= nextInterruptTime) ) {
-    g_cpu->assertIrq();
-    interruptsTriggered |= ST_INTVBL;
-    nextInterruptTime = cycleCount + kVblPeriod;  // 60Hz from now; drop missed ticks
-#ifdef DEBUG_VBL_RATE
-    { // report the emulated VBL rate every 120 ticks (should read ~60Hz)
-      static int64_t last = 0; static int cnt = 0;
-      if (++cnt >= 120) {
-        printf("VBL: 120 ticks / %lld cycles = %.1f Hz emulated\n",
-               (long long)(cycleCount - last), 120.0 * 1023000.0 / (double)(cycleCount - last));
-        last = cycleCount; cnt = 0;
-      }
-    }
-#endif
-  } else {
-    uint16_t xpos, ypos;
-    g_mouse->getPosition(&xpos, &ypos);
+  // Sample the mouse only once per emulated VBL (~60Hz) -- the rate at which a real
+  // AppleMouse card reads it via its own firmware. VBL, movement, and button
+  // interrupts are all raised here, so none can fire faster than the VBL rate no
+  // matter how fast the pointer moves. (The old code checked movement/button on
+  // every maintenance call -- ~every 24 cycles -- and a continuously-moving pointer
+  // (e.g. a Teensy joystick-driven mouse whose analog axis sits at an extreme, or
+  // jitters) raised ST_INTMOUSE on nearly every 6502 instruction: an interrupt
+  // storm that a mouse-driven OS like Contiki couldn't unwind, locking the CPU up.
+  // Real hardware samples once per frame, which this now matches.)
+  if (cycleCount < nextInterruptTime)
+    return;
+  nextInterruptTime = cycleCount + kVblPeriod;  // 60Hz from now; drop missed ticks
 
-    if ( (status & ST_MOUSEENABLE) &&
-	 (status & ST_INTMOUSE) &&
-	 (xpos != lastXForInt || ypos != lastYForInt) ) {
-      g_cpu->assertIrq();
-      interruptsTriggered |= ST_INTMOUSE;
-      lastXForInt = xpos; lastYForInt = ypos;
-    } else if ( (status & ST_MOUSEENABLE) &&
-		(status & ST_INTBUTTON) &&
-		lastButtonForInt != g_mouse->getButton()) {
-      g_cpu->assertIrq();
-      interruptsTriggered |= ST_INTBUTTON;
-      lastButtonForInt = g_mouse->getButton();
+#ifdef DEBUG_VBL_RATE
+  { // report the emulated VBL sample rate every 120 ticks (should read ~60Hz)
+    static int64_t last = 0; static int cnt = 0;
+    if (++cnt >= 120) {
+      printf("VBL: 120 ticks / %lld cycles = %.1f Hz emulated\n",
+             (long long)(cycleCount - last), 120.0 * 1023000.0 / (double)(cycleCount - last));
+      last = cycleCount; cnt = 0;
     }
   }
+#endif
+
+  if (!(status & ST_MOUSEENABLE))
+    return;
+
+  if (status & ST_INTVBL) {
+    g_cpu->assertIrq();
+    interruptsTriggered |= ST_INTVBL;
+  }
+
+  // Track the last-sampled position/button every frame (like the card's firmware),
+  // and raise the movement/button interrupt if it is enabled and changed since the
+  // previous frame. At most one of each per VBL -- never a per-instruction storm.
+  uint16_t xpos, ypos;
+  g_mouse->getPosition(&xpos, &ypos);
+  if ( (status & ST_INTMOUSE) &&
+       (xpos != lastXForInt || ypos != lastYForInt) ) {
+    g_cpu->assertIrq();
+    interruptsTriggered |= ST_INTMOUSE;
+  }
+  lastXForInt = xpos; lastYForInt = ypos;
+
+  bool button = g_mouse->getButton();
+  if ( (status & ST_INTBUTTON) &&
+       lastButtonForInt != button ) {
+    g_cpu->assertIrq();
+    interruptsTriggered |= ST_INTBUTTON;
+  }
+  lastButtonForInt = button;
 }
 
 bool Mouse::isEnabled()
