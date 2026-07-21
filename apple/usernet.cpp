@@ -18,13 +18,14 @@ static void unLog(const char *fmt, ...) {
  * is synthesized. Services (gateway, DNS, DHCP) answer from OUR_MAC.
  */
 static const uint8_t OUR_MAC[6]   = { 0x52, 0x54, 0x00, 0x12, 0x34, 0x02 };
-static const uint8_t CLIENT_IP[4] = { 10, 0, 2, 15 };
-static const uint8_t GW_IP[4]     = { 10, 0, 2, 2 };   // gateway + DHCP server
-static const uint8_t DNS_IP[4]    = { 10, 0, 2, 3 };   // advertised resolver
+// The client/gateway/DNS addresses are per-instance now (UserNet::setSubnet, so
+// the BIOS can move the virtual LAN off 10.0.2.0). The mask is a fixed /24 and
+// the upstream resolver is fixed.
 static const uint8_t MASK[4]      = { 255, 255, 255, 0 };
 static const uint8_t BCAST_MAC[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 static const uint8_t BCAST_IP[4]  = { 255, 255, 255, 255 };
-static const uint8_t RESOLVER[4]  = { 8, 8, 8, 8 };    // real DNS behind DNS_IP
+// The upstream resolver (real DNS behind the advertised dnsIp) is per-instance
+// now (UserNet::setResolver), so the BIOS can point lookups at a chosen server.
 
 #define ETH_ARP  0x0806
 #define ETH_IPV4 0x0800
@@ -79,27 +80,69 @@ static uint32_t pseudoSum(const uint8_t *src, const uint8_t *dst,
   return rd16(src) + rd16(src + 2) + rd16(dst) + rd16(dst + 2) + proto + len;
 }
 
-static bool inSubnet(const uint8_t *ip) {
+bool UserNet::inSubnet(const uint8_t *ip) const {
   for (int i = 0; i < 4; i++)
-    if ((ip[i] & MASK[i]) != (CLIENT_IP[i] & MASK[i])) return false;
+    if ((ip[i] & MASK[i]) != (clientIp[i] & MASK[i])) return false;
   return true;
 }
-static bool isOurIp(const uint8_t *ip) {
-  return !memcmp(ip, GW_IP, 4) || !memcmp(ip, DNS_IP, 4);
+bool UserNet::isOurIp(const uint8_t *ip) const {
+  return !memcmp(ip, gwIp, 4) || !memcmp(ip, dnsIp, 4);
 }
 
 // Where a destination the Apple addressed actually lives on the host side.
-// Following the QEMU user-net convention: the gateway (10.0.2.2) is the host
-// itself (reachable at 127.0.0.1), and the advertised DNS (10.0.2.3) is a real
-// resolver. Everything else is used as-is (the real internet).
-static void mapRealIp(const uint8_t *dip, uint8_t *realIp) {
+// Following the QEMU user-net convention: the gateway (.2) is the host itself
+// (reachable at 127.0.0.1), and the advertised DNS (.3) is a real resolver.
+// Everything else is used as-is (the real internet).
+void UserNet::mapRealIp(const uint8_t *dip, uint8_t *realIp) const {
   static const uint8_t LOOPBACK[4] = { 127, 0, 0, 1 };
-  if (!memcmp(dip, GW_IP, 4))       memcpy(realIp, LOOPBACK, 4);
-  else if (!memcmp(dip, DNS_IP, 4)) memcpy(realIp, RESOLVER, 4);
-  else                              memcpy(realIp, dip, 4);
+  if (!memcmp(dip, gwIp, 4))       memcpy(realIp, LOOPBACK, 4);
+  else if (!memcmp(dip, dnsIp, 4)) memcpy(realIp, resolver, 4);
+  else                             memcpy(realIp, dip, 4);
 }
 
-UserNet::UserNet(UnBackend *b, bool debug, const char *hostfwd) : backend(b) {
+// Derive the virtual LAN's addresses from a /24 network base (octets 0-2).
+void UserNet::setSubnet(const uint8_t *natNet) {
+  static const uint8_t DEFAULT_NET[4] = { 10, 0, 2, 0 };
+  const uint8_t *n = natNet ? natNet : DEFAULT_NET;
+  for (int i = 0; i < 3; i++) clientIp[i] = gwIp[i] = dnsIp[i] = n[i];
+  gwIp[3]     = 2;    // gateway + DHCP server + host services
+  dnsIp[3]    = 3;    // advertised resolver
+  clientIp[3] = 15;   // the Apple's DHCP lease
+}
+
+// Set the upstream resolver the advertised DNS (.3) is proxied to (NULL = 8.8.8.8).
+void UserNet::setResolver(const uint8_t *natDns) {
+  static const uint8_t DEFAULT_DNS[4] = { 8, 8, 8, 8 };
+  memcpy(resolver, natDns ? natDns : DEFAULT_DNS, 4);
+}
+
+// Parse "10.0.2.0" into { 10, 0, 2, 0 }. Requires exactly four 0-255 octets.
+bool unParseSubnet(const char *s, uint8_t out[4]) {
+  if (!s) return false;
+  uint8_t tmp[4];
+  int oct = 0, val = -1;
+  for (const char *p = s; ; p++) {
+    if (*p >= '0' && *p <= '9') {
+      val = (val < 0 ? 0 : val) * 10 + (*p - '0');
+      if (val > 255) return false;
+    } else if (*p == '.' || *p == 0) {
+      if (val < 0 || oct >= 4) return false;
+      tmp[oct++] = (uint8_t)val;
+      val = -1;
+      if (*p == 0) break;
+    } else {
+      return false;
+    }
+  }
+  if (oct != 4) return false;
+  memcpy(out, tmp, 4);
+  return true;
+}
+
+UserNet::UserNet(UnBackend *b, bool debug, const char *hostfwd,
+                 const uint8_t *natNet, const uint8_t *natDns) : backend(b) {
+  setSubnet(natNet);
+  setResolver(natDns);
   for (int i = 0; i < USERNET_FLOWS; i++) flows[i].fd = -1;
   for (int i = 0; i < USERNET_FWDS; i++) fwds[i].lfd = -1;
   dbg = debug;
@@ -136,7 +179,7 @@ void UserNet::reset() {
 // traffic, falling back to the DHCP lease it would have taken.
 void UserNet::appleServerIp(uint8_t out[4]) const {
   if (haveAppleIp) memcpy(out, appleIp, 4);
-  else             memcpy(out, CLIENT_IP, 4);
+  else             memcpy(out, clientIp, 4);
 }
 
 // Parse AIIE_USERNET_HOSTFWD ("hostport:appleport[,hostport:appleport...]") and
@@ -232,7 +275,7 @@ void UserNet::handleArp(const uint8_t *f, uint16_t len) {
   if (rd16(a + 6) != 1) return;                        // request only
   const uint8_t *spa = a + 14;
   const uint8_t *tpa = a + 24;
-  if (!inSubnet(tpa) || !memcmp(tpa, CLIENT_IP, 4)) return;
+  if (!inSubnet(tpa) || !memcmp(tpa, clientIp, 4)) return;
 
   uint8_t out[14 + 28];
   ethHeader(out, f + 6, ETH_ARP);
@@ -343,20 +386,20 @@ void UserNet::handleDhcp(const uint8_t *req, uint16_t plen) {
   memset(bp, 0, sizeof(bp));
   bp[0] = 2; bp[1] = 1; bp[2] = 6;
   memcpy(bp + 4, req + 4, 4);         // xid
-  memcpy(bp + 16, CLIENT_IP, 4);      // yiaddr
-  memcpy(bp + 20, GW_IP, 4);          // siaddr
+  memcpy(bp + 16, clientIp, 4);      // yiaddr
+  memcpy(bp + 20, gwIp, 4);          // siaddr
   memcpy(bp + 28, req + 28, 6);       // chaddr
   wr16(bp + 236, 0x6382); wr16(bp + 238, 0x5363);
   uint16_t p = 240;
   bp[p++] = 53; bp[p++] = 1; bp[p++] = reply;
-  bp[p++] = 54; bp[p++] = 4; memcpy(bp + p, GW_IP, 4); p += 4;
+  bp[p++] = 54; bp[p++] = 4; memcpy(bp + p, gwIp, 4); p += 4;
   bp[p++] = 51; bp[p++] = 4; wr16(bp + p, 0x0001); wr16(bp + p + 2, 0x5180); p += 4;
   bp[p++] = 1;  bp[p++] = 4; memcpy(bp + p, MASK, 4); p += 4;
-  bp[p++] = 3;  bp[p++] = 4; memcpy(bp + p, GW_IP, 4); p += 4;
-  bp[p++] = 6;  bp[p++] = 4; memcpy(bp + p, DNS_IP, 4); p += 4;
+  bp[p++] = 3;  bp[p++] = 4; memcpy(bp + p, gwIp, 4); p += 4;
+  bp[p++] = 6;  bp[p++] = 4; memcpy(bp + p, dnsIp, 4); p += 4;
   bp[p++] = 255;
   // Broadcast the reply so a client with no IP yet accepts it (RFC 2131).
-  sendUdpToApple(GW_IP, 67, BCAST_IP, 68, bp, p);
+  sendUdpToApple(gwIp, 67, BCAST_IP, 68, bp, p);
 }
 
 /* ---- UDP builder toward the Apple -------------------------------------- */
@@ -568,7 +611,7 @@ void UserNet::acceptInbound() {
     fl->fd = c;
     appleServerIp(fl->appleIp);          // our SYN's destination = the Apple
     fl->applePort = fwds[i].applePort;
-    memcpy(fl->dstIp, GW_IP, 4);          // apparent client = the gateway (host)
+    memcpy(fl->dstIp, gwIp, 4);          // apparent client = the gateway (host)
     if (inbEphem < 40000) inbEphem = 40000;
     fl->dstPort = inbEphem++;
     fl->sndNext = fl->sndUna = (isnCounter += 0xFA00);
@@ -658,7 +701,7 @@ void UserNet::serviceUdp(UnFlow *f) {
   for (int i = 0; i < 8 && queueHasRoom(); i++) {
     int n = backend->udpRecv(f->fd, buf, sizeof(buf), sip, &sport);
     if (n <= 0) break;
-    // Reply appears to come from the address the Apple sent to (DNS_IP for DNS).
+    // Reply appears to come from the address the Apple sent to (dnsIp for DNS).
     sendUdpToApple(f->dstIp, f->dstPort, f->appleIp, f->applePort, buf, (uint16_t)n);
     f->lastActive = nowSecs();
   }

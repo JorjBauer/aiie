@@ -34,6 +34,8 @@ char g_wifiPass[64] = {0};
 
 char g_natFwd[48] = "80,23";        // inbound NAT: Apple ports to expose, e.g. "6580,23"
 uint16_t g_natPortOffset = 8000; // SDL-only: bump privileged Apple ports on the host
+char g_natSubnet[16] = "10.0.2.0";  // user-mode NAT /24 network (gw .2, dns .3, guest .15)
+char g_natDns[16] = "";             // upstream DNS resolver; empty = auto (host/ESP DHCP DNS)
 
 uint8_t g_ramworksSize = 0; // 0=none, else total aux MB (1, 3, 16)
 

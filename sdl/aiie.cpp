@@ -499,6 +499,12 @@ int main(int argc, char *argv[])
         strncpy(g_natFwd, p.natFwd, sizeof(g_natFwd)-1); g_natFwd[sizeof(g_natFwd)-1]=0;
         g_natPortOffset = p.natPortOffset;
       }
+      if (p.version >= 12) {
+        strncpy(g_natSubnet, p.natSubnet, sizeof(g_natSubnet)-1); g_natSubnet[sizeof(g_natSubnet)-1]=0;
+      }
+      if (p.version >= 13) {
+        strncpy(g_natDns, p.natDns, sizeof(g_natDns)-1); g_natDns[sizeof(g_natDns)-1]=0;
+      }
       }
     }
   }
@@ -608,6 +614,12 @@ void readPrefs()
         strncpy(g_natFwd, p.natFwd, sizeof(g_natFwd)-1); g_natFwd[sizeof(g_natFwd)-1]=0;
         g_natPortOffset = p.natPortOffset;
       }
+      if (p.version >= 12) {
+        strncpy(g_natSubnet, p.natSubnet, sizeof(g_natSubnet)-1); g_natSubnet[sizeof(g_natSubnet)-1]=0;
+      }
+      if (p.version >= 13) {
+        strncpy(g_natDns, p.natDns, sizeof(g_natDns)-1); g_natDns[sizeof(g_natDns)-1]=0;
+      }
     }
     if (p.disk1[0]) {
       ((AppleVM *)g_vm)->insertDisk(0, p.disk1);
@@ -663,6 +675,8 @@ void writePrefs()
   strncpy(p.wifiPass, g_wifiPass, sizeof(p.wifiPass)); p.wifiPass[sizeof(p.wifiPass)-1]=0;
   strncpy(p.natFwd, g_natFwd, sizeof(p.natFwd)); p.natFwd[sizeof(p.natFwd)-1]=0;
   p.natPortOffset = g_natPortOffset;
+  strncpy(p.natSubnet, g_natSubnet, sizeof(p.natSubnet)); p.natSubnet[sizeof(p.natSubnet)-1]=0;
+  strncpy(p.natDns, g_natDns, sizeof(p.natDns)); p.natDns[sizeof(p.natDns)-1]=0;
 
   p.ramworksSize = g_ramworksSize;
 

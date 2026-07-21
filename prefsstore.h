@@ -6,7 +6,7 @@
 // Fun trivia: the Apple //e was in production from January 1983 to
 // November 1993. And the 65C02 in them supported weird BCD math modes.
 #define PREFSMAGIC 0x01831093
-#define PREFSVERSION 11
+#define PREFSVERSION 13
 
 #ifndef MAXPATH
 #define MAXPATH 255
@@ -63,7 +63,19 @@ typedef struct _prefs {
   uint16_t natPortOffset;
   char natFwd[48];
 
-  char reserved[MAXPATH - 4 - 5 - 1 - 2 - 1 - 33 - 64 - 2 - 48]; // 255 is the Teensy MAXPATH size (less fields above)
+  // v12+: user-mode NAT subnet as a dotted network address (e.g. "10.0.2.0").
+  // A /24 is assumed: the gateway is .2, the advertised DNS is .3, and the
+  // Apple's DHCP lease is .15. Carved from reserved so the disk/hd path offsets
+  // and the footer do not move.
+  char natSubnet[16];
+
+  // v13+: upstream DNS resolver the user-mode NAT proxies name lookups to (the
+  // Apple's queries to the advertised .3 are forwarded here; the SDL hardware
+  // path advertises this address directly). Dotted, e.g. "8.8.8.8". Carved from
+  // reserved so the disk/hd path offsets and the footer do not move.
+  char natDns[16];
+
+  char reserved[MAXPATH - 4 - 5 - 1 - 2 - 1 - 33 - 64 - 2 - 48 - 16 - 16]; // 255 is the Teensy MAXPATH size (less fields above)
 
   char disk1[MAXPATH];
   char disk2[MAXPATH];

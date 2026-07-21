@@ -184,9 +184,10 @@ static void sendInfo(uint8_t seq) {
 }
 
 static void sendWifi(uint8_t seq) {
-    uint8_t p[5];
+    uint8_t p[9];
     p[0] = (WiFi.status() == WL_CONNECTED) ? 1 : 0;
     ipToBytes(WiFi.localIP(), p + 1);
+    ipToBytes(WiFi.dnsIP(), p + 5);   // DHCP-assigned resolver (0.0.0.0 if none)
     sendReply(EVT_WIFI, seq, p, sizeof(p));
 }
 

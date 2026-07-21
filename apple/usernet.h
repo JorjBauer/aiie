@@ -51,14 +51,34 @@ struct UnFlow {
   uint32_t lastActive;     // ms, for idle timeout
 };
 
+// Parse a dotted network address ("10.0.2.0" / "192.168.5.0") into 4 octets.
+// Returns true and fills out[] on success; on any malformed input out is left
+// untouched. Shared so each platform can turn its BIOS subnet string into the
+// byte form UserNet::setSubnet wants.
+bool unParseSubnet(const char *s, uint8_t out[4]);
+
 class UserNet {
  public:
   // debug enables frame tracing; hostfwd is the "hp:ap[,hp:ap...]" forward
-  // config (may be NULL). Both are supplied by the platform (SDL reads env vars;
-  // the Teensy passes fixed values) so this class needs no getenv.
-  UserNet(UnBackend *backend, bool debug, const char *hostfwd);
+  // config (may be NULL). natNet is the /24 network base (4 bytes, e.g.
+  // {10,0,2,0}); NULL selects the 10.0.2.0 default. natDns is the upstream
+  // resolver (4 bytes); NULL selects 8.8.8.8. All are supplied by the platform
+  // (SDL reads env vars / BIOS globals; the Teensy passes BIOS globals) so this
+  // class needs no getenv.
+  UserNet(UnBackend *backend, bool debug, const char *hostfwd,
+          const uint8_t *natNet = nullptr, const uint8_t *natDns = nullptr);
   ~UserNet();
   void reset();
+
+  // Set the virtual LAN's /24 network from a network base (octets 0-2 used;
+  // NULL = 10.0.2.0). Derives the gateway (.2), advertised DNS (.3), and the
+  // Apple's DHCP address (.15). Safe to call live: existing flows keep the IPs
+  // they captured; the Apple picks up the new subnet on its next DHCP.
+  void setSubnet(const uint8_t *natNet);
+
+  // Set the upstream resolver the advertised DNS (.3) is proxied to (4 bytes;
+  // NULL = 8.8.8.8). Safe to call live; affects lookups started afterward.
+  void setResolver(const uint8_t *natDns);
 
   // One outbound Ethernet frame from the Apple. May enqueue reply frames.
   void fromApple(const uint8_t *frame, uint16_t len);
@@ -95,6 +115,11 @@ class UserNet {
   void handleTcp(const uint8_t *f, uint16_t len, const uint8_t *ipHdr);
   void handleDhcp(const uint8_t *udpPayload, uint16_t plen);
 
+  // virtual-LAN address tests (depend on the configured subnet)
+  bool inSubnet(const uint8_t *ip) const;
+  bool isOurIp(const uint8_t *ip) const;
+  void mapRealIp(const uint8_t *dip, uint8_t *realIp) const;
+
   // NAT flow management + host I/O
   UnFlow *findFlow(uint8_t proto, const uint8_t *aip, uint16_t aport,
                    const uint8_t *dip, uint16_t dport);
@@ -119,6 +144,12 @@ class UserNet {
                       const uint8_t *data, uint16_t dlen);
 
   UnBackend *backend;      // host-network operations (BSD sockets or ESP link)
+
+  // The virtual LAN's addresses, derived from the configured /24 (see setSubnet).
+  uint8_t  clientIp[4];    // the Apple's DHCP address (X.Y.Z.15)
+  uint8_t  gwIp[4];        // gateway + DHCP server + host services (X.Y.Z.2)
+  uint8_t  dnsIp[4];       // advertised resolver (X.Y.Z.3)
+  uint8_t  resolver[4];    // real upstream DNS the advertised .3 is proxied to
 
   uint8_t  appleMac[6];
   bool     haveAppleMac;

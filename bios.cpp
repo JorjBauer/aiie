@@ -1,6 +1,7 @@
 #include <string.h>
 #include "globals.h"
 #include "bios.h"
+#include "usernet.h"   // unParseSubnet (validate the NAT subnet field)
 
 #include "applevm.h"
 #include "physicalkeyboard.h"
@@ -1125,9 +1126,9 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
 #endif
 
 #ifdef TEENSYDUINO
-  const int F_SLOT = 0, F_SSID = 1, F_PASS = 2, F_FWD = 3, F_CONNECT = 4, F_COUNT = 5;
+  const int F_SLOT = 0, F_NET = 1, F_DNS = 2, F_SSID = 3, F_PASS = 4, F_FWD = 5, F_CONNECT = 6, F_COUNT = 7;
 #else
-  const int F_SLOT = 0, F_FWD = 1, F_OFFSET = 2, F_COUNT = 3;
+  const int F_SLOT = 0, F_NET = 1, F_DNS = 2, F_FWD = 3, F_OFFSET = 4, F_COUNT = 5;
 #endif
 
   if (selectedMenuItem < 0) selectedMenuItem = F_COUNT - 1;
@@ -1164,18 +1165,23 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
   // Text entry: the forward-port list on both platforms, plus SSID/Password on
   // the Teensy.
   {
-    char *tfield = nullptr; size_t tcap = 0; bool restrictFwd = false;
+    char *tfield = nullptr; size_t tcap = 0; bool restrictFwd = false, restrictIp = false;
     if (selectedMenuItem == F_FWD) { tfield = g_natFwd; tcap = sizeof(g_natFwd) - 1; restrictFwd = true; }
+    else if (selectedMenuItem == F_NET) { tfield = g_natSubnet; tcap = sizeof(g_natSubnet) - 1; restrictIp = true; }
+    else if (selectedMenuItem == F_DNS) { tfield = g_natDns; tcap = sizeof(g_natDns) - 1; restrictIp = true; }
 #ifdef TEENSYDUINO
     else if (selectedMenuItem == F_SSID) { tfield = g_wifiSSID; tcap = 32; }
     else if (selectedMenuItem == F_PASS) { tfield = g_wifiPass; tcap = 63; }
 #endif
     if (tfield) {
       size_t len = strlen(tfield);
+      bool accept;
+      if (restrictIp)       accept = (key >= '0' && key <= '9') || key == '.';
+      else if (restrictFwd) accept = (key >= '0' && key <= '9') || key == ',' || key == ' ';
+      else                  accept = true;
       if (key == PK_DEL) {
         if (len > 0) { tfield[len - 1] = 0; localRedraw = true; }
-      } else if (key >= 0x20 && key <= 0x7E &&
-                 (!restrictFwd || (key >= '0' && key <= '9') || key == ',' || key == ' ')) {
+      } else if (key >= 0x20 && key <= 0x7E && accept) {
         if (len < tcap) { tfield[len] = (char)key; tfield[len + 1] = 0; localRedraw = true; }
       }
     }
@@ -1253,6 +1259,36 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
                           MENUINDENT, y, buf); NL;
     g_display->drawString(M_DISABLED, MENUINDENT, y,
                           "  The network card itself. 0 = off."); GAP;
+
+    // --- the virtual LAN the NAT hands the Apple (both platforms) ---
+    g_display->drawString(M_NORMAL, MENUINDENT, y, "Virtual network"); NL;
+    snprintf(buf, sizeof(buf), "  Subnet: %s", g_natSubnet);
+    g_display->drawString(selectedMenuItem == F_NET ? M_SELECTED : M_NORMAL,
+                          MENUINDENT, y, buf); NL;
+    {
+      uint8_t net[4];
+      if (unParseSubnet(g_natSubnet, net))
+        g_display->drawString(M_DISABLED, MENUINDENT, y,
+                              "  A /24: Apple .15, gateway .2, DNS .3.");
+      else
+        g_display->drawString(M_SELECTED, MENUINDENT, y,
+                              "  Enter a full address, e.g. 10.0.2.0.");
+    } NL;
+    snprintf(buf, sizeof(buf), "  Resolver: %s", g_natDns[0] ? g_natDns : "(auto)");
+    g_display->drawString(selectedMenuItem == F_DNS ? M_SELECTED : M_NORMAL,
+                          MENUINDENT, y, buf); NL;
+    {
+      uint8_t dns[4];
+      if (!g_natDns[0])
+        g_display->drawString(M_DISABLED, MENUINDENT, y,
+                              "  Auto: the network's own resolver.");
+      else if (unParseSubnet(g_natDns, dns))
+        g_display->drawString(M_DISABLED, MENUINDENT, y,
+                              "  Upstream DNS. DEL to clear = auto.");
+      else
+        g_display->drawString(M_SELECTED, MENUINDENT, y,
+                              "  Enter a DNS address, e.g. 1.1.1.1.");
+    } GAP;
 
 #ifdef TEENSYDUINO
     // --- the WiFi radio it talks through (Teensy only) ---

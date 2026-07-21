@@ -182,6 +182,13 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
   char pass[65];
   bool haveCreds;
 
+  // The ESP's DHCP-assigned resolver, learned from EVT_WIFI. Used as the NAT's
+  // upstream DNS when g_natDns is empty (auto). applyResolver() pushes the right
+  // resolver (explicit g_natDns, else this, else 8.8.8.8) into usernet.
+  uint8_t espDns[4];
+  bool    haveEspDns;
+  void    applyResolver();
+
   // MAC-RAW: the same user-mode NAT stack the SDL build uses, driven here by an
   // UnBackendEsp that maps onto this link's socket protocol. unEsp is declared
   // before usernet so it is constructed first.
