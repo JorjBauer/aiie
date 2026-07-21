@@ -58,6 +58,7 @@
 HD32::HD32(AppleMMU *mmu)
 {
   this->mmu = mmu;
+  fd[0] = fd[1] = -1;   // so the Reset() below ejects against "no image", not garbage
   Reset();
 }
 
@@ -125,7 +126,11 @@ void HD32::Reset()
 {
   enabled = 1;
 
-  fd[0] = fd[1] = -1;
+  // Close any open images cleanly rather than dropping the descriptors: Reset
+  // now runs on every cold boot / reboot (see AppleVM::Reset), so leaking here
+  // would leak a file handle per reboot.
+  ejectDisk(0);
+  ejectDisk(1);
   errorState[0] = errorState[1] = 0;
   memBlock[0] = memBlock[1] = 0;
   diskBlock[0] = diskBlock[1] = 0;

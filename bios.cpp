@@ -1508,6 +1508,11 @@ bool BIOS::isActionActive(int8_t action)
   // don't return true for disk events that aren't valid
   switch (action) {
   case ACT_EXIT:
+    // Resume continues the running VM. That is unsafe once a card slot (or the
+    // RamWorks size) has changed under it, because the booted OS still sees the
+    // old hardware -- so disable Resume until the user resets or reboots.
+    return !cardsConfigChanged;
+
   case ACT_RESET:
   case ACT_REBOOT:
   case ACT_REBOOTANDEJECT:
@@ -1653,6 +1658,15 @@ void BIOS::DrawVMMenu()
     } else {
       g_display->drawString(selectedMenuItem == (int8_t)i ? M_SELECTDISABLED : M_DISABLED, MENUINDENT, 20 + LINEHEIGHT * i, buf);
     }
+  }
+
+  // Explain why Resume is greyed out after a card/RamWorks change.
+  if (cardsConfigChanged) {
+    int y = 20 + LINEHEIGHT * (sizeof(vmActions) + 1);
+    g_display->drawString(M_SELECTED, MENUINDENT, y,
+                          "Card config changed.");
+    g_display->drawString(M_SELECTED, MENUINDENT, y + LINEHEIGHT,
+                          "Reset or Reboot to apply it.");
   }
 }
 

@@ -167,8 +167,14 @@ void AppleVM::cpuMaintenance(int64_t cycles)
 
 void AppleVM::Reset()
 {
-  disk6->Reset();
-  if (mockingboard) mockingboard->Reset();
+  // A cold boot resets the whole bus, so reset every installed peripheral card.
+  // (Previously only the disk controller and mockingboard were reset, leaving
+  // the mouse, hard drive, parallel, and Uthernet cards stale after a reboot or
+  // a slot change -- and "Reboot and eject disks" never ejected hard drives.)
+  for (int i = 1; i <= 7; i++) {
+    Slot *card = ((AppleMMU *)mmu)->slots[i];
+    if (card) card->Reset();
+  }
   g_speaker->reset();
   mmu->Reset();
 
