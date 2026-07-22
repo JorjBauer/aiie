@@ -60,6 +60,20 @@ bool Mouse::Deserialize(int8_t fd)
 
 void Mouse::Reset()
 {
+  // A cold reboot must silence the card. A2OSX (and other mouse-IRQ users) leave
+  // ST_MOUSEENABLE | ST_INTVBL set in `status`, so without this the card keeps
+  // asserting the 60Hz VBL IRQ into a freshly rebooted ROM that has no handler
+  // installed yet -- an unhandled interrupt that hangs the boot on the all-inverse
+  // '@' screen. Restore the power-on state and drop the IRQ line so the mouse
+  // stays quiet until the next OS re-enables it. (This is why the empty Reset()
+  // let "reboot after a mouse/network session" wedge the machine.)
+  status = 0;
+  interruptsTriggered = 0;
+  lastX = lastY = 0;
+  lastXForInt = lastYForInt = 0;
+  lastButton = false;
+  lastButtonForInt = false;
+  g_cpu->deassertIrq();
 }
 
 void Mouse::performHack()
