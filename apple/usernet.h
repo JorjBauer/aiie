@@ -48,6 +48,7 @@ struct UnFlow {
   uint16_t appleWin;       // the Apple's advertised receive window
   bool     finRcvd;        // Apple sent FIN
   bool     finSent;        // we sent FIN toward the Apple
+  bool     inbound;        // host->guest forward (the Apple is the server)
   uint32_t lastActive;     // ms, for idle timeout
 };
 

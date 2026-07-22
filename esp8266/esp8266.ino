@@ -135,6 +135,11 @@ static void service(uint8_t s) {
         // the Teensy re-LISTENs (a fresh server) once this connection closes.
         if (k.server && k.server->hasClient() && !k.client.connected()) {
             k.client = k.server->available();
+            // Send small replies immediately. Without this, Nagle holds a short
+            // final segment (e.g. a 12-byte HTTP body after the header) in the
+            // ESP's TCP buffer and it never reaches the client -- the header
+            // arrives but the body does not.
+            k.client.setNoDelay(true);
             k.sr = W5100_SR_ESTABLISHED;
             k.server->stop();
             delete k.server;
@@ -295,6 +300,7 @@ static void handleConnect(uint8_t seq, const uint8_t *p, uint16_t len) {
      * could instead report SYNSENT and let the Teensy poll for ESTABLISHED. */
     socks[s].client.setTimeout(1000);
     bool ok = socks[s].client.connect(ip, port);
+    if (ok) socks[s].client.setNoDelay(true);   // no Nagle: send small segments now
     socks[s].sr = ok ? W5100_SR_ESTABLISHED : W5100_SR_CLOSED;
     replyState(seq, s);
 }
@@ -334,6 +340,12 @@ static void handleSend(uint8_t seq, const uint8_t *p, uint16_t len) {
     uint16_t accepted = 0;
     if (k.proto == AIIE_PROTO_TCP && k.client.connected()) {
         accepted = (uint16_t)k.client.write(data, dlen);
+        // Push it out now. write() alone leaves a short final segment (e.g. a
+        // 12-byte HTTP body after the header) queued in lwIP until a later flush
+        // or close -- which, since the Apple's close is not forwarded here
+        // (tcpShutdownWrite is a no-op), never comes, so the body never reaches
+        // the client. flush() does tcp_output + a brief bounded wait for the ACK.
+        k.client.flush(50);
     } else if (k.proto == AIIE_PROTO_UDP && (flags & AIIE_SEND_HAS_DEST)) {
         k.udp.beginPacket(dip, dport);
         k.udp.write(data, dlen);

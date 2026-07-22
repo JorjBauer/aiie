@@ -17,7 +17,13 @@ class TeensyUSB {
 
   uint8_t getModifiers();
   uint8_t getOemKey();
-  
+
+  // True while a USB keyboard is enumerated.
+  bool keyboardConnected();
+  // Drive the keyboard's caps-lock LED so it can match the emulator's caps
+  // state rather than reading inverted. No-op if no keyboard is present.
+  void setCapsLED(bool on);
+
   void maintain();
 };
 

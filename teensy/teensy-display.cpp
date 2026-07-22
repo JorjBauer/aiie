@@ -161,8 +161,52 @@ void TeensyDisplay::drawDriveActivity(bool drive0, bool drive1)
   }
 }
 
+void TeensyDisplay::drawWiFiSignal(uint8_t litLevels, uint16_t litColor, uint16_t dimColor)
+{
+  const int16_t cx    = use8875 ? WIFI_X_8875     : WIFI_X_9341;   // dot (base) x
+  const int16_t cy    = use8875 ? WIFI_Y_8875     : WIFI_Y_9341;   // dot (base) y
+  const int16_t rstep = use8875 ? WIFI_RSTEP_8875 : WIFI_RSTEP_9341;
+  const int16_t dotr  = use8875 ? WIFI_DOTR_8875  : WIFI_DOTR_9341;
+  const int16_t r3    = 3 * rstep;                                 // outermost arc
+
+  // Solid black background behind the whole symbol, so it reads clearly over the
+  // shell art regardless of the dim (grey) state. Hugs the (narrow) fan rather
+  // than the full radius, so the box is not wider than the icon.
+  const int16_t bxw = 2 * rstep + 2;   // box half-width
+  for (int16_t y = cy - r3 - 1; y <= cy + dotr + 1; y++)
+    for (int16_t x = cx - bxw; x <= cx + bxw; x++)
+      drawPixel(x, y, 0x0000);
+
+  // The dot at the base (lit whenever anything is active).
+  uint16_t dotColor = (litLevels >= 1) ? litColor : dimColor;
+  for (int16_t dy = -dotr; dy <= dotr; dy++)
+    for (int16_t dx = -dotr; dx <= dotr; dx++)
+      if (dx * dx + dy * dy <= dotr * dotr + 1)
+        drawPixel(cx + dx, cy + dy, dotColor);
+
+  // Three concentric arcs -- the top ~120-degree fan of circles centered on the
+  // dot. Arc k (1..3) is lit when k <= litLevels.
+  for (int16_t dy = -r3 - 1; dy <= -1; dy++) {
+    int16_t up = -dy;                             // height above the dot
+    for (int16_t dx = -r3 - 1; dx <= r3 + 1; dx++) {
+      int16_t adx = dx < 0 ? -dx : dx;
+      if (adx > up) continue;                     // outside the ~+-45 deg fan (narrower)
+      int32_t d2 = (int32_t)dx * dx + (int32_t)dy * dy;
+      for (uint8_t k = 1; k <= 3; k++) {
+        int16_t r = k * rstep;
+        // 1px-thick ring: (r-0.5)^2 <= d2 <= (r+0.5)^2, done in integers.
+        if (4 * d2 >= (int32_t)(2 * r - 1) * (2 * r - 1) &&
+            4 * d2 <= (int32_t)(2 * r + 1) * (2 * r + 1)) {
+          drawPixel(cx + dx, cy + dy, (k <= litLevels) ? litColor : dimColor);
+          break;
+        }
+      }
+    }
+  }
+}
+
 // *** this probably needs to be private now FIXME
-void TeensyDisplay::drawImageOfSizeAt(const uint8_t *img, 
+void TeensyDisplay::drawImageOfSizeAt(const uint8_t *img,
 				      uint16_t sizex, uint16_t sizey, 
 				      uint16_t wherex, uint16_t wherey)
 {

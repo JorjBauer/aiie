@@ -87,6 +87,7 @@ class UnBackendEsp : public UnBackend {
 
     bool     wantConnect;
     bool     connectFailed;
+    bool     wantClose;   // close (flush + FIN) once staged TX has drained
     uint8_t  connIp[4];
     uint16_t connPort;
 

@@ -417,6 +417,13 @@ void setup()
   // NB: card config (slots + RamWorks) was already applied before the VM was
   // constructed (see above), so we deliberately do NOT reassignSlots() here.
 
+  // The Uthernet card was built (bringUpUthernet, above) BEFORE prefs were read,
+  // so its NAT started with no port forwards or subnet. Apply the saved config
+  // now, so an inbound forward works from boot. Without this, inbound only came
+  // up after a trip through the BIOS net panel (which calls this same hook) --
+  // and only on the Teensy, since SDL constructs its NAT after prefs are loaded.
+  if (g_uthernet) g_uthernet->applyForwardConfig();
+
   g_speaker->begin(); // let the speaker reset its volume from g_volume
   
   resetButtonDebouncer.attach(RESETPIN);
@@ -472,6 +479,65 @@ int heapSize(){
   return mallinfo().uordblks;
 }
 
+// Push the emulator's caps-lock state onto the USB keyboard's caps LED so it is
+// not inverted. Fired on the two events that need it -- a keyboard first appearing
+// and the BIOS being exited -- not polled; the USBHost library keeps the LED in
+// sync with each Caps Lock press in between. No-op when no keyboard is present.
+void seedCapsLED()
+{
+  if (usb.keyboardConnected())
+    usb.setCapsLED(((TeensyKeyboard *)g_keyboard)->getCapsLock());
+}
+
+// Set true whenever something else repaints the whole shell (e.g. exiting the
+// BIOS), so the WiFi indicator redraws itself instead of assuming its cached
+// picture is still on screen.
+static bool g_wifiIndicatorDirty = true;
+
+// Update the on-screen WiFi indicator (round dot + fanning arcs), only when a
+// Uthernet card is installed. Greyed out = not connected; arcs filling one at a
+// time = connecting; solid white = connected with an IP. The ESP status query is
+// blocking, so it is polled infrequently; the connecting animation runs off the
+// cached status, and we redraw only when the picture actually changes.
+static void runWiFiIndicator(uint32_t now)
+{
+  if (!g_slotUthernet || !g_uthernet) return;
+
+  const uint16_t WIFI_LIT = 0xFFFF;   // white
+  const uint16_t WIFI_DIM = 0x8410;   // grey
+
+  static uint32_t nextPoll  = 0;
+  static uint32_t nextBlink = 0;
+  static int      cachedSt  = 0;
+  static uint8_t  phase     = 1;      // 1..3, the connecting fill animation
+  static int      lastKey   = -999;
+
+  if (g_wifiIndicatorDirty) {         // shell was repainted -> force a redraw
+    lastKey = -999;
+    nextPoll = 0;                     // and refresh the status in case it changed
+    g_wifiIndicatorDirty = false;
+  }
+
+  if (now >= nextPoll) {
+    nextPoll = now + 2000000;         // 2s (now is micros); this call blocks on the ESP
+    cachedSt = g_uthernet->wifiStatus(NULL);
+  }
+  if (cachedSt == 1 && now >= nextBlink) {
+    nextBlink = now + 300000;         // 300ms per step while connecting
+    if (++phase > 3) phase = 1;
+  }
+
+  uint8_t litLevels; int key;
+  if (cachedSt == 2)      { litLevels = 3;     key = 1000; }   // connected: solid white
+  else if (cachedSt == 1) { litLevels = phase; key = phase; }  // connecting: white-on-grey, animated
+  else                    { litLevels = 0;     key = -1;   }   // not connected: all grey
+
+  if (key != lastKey) {
+    ((TeensyDisplay *)g_display)->drawWiFiSignal(litLevels, WIFI_LIT, WIFI_DIM);
+    lastKey = key;
+  }
+}
+
 void runMaintenance(uint32_t now)
 {
   static uint32_t nextRuntime = 0;
@@ -492,7 +558,17 @@ void runMaintenance(uint32_t now)
         g_mouse->maintainMouse();
         g_keyboard->maintainKeyboard();
     	usb.maintain();
-    }	
+
+	// Seed the caps LED the first time a USB keyboard appears, then stop looking
+	// (it short-circuits once seeded). The BIOS-exit path re-seeds it too.
+	static bool capsLedSeeded = false;
+	if (!capsLedSeeded && usb.keyboardConnected()) {
+	  seedCapsLED();
+	  capsLedSeeded = true;
+	}
+
+	runWiFiIndicator(now);
+    }
   }
 }
 
@@ -691,6 +767,11 @@ void loop()
       }
 
       g_keyboard->maintainKeyboard();
+
+      // Re-seed the USB keyboard's caps LED on the way out of the BIOS, and
+      // repaint the WiFi indicator (the shell redraw above erased it).
+      seedCapsLED();
+      g_wifiIndicatorDirty = true;
 
       g_speaker->begin();
 

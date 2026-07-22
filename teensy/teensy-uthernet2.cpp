@@ -315,6 +315,14 @@ void TeensyUthernet2::reset()
   usernet.reset();
   unEsp.reset();
   command(CMD_RESET, nullptr, 0);
+
+  // unEsp.reset() just wiped EVERY backend slot -- including the port-forward
+  // listeners the NAT still references in fwds[] (the shared usernet.reset() only
+  // closes flows, not the forwards). Rebuild them so an inbound forward survives
+  // the Apple's W5100 reset (its IP stack does one at init), instead of only
+  // coming back after a manual BIOS-net-panel re-apply. SDL never loses its BSD
+  // listeners this way, which is why this is a Teensy-only problem.
+  usernet.reconfigureForwards(teensyBuildFwd(nullptr));
 }
 
 bool TeensyUthernet2::linkReady()

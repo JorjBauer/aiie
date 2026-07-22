@@ -351,7 +351,12 @@ void UserNet::handleUdp(const uint8_t *f, uint16_t len, const uint8_t *ip) {
     if (fl->fd < 0) { closeFlow(fl); return; }
   }
   fl->lastActive = nowSecs();
-  backend->udpSend(fl->fd, fl->realIp, dport, udp + 8, ulen - 8);
+  int sent = backend->udpSend(fl->fd, fl->realIp, dport, udp + 8, ulen - 8);
+  if (dbg && dport == 53)
+    unLog("[dns] query -> %u.%u.%u.%u:%u (real %u.%u.%u.%u) fd=%d sent=%d qlen=%u\n",
+          dip[0], dip[1], dip[2], dip[3], dport,
+          fl->realIp[0], fl->realIp[1], fl->realIp[2], fl->realIp[3],
+          fl->fd, sent, (unsigned)(ulen - 8));
 }
 
 void UserNet::handleDhcp(const uint8_t *req, uint16_t plen) {
@@ -610,6 +615,7 @@ void UserNet::acceptInbound() {
     fl->rcvNext = 0;
     fl->appleWin = 4096;                  // provisional until the Apple's SYN-ACK
     fl->finRcvd = fl->finSent = false;
+    fl->inbound = true;                   // the Apple is the server on this flow
     fl->state = UN_TCP_ISYN;
     fl->lastActive = nowSecs();
     if (dbg) unLog("[un] inbound accept -> SYN to %u.%u.%u.%u:%u from :%u\n",
@@ -681,6 +687,11 @@ void UserNet::serviceTcp(UnFlow *f) {
     } else if (n < 0 && !f->finSent) {
       sendTcp(f, TH_FIN | TH_ACK, 0, 0);   // host closed: FIN toward the Apple
       f->finSent = true;
+      // Inbound (the Apple is the server): the external client has disconnected,
+      // so tear the flow down now (instead of waiting for the Apple's FIN, which
+      // a keep-alive httpd never sends) so the single-socket ESP forward
+      // re-LISTENs for the next client. SDL's separate listener is unaffected.
+      if (f->inbound) { closeFlow(f); return; }
     }
   }
   if (f->finRcvd && f->finSent && f->sndUna == f->sndNext) closeFlow(f);
@@ -693,6 +704,9 @@ void UserNet::serviceUdp(UnFlow *f) {
   for (int i = 0; i < 8 && queueHasRoom(); i++) {
     int n = backend->udpRecv(f->fd, buf, sizeof(buf), sip, &sport);
     if (n <= 0) break;
+    if (dbg && f->dstPort == 53)
+      unLog("[dns] reply <- %d bytes from %u.%u.%u.%u:%u -> Apple\n",
+            n, sip[0], sip[1], sip[2], sip[3], sport);
     // Reply appears to come from the address the Apple sent to (dnsIp for DNS).
     sendUdpToApple(f->dstIp, f->dstPort, f->appleIp, f->applePort, buf, (uint16_t)n);
     f->lastActive = nowSecs();

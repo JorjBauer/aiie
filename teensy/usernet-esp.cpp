@@ -12,7 +12,7 @@ void UnBackendEsp::freeSlot(int h) {
   Slot &s = slots[h];
   s.used = false; s.proto = 0xFF; s.sr = W5100_SR_CLOSED;
   s.role = ROLE_FLOW; s.phase = PH_FREE; s.op = OP_NONE; s.lport = 0;
-  s.wantConnect = false; s.connectFailed = false;
+  s.wantConnect = false; s.connectFailed = false; s.wantClose = false;
   s.nextPollMs = 0; s.pollIvMs = UNESP_POLL_MIN_MS;
   s.rxLen = 0; s.rxOff = 0; s.rxHasSrc = false; s.rxSrcPort = 0;
   s.txLen = 0; s.txHasDest = false; s.txDestPort = 0;
@@ -91,17 +91,34 @@ int UnBackendEsp::tcpRecv(int h, uint8_t *buf, uint16_t maxLen) {
 int UnBackendEsp::tcpSend(int h, const uint8_t *data, uint16_t len) {
   if (h < 0 || h >= UNESP_SLOTS || !slots[h].used) return -1;
   Slot &s = slots[h];
-  if (s.txLen > 0) return 0;    // a send is still staged/in-flight: backpressure
-  uint16_t n = (len > UNESP_TXBUF) ? UNESP_TXBUF : len;
-  if (n) memcpy(s.tx, data, n);
-  s.txLen = n; s.txHasDest = false;
+  // Append to the staging buffer rather than refusing whenever anything is
+  // already staged. An inbound HTTP reply is a header write followed by a
+  // separate body write (two TCP segments); refusing the body until the header
+  // send completed left its delivery to rely on the Apple's TCP retransmit,
+  // which on the slow half-duplex ESP-01 link never arrived -- the client hung
+  // waiting for the body (confirmed: SDL's kernel-buffered BSD backend delivers
+  // it, the Teensy one-segment backend did not). Coalescing them into one staged
+  // send fixes it. Real backpressure still applies once the buffer is full. Safe
+  // even while a SEND is in flight: that command snapshotted its bytes, and
+  // OP_SEND completion memmoves off exactly what was reported sent.
+  uint16_t room = (s.txLen < UNESP_TXBUF) ? (uint16_t)(UNESP_TXBUF - s.txLen) : 0;
+  if (room == 0) return 0;      // staging buffer full: real backpressure
+  uint16_t n = (len > room) ? room : len;
+  if (n) memcpy(s.tx + s.txLen, data, n);
+  s.txLen += n; s.txHasDest = false;
   return (int)n;                // service() will push it to the ESP
 }
 
-void UnBackendEsp::tcpShutdownWrite(int) {
-  // The ESP socket protocol has no half-close; a full close would also stop the
-  // host's reply stream. The flow closes fully via sockClose() once both sides
-  // are done.
+void UnBackendEsp::tcpShutdownWrite(int h) {
+  if (h < 0 || h >= UNESP_SLOTS || !slots[h].used) return;
+  // The Apple closed its write side. For an INBOUND (server) connection that
+  // means the reply is complete, so close the host connection once the staged
+  // reply has drained: the ESP's graceful close (client.stop) flushes any body
+  // still buffered in lwIP and sends a FIN to the client -- this is what SDL gets
+  // for free from shutdown(SHUT_WR), and its absence is why the header arrived
+  // but the small final body segment never did. For an OUTBOUND (client)
+  // connection the host still owes us the response, so leave the socket open.
+  if (slots[h].role == ROLE_LISTEN_CONN) slots[h].wantClose = true;
 }
 
 int UnBackendEsp::udpOpen(uint16_t bindPort) {
@@ -211,8 +228,16 @@ bool UnBackendEsp::issueFor(int h) {
           sbuf[o++] = 0;
         }
         memcpy(sbuf + o, s.tx, s.txLen); o += s.txLen;
-        if (t->espIssue(CMD_SOCK_SEND, sbuf, o, 400, (uint8_t)h)) { s.op = OP_SEND; return true; }
+        if (t->espIssue(CMD_SOCK_SEND, sbuf, o, 400, (uint8_t)h)) {
+          s.op = OP_SEND;
+          return true;
+        }
         return false;
+      }
+      if (s.wantClose) {    // staged reply has drained: close (flushes body + FIN)
+        s.wantClose = false;
+        s.phase = PH_CLOSE;
+        return issueFor(h);
       }
       if (s.rxLen == 0) {   // buffer empty: poll (also refreshes sr for connect/close)
         // Pace idle polls so we don't flood the half-duplex link. onCommandDone

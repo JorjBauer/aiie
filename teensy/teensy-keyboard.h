@@ -21,6 +21,10 @@ class TeensyKeyboard : public PhysicalKeyboard {
   void pressedKey(uint8_t key);
   void releasedKey(uint8_t key);
 
+  // Current caps-lock state (caps-on = uppercase). Used to seed the USB
+  // keyboard's caps LED so it isn't inverted relative to the emulator.
+  bool getCapsLock() { return capsLock; }
+
 private:
   bool addEvent(uint8_t kc, bool pressed);
   bool popEvent(uint8_t *kc, bool *pressed);

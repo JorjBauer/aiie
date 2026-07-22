@@ -55,6 +55,18 @@ void TeensyUSB::maintain()
   myusb.Task();
 }
 
+bool TeensyUSB::keyboardConnected()
+{
+  return (bool)keyboard1;
+}
+
+void TeensyUSB::setCapsLED(bool on)
+{
+  // The library keeps this LED in sync with each Caps Lock press on its own; we
+  // only seed it (on connect) so it starts matching the emulator's caps state.
+  keyboard1.capsLock(on);
+}
+
 uint8_t TeensyUSB::getModifiers()
 {
   // FIXME: specifically keyboard1? guess the callbacks need a kb #

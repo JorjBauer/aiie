@@ -27,6 +27,21 @@
 #define LED1_Y_9341 213
 #define LED2_Y_9341 213
 
+// WiFi signal indicator: the round "dot + fanning arcs" symbol. X,Y is the DOT at
+// the base of the symbol (center-bottom); the three arcs fan up-and-out from it,
+// out to radius 3*RSTEP. Drawn on a black background, only when a Uthernet card is
+// installed. X,Y are set so the black box sits flush in the top-right corner (box
+// right edge = screen right, box top = screen top); nudge here to taste.
+#define WIFI_X_9341     311  // 320-wide screen: 319 - boxHalfWidth(2*RSTEP+2=8)
+#define WIFI_Y_9341     10   // RSTEP*3 + 1, so the box top lands on y=0
+#define WIFI_RSTEP_9341 3    // radius step between arcs (arcs at 3,6,9)
+#define WIFI_DOTR_9341  1    // dot radius
+
+#define WIFI_X_8875     785  // 800-wide screen: 799 - boxHalfWidth(2*RSTEP+2=14)
+#define WIFI_Y_8875     19   // RSTEP*3 + 1
+#define WIFI_RSTEP_8875 6    // arcs at 6,12,18
+#define WIFI_DOTR_8875  2
+
 // These are the ABSTRACTED constants that AppleUI uses to tell the
 // display what it wants redrawn via drawUIImage(uint8_t imageIdx)
 enum {

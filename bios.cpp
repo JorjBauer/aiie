@@ -1121,6 +1121,7 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
 #ifdef TEENSYDUINO
   static bool refreshStatus = true;
   static bool connecting = false;
+  static uint32_t connectStartMs = 0; // when "Connect" was pressed, to bound the wait
   static int  cachedSt = 0;
   static uint8_t cachedIp[4] = {0, 0, 0, 0};
 #endif
@@ -1207,7 +1208,7 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
         g_display->flush();
         g_uthernet->wifiJoin(g_wifiSSID, g_wifiPass);
       }
-      connecting = true; refreshStatus = true; localRedraw = true;
+      connecting = true; connectStartMs = millis(); refreshStatus = true; localRedraw = true;
     } else
 #endif
     {
@@ -1236,6 +1237,11 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
       if (g_uthernet) cachedSt = g_uthernet->wifiStatus(cachedIp);
       else            cachedSt = -1;
       refreshStatus = false;
+      // Leave the "connecting..." state once we're up, or give up after a while
+      // so a genuinely bad password eventually reads as failed rather than
+      // spinning forever.
+      if (cachedSt == 2 || (uint32_t)(millis() - connectStartMs) > 20000)
+        connecting = false;
     }
 #endif
 
@@ -1344,8 +1350,8 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
     else if (cachedSt == 0) strcpy(buf, "Status: ESP-01 not responding");
     else if (cachedSt == 2) snprintf(buf, sizeof(buf), "Status: connected  %d.%d.%d.%d",
                                      cachedIp[0], cachedIp[1], cachedIp[2], cachedIp[3]);
-    else                    strcpy(buf, connecting ? "Status: WiFi not joined (password?)"
-                                                    : "Status: WiFi not joined");
+    else if (connecting)    strcpy(buf, "Status: connecting...");
+    else                    strcpy(buf, "Status: WiFi not joined (check password?)");
     g_display->drawString(M_DISABLED, MENUINDENT, y, buf); NL;
 
     // Live link counters, to see which side is dead: TX = commands sent to the
@@ -1473,7 +1479,7 @@ void BIOS::RebootAsIs()
   if (hdd1[0])
     ((AppleVM *)g_vm)->insertHD(0, hdd1);
   if (hdd2[0])
-    ((AppleVM *)g_vm)->insertHD(2, hdd2);
+    ((AppleVM *)g_vm)->insertHD(1, hdd2);   // HD32 has drives 0 and 1; 2 was out of bounds
 
   free(disk6s1);
   free(disk6s2);
