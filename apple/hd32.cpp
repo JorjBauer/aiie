@@ -177,7 +177,13 @@ uint8_t HD32::readSwitches(uint8_t s)
       
     case CMD_WRITE:
       // FIXME: if diskblock[selectedDrive] >= disk image size, set/return io error
-      if (!writeBlockToSelectedDrive()){ 
+      // Clear any stale error first (as CMD_READ/CMD_STATUS do): the driver ROM
+      // reports success/failure from errorState via HD32_STATUS, so a leftover 1
+      // from an earlier call (e.g. an unhandled SmartPort command hitting the
+      // default case) would make a perfectly good write look like an I/O error.
+      errorState[driveSelected] = 0;
+      ret = DEVICE_OK;
+      if (!writeBlockToSelectedDrive()){
 	ret = DEVICE_IO_ERROR;
 	errorState[driveSelected] = 1;
       }
@@ -193,13 +199,13 @@ uint8_t HD32::readSwitches(uint8_t s)
       break;
 
     }
-    
+
     break;
 
   case HD32_STATUS:
     ret = errorState[driveSelected];
     break;
-
+    
   case HD32_COMMAND:
     ret = command;
     break;
@@ -337,9 +343,9 @@ bool HD32::readBlockFromSelectedDrive()
   for (uint16_t i=0; i<HD32_BLOCKSIZE; i++) {
     mmu->write(memBlock[driveSelected] + i, cachedBlock[i]);
   }
-  
+
   return true;
-  
+
  err:
   //  memset(cachedBlock, 0, sizeof(cachedBlock));
   //  cachedBlockNum = -1;
@@ -352,7 +358,7 @@ bool HD32::writeBlockToSelectedDrive()
 
   if (fd[driveSelected]==-1)
     return false;
-  
+
   for (uint16_t i=0; i<HD32_BLOCKSIZE; i++) {
     cachedBlock[i] = mmu->read(memBlock[driveSelected] + i);
   }
@@ -364,7 +370,7 @@ bool HD32::writeBlockToSelectedDrive()
 #endif
     return false;
   }
-  
+
   return true;
 }
 
