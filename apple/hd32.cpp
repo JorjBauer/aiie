@@ -299,7 +299,8 @@ uint8_t HD32::readNextByteFromSelectedDrive()
 
   int32_t blockToRead = cursor[driveSelected] >> 9; // 512-byte block number
   if (blockToRead != cachedBlockNum) {
-    if (g_filemanager->lseek(fd[driveSelected], blockToRead*512, SEEK_SET) != blockToRead*512) {
+    int32_t fileOff = blockToRead*512 + (int32_t)hdrOffset[driveSelected];
+    if (g_filemanager->lseek(fd[driveSelected], fileOff, SEEK_SET) != fileOff) {
       goto err;
     }
     ssize_t nread = g_filemanager->read(fd[driveSelected], cachedBlock, 512);
@@ -330,7 +331,8 @@ bool HD32::readBlockFromSelectedDrive()
   cursor[driveSelected] = diskBlock[driveSelected] * HD32_BLOCKSIZE;
   int32_t blockToRead = cursor[driveSelected] >> 9; // 512-byte block number
   if (blockToRead != cachedBlockNum) {
-    if (g_filemanager->lseek(fd[driveSelected], blockToRead*512, SEEK_SET) != blockToRead*512) {
+    int32_t fileOff = blockToRead*512 + (int32_t)hdrOffset[driveSelected];
+    if (g_filemanager->lseek(fd[driveSelected], fileOff, SEEK_SET) != fileOff) {
       goto err;
     }
     ssize_t nread = g_filemanager->read(fd[driveSelected], cachedBlock, 512);
@@ -362,7 +364,8 @@ bool HD32::writeBlockToSelectedDrive()
   for (uint16_t i=0; i<HD32_BLOCKSIZE; i++) {
     cachedBlock[i] = mmu->read(memBlock[driveSelected] + i);
   }
-  if (g_filemanager->lseek(fd[driveSelected], diskBlock[driveSelected]*HD32_BLOCKSIZE, SEEK_SET) != diskBlock[driveSelected]*HD32_BLOCKSIZE ||
+  int32_t fileOff = diskBlock[driveSelected]*HD32_BLOCKSIZE + (int32_t)hdrOffset[driveSelected];
+  if (g_filemanager->lseek(fd[driveSelected], fileOff, SEEK_SET) != fileOff ||
       g_filemanager->write(fd[driveSelected], cachedBlock, HD32_BLOCKSIZE) != HD32_BLOCKSIZE) {
     // FIXME
 #ifndef TEENSYDUINO
@@ -387,10 +390,45 @@ const char *HD32::diskName(int8_t num)
   return "";
 }
 
+// A 2IMG (.2mg) file wraps the raw disk data in a header (usually 64 bytes).
+// Sniff it so block 0 lands on the real data instead of the header. The layout
+// is little-endian: "2IMG" magic, then at byte 8 the header length (u16), at
+// byte 12 the image format (u32: 0=DOS order, 1=ProDOS order, 2=nibble), and at
+// byte 24 the data offset (u32). HD32 is a ProDOS block device, so only the
+// ProDOS-order layout is meaningful; a DOS-order or nibble image is flagged but
+// still mounted at its data offset (it simply will not mount cleanly in ProDOS).
+// Returns the byte offset to block 0 (0 when this is not a 2IMG image).
+static uint32_t sniff2mgOffset(int8_t fd)
+{
+  uint8_t h[64];
+  if (g_filemanager->lseek(fd, 0, SEEK_SET) != 0)
+    return 0;
+  if (g_filemanager->read(fd, h, sizeof(h)) != (int)sizeof(h))
+    return 0;
+  if (h[0] != '2' || h[1] != 'I' || h[2] != 'M' || h[3] != 'G')
+    return 0;
+
+  uint32_t format  = h[12] | (h[13] << 8) | (h[14] << 16) | (h[15] << 24);
+  uint32_t dataOff = h[24] | (h[25] << 8) | (h[26] << 16) | (h[27] << 24);
+  uint16_t hdrLen  = h[8]  | (h[9]  << 8);
+
+  if (dataOff == 0)                 // some writers leave data offset at 0
+    dataOff = hdrLen ? hdrLen : 64; // fall back to the header length, then 64
+
+#ifndef TEENSYDUINO
+  if (format != 1) {
+    printf("WARNING: 2IMG image is not ProDOS-ordered (format %u); "
+           "it will not mount cleanly as a hard disk\n", format);
+  }
+#endif
+  return dataOff;
+}
+
 void HD32::insertDisk(int8_t driveNum, const char *filename)
 {
   ejectDisk(driveNum);
   fd[driveNum] = g_filemanager->openFile(filename);
+  hdrOffset[driveNum] = (fd[driveNum] != -1) ? sniff2mgOffset(fd[driveNum]) : 0;
   errorState[driveNum] = 0;
   enabled = 1;
 }
@@ -401,5 +439,6 @@ void HD32::ejectDisk(int8_t driveNum)
     g_filemanager->closeFile(fd[driveNum]);
     fd[driveNum] = -1;
   }
+  hdrOffset[driveNum] = 0;
 }
 

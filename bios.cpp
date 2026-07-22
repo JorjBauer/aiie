@@ -902,7 +902,7 @@ uint16_t BIOS::DisksMenuHandler(bool needsRedraw, bool performAction)
 	localRedraw = true;
 	break;
       } else {
-	strcpy(fileFilter, "img,hdv");
+	strcpy(fileFilter, "img,hdv,2mg");
 	fileSelectionFor = ACT_HD1;
 	return BIOS_SELECTFILE;
       }
@@ -913,7 +913,7 @@ uint16_t BIOS::DisksMenuHandler(bool needsRedraw, bool performAction)
 	localRedraw = true;
 	break;
       } else {
-	strcpy(fileFilter, "img,hdv");
+	strcpy(fileFilter, "img,hdv,2mg");
 	fileSelectionFor = ACT_HD2;
 	return BIOS_SELECTFILE;
       }
