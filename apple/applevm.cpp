@@ -34,6 +34,12 @@ AppleVM::AppleVM()
   mockingboard = new Mockingboard();
   uthernet = new Uthernet2((AppleMMU *)mmu);
 
+  // The mouse firmware ROM is hard-coded for slot 4, so it only works in slot 4
+  // (or off). A stale pref or the old default (slot 2) could leave it in a slot
+  // where it silently does nothing; coerce any invalid slot to off so it never
+  // sits somewhere it cannot work.
+  if (g_slotMouse != 0 && g_slotMouse != 4) g_slotMouse = 0;
+
   if (g_slotDiskII) ((AppleMMU *)mmu)->setSlot(g_slotDiskII, disk6);
   if (g_slotParallel) ((AppleMMU *)mmu)->setSlot(g_slotParallel, parallel);
   if (g_slotHD32) ((AppleMMU *)mmu)->setSlot(g_slotHD32, hd32);
