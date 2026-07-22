@@ -28,6 +28,7 @@
 #include <ESP8266WiFi.h>
 #include <WiFiUdp.h>
 #include <lwip/dns.h>
+#include <lwip/priv/tcp_priv.h>   // tcp_active_pcbs / tcp_tw_pcbs / tcp_listen_pcbs (diag)
 #include "protocol.h"
 #include "frame.h"
 
@@ -153,9 +154,12 @@ static void service(uint8_t s) {
             if (n > 0) { k.rxLen = (uint16_t)n; k.rxOff = 0; }
         }
         // Peer closed and everything drained -> CLOSE_WAIT (host will CLOSE).
+        // abort() (RST) rather than stop() (FIN) frees the PCB immediately instead
+        // of parking it in LAST_ACK/TIME_WAIT; the tiny PCB pool otherwise fills up
+        // under back-to-back inbound connections. Safe here: no unread data remains.
         if (k.sr == W5100_SR_ESTABLISHED && !k.client.connected() &&
             k.rxLen == 0 && k.client.available() == 0) {
-            k.client.stop();
+            k.client.abort();
             k.sr = W5100_SR_CLOSE_WAIT;
         }
     } else if (k.proto == AIIE_PROTO_UDP) {
@@ -188,10 +192,26 @@ static void sendInfo(uint8_t seq) {
     sendReply(EVT_INFO, seq, p, sizeof(p));
 }
 
+// Count the lwIP TCP control blocks by list. The pool is small (MEMP_NUM_TCP_PCB),
+// so a slow inbound-connection leak shows up here as active/time-wait/listen PCBs
+// that never come back down. Reported on the WiFi-status reply so the host can log
+// it without a dedicated command. Counts are clamped to a byte.
+static void countTcpPcbs(uint8_t &act, uint8_t &tw, uint8_t &lis, uint8_t &bnd) {
+    uint16_t a = 0, t = 0, l = 0, b = 0;
+    for (struct tcp_pcb *p = tcp_active_pcbs; p; p = p->next) a++;
+    for (struct tcp_pcb *p = tcp_tw_pcbs; p; p = p->next) t++;
+    for (struct tcp_pcb_listen *p = tcp_listen_pcbs.listen_pcbs; p; p = p->next) l++;
+    for (struct tcp_pcb *p = tcp_bound_pcbs; p; p = p->next) b++;
+    act = a > 255 ? 255 : a;  tw  = t > 255 ? 255 : t;
+    lis = l > 255 ? 255 : l;  bnd = b > 255 ? 255 : b;
+}
+
 static void sendWifi(uint8_t seq) {
-    uint8_t p[5];
+    uint8_t p[9];
     p[0] = (WiFi.status() == WL_CONNECTED) ? 1 : 0;
     ipToBytes(WiFi.localIP(), p + 1);
+    // Bytes 5-8: live TCP PCB census (active, time-wait, listen, bound) for leak diag.
+    countTcpPcbs(p[5], p[6], p[7], p[8]);
     sendReply(EVT_WIFI, seq, p, sizeof(p));
 }
 
@@ -247,7 +267,10 @@ static void handleDnsResult(uint8_t seq) {
 
 static void closeSock(uint8_t s) {
     Sock &k = socks[s];
-    k.client.stop();
+    // abort() (RST) frees the connection PCB immediately; a graceful stop() would
+    // linger in LAST_ACK/TIME_WAIT and exhaust the small PCB pool across rapid
+    // inbound connections. The peer already has its response, so RST is harmless.
+    k.client.abort();
     if (k.server) { k.server->stop(); delete k.server; k.server = nullptr; }
     if (k.proto == AIIE_PROTO_UDP) k.udp.stop();
     k.proto = 0xFF;

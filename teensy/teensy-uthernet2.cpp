@@ -258,6 +258,17 @@ int TeensyUthernet2::wifiStatus(uint8_t ip[4])
   if (!linkUp) return 0;   // the ESP co-processor is not answering
   if (command(CMD_WIFI_STATUS, nullptr, 0, 300) && rpType == EVT_WIFI && rpLen >= 5) {
     if (ip) { ip[0] = rpBuf[1]; ip[1] = rpBuf[2]; ip[2] = rpBuf[3]; ip[3] = rpBuf[4]; }
+    // Bytes 5-8 are the ESP's live TCP PCB census (active, time-wait, listen, bound).
+    // Log a line whenever it changes so a socket leak is visible on the serial console
+    // without a dedicated command; the pool is only MEMP_NUM_TCP_PCB deep.
+    if (rpLen >= 9) {
+      static uint8_t la = 0xFF, lt = 0xFF, ll = 0xFF, lb = 0xFF;
+      if (rpBuf[5] != la || rpBuf[6] != lt || rpBuf[7] != ll || rpBuf[8] != lb) {
+        la = rpBuf[5]; lt = rpBuf[6]; ll = rpBuf[7]; lb = rpBuf[8];
+        Serial.printf("ESP TCP PCBs: active=%u time-wait=%u listen=%u bound=%u\r\n",
+                      la, lt, ll, lb);
+      }
+    }
     return rpBuf[0] ? 2 : 1;   // 2 = joined (IP valid), 1 = link up, not joined
   }
   return 1;   // link is up but the status query failed
