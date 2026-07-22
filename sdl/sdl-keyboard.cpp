@@ -180,6 +180,37 @@ void SDLKeyboard::handleKeypress(SDL_KeyboardEvent *key)
 
 
 
+// Pop a native modal confirmation before actually quitting. Cmd-Q, Cmd-W, and the
+// window close button all reach us as a single SDL_QUIT, and quitting instantly is
+// easy to trigger by accident (Cmd-Q sits right next to Cmd-W / Cmd-Tab) and drops
+// the emulator with any in-flight disk writes unsaved. Returns true only when the
+// user explicitly chooses to quit. On any failure to show the dialog we fall back to
+// quitting, so a broken dialog can never trap the user in an un-closable window.
+static bool confirmQuit()
+{
+  SDL_Window *parent = g_display ? ((SDLDisplay *)g_display)->getWindow() : NULL;
+
+  const SDL_MessageBoxButtonData buttons[] = {
+    { SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT, 0, "Cancel" },
+    { SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT, 1, "Quit"   },
+  };
+  const SDL_MessageBoxData mbd = {
+    SDL_MESSAGEBOX_WARNING,
+    parent,
+    "Quit Aiie?",
+    "Quit the emulator? Any unsaved disk changes will be lost.",
+    SDL_arraysize(buttons),
+    buttons,
+    NULL   // default (OS) color scheme
+  };
+
+  int buttonid = -1;
+  if (SDL_ShowMessageBox(&mbd, &buttonid) < 0)
+    return true;   // couldn't show the dialog; honor the quit rather than trap
+
+  return buttonid == 1;
+}
+
 void SDLKeyboard::maintainKeyboard()
 {
   // Drain the ENTIRE event queue each call, not one event per 60Hz tick. At high
@@ -247,7 +278,9 @@ void SDLKeyboard::maintainKeyboard()
       break;
 
     case SDL_QUIT:
-      exit(0);
+      if (confirmQuit())
+	exit(0);
+      break;
     }
   }
 }
@@ -277,7 +310,9 @@ bool SDLKeyboard::kbhit()
   SDL_Event event;
   while (SDL_PollEvent( &event )) {
     if (event.type == SDL_QUIT) {
-      exit(0);
+      if (confirmQuit())
+	exit(0);
+      continue;
     }
 
     if (event.type == SDL_MOUSEMOTION) {
