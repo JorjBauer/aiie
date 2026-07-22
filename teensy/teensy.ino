@@ -56,6 +56,10 @@ Bounce resetButtonDebouncer = Bounce();
 
 volatile bool cpuClockInitialized = false;
 
+// Set from the USB keyboard callback (Ctrl-Alt-Del) and serviced in loop() between
+// CPU bursts, so we never reset the VM from inside a keyboard interrupt.
+volatile bool g_rebootRequested = false;
+
 // The battery voltage measurement comes through a 50% ratio voltage
 // divider; and the analog resolution is set to 8 bits (so a max of
 // 256); with a fixed voltage reference of 3.3v (standard in the
@@ -136,32 +140,59 @@ static uint8_t usb_scanmap[256] = {
 	
 EXTMEM uint8_t keysPressed[256]; // FIXME: if we need to save RAM, make this bitflags
 
+// Ctrl and Alt state, tracked from the scancodes we forward to the Apple. We use
+// this (not the USB modifier byte) to spot Ctrl-Alt-Del, because the scanmap turns
+// modifier keys into ordinary keycodes -- so a keyboard that reports its modifiers
+// only as keycodes leaves getModifiers() empty, but always passes through here.
+static bool ctrlHeld = false;
+static bool altHeld = false;
+
 void onKeypress(uint8_t keycode)
 {
   if (keysPressed[keycode])
     return; // defeat auto-repeat
-  if (!usb_scanmap[keycode])
+
+  // F10 / PrintScreen open the BIOS (matching the SDL build's F10). Handled
+  // before the scanmap filter below, since these are not Apple keys and would
+  // otherwise be dropped as "undefined".
+  if (keycode == 67 || keycode == 70) {
+    g_biosInterrupt = true;
+    return;
+  }
+
+  // Ctrl-Alt-Del reboots the emulated machine (as the BIOS "Reboot" does). Del is
+  // the forward-delete key (76) or Backspace (42, labeled "delete" on Mac
+  // keyboards).
+  if ((keycode == 76 || keycode == 42) && ctrlHeld && altHeld) {
+    g_rebootRequested = true;
+    return;
+  }
+
+  uint8_t sc = usb_scanmap[keycode];
+  if (!sc)
     return; // skip undefined keys
 
-  if (keycode == 67 || keycode == 70) {
-    // F10 or PrtSc/SysRq are interrupt buttons. Probably needs to be
-    // configurable somehow...
-    g_biosInterrupt = true;
-  } else {
-    keysPressed[keycode] = 1;
-    ((TeensyKeyboard *)g_keyboard)->pressedKey(usb_scanmap[keycode]);
-  }
+  if (sc == PK_CTRL)                   ctrlHeld = true;
+  else if (sc == PK_LA || sc == PK_RA) altHeld = true;
+
+  keysPressed[keycode] = 1;
+  ((TeensyKeyboard *)g_keyboard)->pressedKey(sc);
 }
 
 void onKeyrelease(uint8_t keycode)
 {
   if (!keysPressed[keycode])
     return; // defeat auto-repeat
-  if (!usb_scanmap[keycode])
+
+  uint8_t sc = usb_scanmap[keycode];
+  if (!sc)
     return; // skip undefined keys
 
+  if (sc == PK_CTRL)                   ctrlHeld = false;
+  else if (sc == PK_LA || sc == PK_RA) altHeld = false;
+
   keysPressed[keycode] = 0;
-  ((TeensyKeyboard *)g_keyboard)->releasedKey(usb_scanmap[keycode]);
+  ((TeensyKeyboard *)g_keyboard)->releasedKey(sc);
 }
 
 // Pump the input devices once, for blocking loops (e.g. the firmware-update
@@ -678,6 +709,16 @@ void loop()
 
       wasBios = false;
     }
+  }
+
+  // Ctrl-Alt-Del from the USB keyboard: reboot the emulated machine (keeping
+  // inserted disks), the same as the BIOS "Reboot" item. Done here, between CPU
+  // bursts, rather than in the keyboard callback.
+  if (g_rebootRequested) {
+    g_rebootRequested = false;
+    bios.RebootAsIs();
+    ((AppleDisplay *)(g_vm->vmdisplay))->modeChange();
+    cpuClockInitialized = false;   // don't let the CPU clock try to catch up
   }
 
   if (!g_biosInterrupt && !wasBios) {

@@ -18,6 +18,11 @@ class BIOS {
   // return true as long as it's still running
   bool loop();
 
+  // Reboot the emulated machine (as the BIOS "Reboot" menu item does): reset the
+  // VM and CPU while keeping inserted media. Public so the firmware can bind it
+  // to a host key (e.g. Ctrl-Alt-Del on the USB keyboard).
+  void RebootAsIs();
+
  private:
   uint16_t MainMenuHandler();
   
@@ -45,7 +50,6 @@ class BIOS {
   int8_t getCurrentMenuAction();
 
   void WarmReset();
-  void RebootAsIs();
   void ColdReboot();
 
   uint16_t DrawDiskNames(uint8_t page, int8_t selection, const char *filter);

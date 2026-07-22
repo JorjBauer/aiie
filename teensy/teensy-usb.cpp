@@ -16,6 +16,15 @@ USBHub hub2(myusb);
 KeyboardController keyboard1(myusb);
 //KeyboardController keyboard2(myusb);
 
+// KeyboardController is a USBHIDInput, not a standalone USBDriver: it claims HID
+// collections through a USBHIDParser, so at least one parser must be registered or
+// nothing ever claims the keyboard and no keys are delivered. A device can expose
+// several HID interfaces/collections, so register a few parsers (the library's
+// keyboard example uses five).
+USBHIDParser hid1(myusb);
+USBHIDParser hid2(myusb);
+USBHIDParser hid3(myusb);
+
 TeensyUSB::TeensyUSB()
 {
 }
