@@ -101,7 +101,7 @@
 #define EVT_ERROR          0x81  /* status u8, msg[] (ascii, optional)          */
 #define EVT_LINK_PONG      0x82  /* echoes CMD_LINK_PING payload                */
 #define EVT_INFO           0x83  /* see EVT_INFO layout below                   */
-#define EVT_WIFI           0x84  /* state u8 (0 down/1 up), ip[4], dns[4]       */
+#define EVT_WIFI           0x84  /* state u8 (0 down/1 up), ip[4]               */
 #define EVT_DNS            0x85  /* pending u8, ip[4]  (0.0.0.0 == failed/none) */
 #define EVT_SOCK_STATE     0x86  /* sock u8, sr u8 (W5100 SR code)              */
 #define EVT_SOCK_DATA      0x87  /* sock, sr, remain u16, flags, [src], data[]  */

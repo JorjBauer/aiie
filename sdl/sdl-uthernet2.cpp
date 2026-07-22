@@ -12,7 +12,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <resolv.h>   // res_ninit: the host's own resolver for the "auto" DNS default
 
 static void setNonBlocking(int fd)
 {
@@ -30,29 +29,6 @@ static const uint8_t *natSubnetBytes()
   return net;
 }
 
-// The upstream resolver the NAT forwards DNS to. An explicit BIOS value
-// (g_natDns) wins; otherwise (empty = auto) use the host's own first configured
-// nameserver -- effectively whatever the host got from its DHCP. Falls back to
-// 8.8.8.8 if the host has no usable IPv4 resolver.
-static const uint8_t *natDnsBytes()
-{
-  static uint8_t dns[4] = { 8, 8, 8, 8 };
-  uint8_t parsed[4];
-  if (g_natDns[0] && unParseSubnet(g_natDns, parsed)) { memcpy(dns, parsed, 4); return dns; }
-
-  struct __res_state st;
-  memset(&st, 0, sizeof(st));
-  if (res_ninit(&st) == 0) {
-    for (int i = 0; i < st.nscount; i++) {
-      uint8_t b[4];
-      memcpy(b, &st.nsaddr_list[i].sin_addr.s_addr, 4); // network order == dotted order
-      if (b[0] | b[1] | b[2] | b[3]) { memcpy(dns, b, 4); break; }
-    }
-    res_nclose(&st);
-  }
-  return dns;
-}
-
 // ---- built-in DHCP responder --------------------------------------------
 // Answers the Apple's DHCP request locally with a synthetic lease, so software
 // that insists on DHCP (e.g. PLASMA's inet stack) can configure and run. The
@@ -62,15 +38,13 @@ static const uint8_t *natDnsBytes()
 // tracks the BIOS subnet (guest .15, server/gateway .2) so this path agrees with
 // the MAC-RAW UserNet one.
 static const uint8_t DHCP_MASK[4]      = {255, 255, 255, 0};
+static const uint8_t DHCP_DNS[4]       = {8, 8, 8, 8};
 
-// Fill the DHCP lease's client (.15), server/gateway (.2), and advertised DNS
-// (the configured upstream resolver) from the BIOS settings.
+// Fill the DHCP lease's client (.15) and server/gateway (.2) from the subnet.
 static void dhcpClientIp(uint8_t out[4])
 { const uint8_t *n = natSubnetBytes(); out[0]=n[0]; out[1]=n[1]; out[2]=n[2]; out[3]=15; }
 static void dhcpServerIp(uint8_t out[4])
 { const uint8_t *n = natSubnetBytes(); out[0]=n[0]; out[1]=n[1]; out[2]=n[2]; out[3]=2; }
-static void dhcpDns(uint8_t out[4])
-{ memcpy(out, natDnsBytes(), 4); }
 
 // Find the DHCP message-type option (53). Returns the type, or -1.
 static int dhcpMsgType(const uint8_t *p, int len)
@@ -102,10 +76,9 @@ static int dhcpBuildReply(const uint8_t *req, int reqlen, uint8_t *out)
   else if (mtype == 3) reply = 5; // REQUEST  -> ACK
   else return 0;
 
-  uint8_t DHCP_CLIENT_IP[4], DHCP_SERVER_IP[4], DHCP_DNS[4];
+  uint8_t DHCP_CLIENT_IP[4], DHCP_SERVER_IP[4];
   dhcpClientIp(DHCP_CLIENT_IP);
   dhcpServerIp(DHCP_SERVER_IP);
-  dhcpDns(DHCP_DNS);
 
   memset(out, 0, 300);
   out[0] = 2;                    // op = BOOTREPLY
@@ -172,7 +145,7 @@ static const char *natHostfwd()
 
 SDLUthernet2::SDLUthernet2()
   : usernet(&unBsd, getenv("AIIE_USERNET_DEBUG") != NULL, natHostfwd(),
-            natSubnetBytes(), natDnsBytes())
+            natSubnetBytes())
 {
   for (int i = 0; i < U2_NUM_SOCKETS; i++) {
     fd[i] = -1;
@@ -194,7 +167,6 @@ void SDLUthernet2::applyForwardConfig()
   // too; the Apple picks it up on its next DHCP.
   inboundOffset = natOffset();
   usernet.setSubnet(natSubnetBytes());
-  usernet.setResolver(natDnsBytes());
   usernet.reconfigureForwards(natHostfwd());
 }
 

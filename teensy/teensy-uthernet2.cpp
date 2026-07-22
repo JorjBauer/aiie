@@ -37,16 +37,6 @@ static const uint8_t *teensySubnetBytes()
   return net;
 }
 
-// Parse the BIOS upstream-resolver string (g_natDns, e.g. "8.8.8.8") into 4
-// bytes, falling back to 8.8.8.8 when empty or malformed.
-static const uint8_t *teensyDnsBytes()
-{
-  static uint8_t dns[4] = { 8, 8, 8, 8 };
-  uint8_t parsed[4];
-  if (unParseSubnet(g_natDns, parsed)) memcpy(dns, parsed, 4);
-  return dns;
-}
-
 void TeensyUthernet2::frameCb(uint8_t type, uint8_t seq, const uint8_t *p, uint16_t len)
 {
   if (s_instance) s_instance->onFrame(type, seq, p, len);
@@ -63,8 +53,7 @@ void TeensyUthernet2::onFrame(uint8_t type, uint8_t seq, const uint8_t *p, uint1
 
 TeensyUthernet2::TeensyUthernet2(Stream *l, const char *hostfwd)
   : link(l), parser(frameCb), unEsp(this),
-    usernet(&unEsp, false, teensyBuildFwd(hostfwd), teensySubnetBytes(),
-            teensyDnsBytes()),
+    usernet(&unEsp, false, teensyBuildFwd(hostfwd), teensySubnetBytes()),
     macraw(false)
 {
   s_instance = this;
@@ -81,7 +70,6 @@ TeensyUthernet2::TeensyUthernet2(Stream *l, const char *hostfwd)
   pollCursor = 0;
   haveCreds = false;
   ssid[0] = 0; pass[0] = 0;
-  espDns[0] = espDns[1] = espDns[2] = espDns[3] = 0; haveEspDns = false;
   for (uint8_t i = 0; i < U2_NUM_SOCKETS; i++) {
     sr[i] = U2_SR_CLOSED;
     proto[i] = 0xFF;
@@ -96,27 +84,12 @@ TeensyUthernet2::~TeensyUthernet2()
   if (s_instance == this) s_instance = nullptr;
 }
 
-// Push the effective upstream resolver into the NAT: an explicit BIOS value
-// (g_natDns) wins; otherwise (auto) the ESP's DHCP DNS once we have learned it;
-// otherwise 8.8.8.8 until the ESP reports one.
-void TeensyUthernet2::applyResolver()
-{
-  uint8_t r[4] = { 8, 8, 8, 8 };
-  if (g_natDns[0]) {
-    unParseSubnet(g_natDns, r);            // leaves r = 8.8.8.8 if malformed
-  } else if (haveEspDns) {
-    memcpy(r, espDns, 4);
-  }
-  usernet.setResolver(r);
-}
-
 void TeensyUthernet2::applyForwardConfig()
 {
   // Re-read the BIOS forward list and subnet and apply them to the running NAT,
   // so a change takes effect without restarting the VM (the Apple picks up the
   // subnet on its next DHCP).
   usernet.setSubnet(teensySubnetBytes());
-  applyResolver();
   usernet.reconfigureForwards(teensyBuildFwd(nullptr));
 }
 
@@ -285,16 +258,6 @@ int TeensyUthernet2::wifiStatus(uint8_t ip[4])
   if (!linkUp) return 0;   // the ESP co-processor is not answering
   if (command(CMD_WIFI_STATUS, nullptr, 0, 300) && rpType == EVT_WIFI && rpLen >= 5) {
     if (ip) { ip[0] = rpBuf[1]; ip[1] = rpBuf[2]; ip[2] = rpBuf[3]; ip[3] = rpBuf[4]; }
-    // Newer ESP firmware appends its DHCP resolver (dns[4]). Cache it so the NAT
-    // can proxy DNS to the network's own server when g_natDns is auto (empty).
-    if (rpLen >= 9) {
-      uint8_t d[4] = { rpBuf[5], rpBuf[6], rpBuf[7], rpBuf[8] };
-      if ((d[0] | d[1] | d[2] | d[3]) && (!haveEspDns || memcmp(espDns, d, 4))) {
-        memcpy(espDns, d, 4);
-        haveEspDns = true;
-        if (!g_natDns[0]) applyResolver();   // auto: follow the ESP's resolver
-      }
-    }
     return rpBuf[0] ? 2 : 1;   // 2 = joined (IP valid), 1 = link up, not joined
   }
   return 1;   // link is up but the status query failed

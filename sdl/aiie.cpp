@@ -502,9 +502,6 @@ int main(int argc, char *argv[])
       if (p.version >= 12) {
         strncpy(g_natSubnet, p.natSubnet, sizeof(g_natSubnet)-1); g_natSubnet[sizeof(g_natSubnet)-1]=0;
       }
-      if (p.version >= 13) {
-        strncpy(g_natDns, p.natDns, sizeof(g_natDns)-1); g_natDns[sizeof(g_natDns)-1]=0;
-      }
       }
     }
   }
@@ -617,9 +614,6 @@ void readPrefs()
       if (p.version >= 12) {
         strncpy(g_natSubnet, p.natSubnet, sizeof(g_natSubnet)-1); g_natSubnet[sizeof(g_natSubnet)-1]=0;
       }
-      if (p.version >= 13) {
-        strncpy(g_natDns, p.natDns, sizeof(g_natDns)-1); g_natDns[sizeof(g_natDns)-1]=0;
-      }
     }
     if (p.disk1[0]) {
       ((AppleVM *)g_vm)->insertDisk(0, p.disk1);
@@ -676,7 +670,6 @@ void writePrefs()
   strncpy(p.natFwd, g_natFwd, sizeof(p.natFwd)); p.natFwd[sizeof(p.natFwd)-1]=0;
   p.natPortOffset = g_natPortOffset;
   strncpy(p.natSubnet, g_natSubnet, sizeof(p.natSubnet)); p.natSubnet[sizeof(p.natSubnet)-1]=0;
-  strncpy(p.natDns, g_natDns, sizeof(p.natDns)); p.natDns[sizeof(p.natDns)-1]=0;
 
   p.ramworksSize = g_ramworksSize;
 

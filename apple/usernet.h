@@ -61,12 +61,11 @@ class UserNet {
  public:
   // debug enables frame tracing; hostfwd is the "hp:ap[,hp:ap...]" forward
   // config (may be NULL). natNet is the /24 network base (4 bytes, e.g.
-  // {10,0,2,0}); NULL selects the 10.0.2.0 default. natDns is the upstream
-  // resolver (4 bytes); NULL selects 8.8.8.8. All are supplied by the platform
-  // (SDL reads env vars / BIOS globals; the Teensy passes BIOS globals) so this
-  // class needs no getenv.
+  // {10,0,2,0}); NULL selects the 10.0.2.0 default. All are supplied by the
+  // platform (SDL reads env vars / BIOS globals; the Teensy passes BIOS globals)
+  // so this class needs no getenv.
   UserNet(UnBackend *backend, bool debug, const char *hostfwd,
-          const uint8_t *natNet = nullptr, const uint8_t *natDns = nullptr);
+          const uint8_t *natNet = nullptr);
   ~UserNet();
   void reset();
 
@@ -75,10 +74,6 @@ class UserNet {
   // Apple's DHCP address (.15). Safe to call live: existing flows keep the IPs
   // they captured; the Apple picks up the new subnet on its next DHCP.
   void setSubnet(const uint8_t *natNet);
-
-  // Set the upstream resolver the advertised DNS (.3) is proxied to (4 bytes;
-  // NULL = 8.8.8.8). Safe to call live; affects lookups started afterward.
-  void setResolver(const uint8_t *natDns);
 
   // One outbound Ethernet frame from the Apple. May enqueue reply frames.
   void fromApple(const uint8_t *frame, uint16_t len);
@@ -149,7 +144,6 @@ class UserNet {
   uint8_t  clientIp[4];    // the Apple's DHCP address (X.Y.Z.15)
   uint8_t  gwIp[4];        // gateway + DHCP server + host services (X.Y.Z.2)
   uint8_t  dnsIp[4];       // advertised resolver (X.Y.Z.3)
-  uint8_t  resolver[4];    // real upstream DNS the advertised .3 is proxied to
 
   uint8_t  appleMac[6];
   bool     haveAppleMac;

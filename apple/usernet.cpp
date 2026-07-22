@@ -24,8 +24,7 @@ static const uint8_t OUR_MAC[6]   = { 0x52, 0x54, 0x00, 0x12, 0x34, 0x02 };
 static const uint8_t MASK[4]      = { 255, 255, 255, 0 };
 static const uint8_t BCAST_MAC[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
 static const uint8_t BCAST_IP[4]  = { 255, 255, 255, 255 };
-// The upstream resolver (real DNS behind the advertised dnsIp) is per-instance
-// now (UserNet::setResolver), so the BIOS can point lookups at a chosen server.
+static const uint8_t RESOLVER[4]  = { 8, 8, 8, 8 };    // real DNS behind the advertised dnsIp
 
 #define ETH_ARP  0x0806
 #define ETH_IPV4 0x0800
@@ -96,7 +95,7 @@ bool UserNet::isOurIp(const uint8_t *ip) const {
 void UserNet::mapRealIp(const uint8_t *dip, uint8_t *realIp) const {
   static const uint8_t LOOPBACK[4] = { 127, 0, 0, 1 };
   if (!memcmp(dip, gwIp, 4))       memcpy(realIp, LOOPBACK, 4);
-  else if (!memcmp(dip, dnsIp, 4)) memcpy(realIp, resolver, 4);
+  else if (!memcmp(dip, dnsIp, 4)) memcpy(realIp, RESOLVER, 4);
   else                             memcpy(realIp, dip, 4);
 }
 
@@ -108,12 +107,6 @@ void UserNet::setSubnet(const uint8_t *natNet) {
   gwIp[3]     = 2;    // gateway + DHCP server + host services
   dnsIp[3]    = 3;    // advertised resolver
   clientIp[3] = 15;   // the Apple's DHCP lease
-}
-
-// Set the upstream resolver the advertised DNS (.3) is proxied to (NULL = 8.8.8.8).
-void UserNet::setResolver(const uint8_t *natDns) {
-  static const uint8_t DEFAULT_DNS[4] = { 8, 8, 8, 8 };
-  memcpy(resolver, natDns ? natDns : DEFAULT_DNS, 4);
 }
 
 // Parse "10.0.2.0" into { 10, 0, 2, 0 }. Requires exactly four 0-255 octets.
@@ -140,9 +133,8 @@ bool unParseSubnet(const char *s, uint8_t out[4]) {
 }
 
 UserNet::UserNet(UnBackend *b, bool debug, const char *hostfwd,
-                 const uint8_t *natNet, const uint8_t *natDns) : backend(b) {
+                 const uint8_t *natNet) : backend(b) {
   setSubnet(natNet);
-  setResolver(natDns);
   for (int i = 0; i < USERNET_FLOWS; i++) flows[i].fd = -1;
   for (int i = 0; i < USERNET_FWDS; i++) fwds[i].lfd = -1;
   dbg = debug;

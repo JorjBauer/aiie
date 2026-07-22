@@ -1126,9 +1126,9 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
 #endif
 
 #ifdef TEENSYDUINO
-  const int F_SLOT = 0, F_NET = 1, F_DNS = 2, F_SSID = 3, F_PASS = 4, F_FWD = 5, F_CONNECT = 6, F_COUNT = 7;
+  const int F_SLOT = 0, F_NET = 1, F_SSID = 2, F_PASS = 3, F_FWD = 4, F_CONNECT = 5, F_COUNT = 6;
 #else
-  const int F_SLOT = 0, F_NET = 1, F_DNS = 2, F_FWD = 3, F_OFFSET = 4, F_COUNT = 5;
+  const int F_SLOT = 0, F_NET = 1, F_FWD = 2, F_OFFSET = 3, F_COUNT = 4;
 #endif
 
   if (selectedMenuItem < 0) selectedMenuItem = F_COUNT - 1;
@@ -1168,7 +1168,6 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
     char *tfield = nullptr; size_t tcap = 0; bool restrictFwd = false, restrictIp = false;
     if (selectedMenuItem == F_FWD) { tfield = g_natFwd; tcap = sizeof(g_natFwd) - 1; restrictFwd = true; }
     else if (selectedMenuItem == F_NET) { tfield = g_natSubnet; tcap = sizeof(g_natSubnet) - 1; restrictIp = true; }
-    else if (selectedMenuItem == F_DNS) { tfield = g_natDns; tcap = sizeof(g_natDns) - 1; restrictIp = true; }
 #ifdef TEENSYDUINO
     else if (selectedMenuItem == F_SSID) { tfield = g_wifiSSID; tcap = 32; }
     else if (selectedMenuItem == F_PASS) { tfield = g_wifiPass; tcap = 63; }
@@ -1273,21 +1272,6 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
       else
         g_display->drawString(M_SELECTED, MENUINDENT, y,
                               "  Enter a full address, e.g. 10.0.2.0.");
-    } NL;
-    snprintf(buf, sizeof(buf), "  Resolver: %s", g_natDns[0] ? g_natDns : "(auto)");
-    g_display->drawString(selectedMenuItem == F_DNS ? M_SELECTED : M_NORMAL,
-                          MENUINDENT, y, buf); NL;
-    {
-      uint8_t dns[4];
-      if (!g_natDns[0])
-        g_display->drawString(M_DISABLED, MENUINDENT, y,
-                              "  Auto: the network's own resolver.");
-      else if (unParseSubnet(g_natDns, dns))
-        g_display->drawString(M_DISABLED, MENUINDENT, y,
-                              "  Upstream DNS. DEL to clear = auto.");
-      else
-        g_display->drawString(M_SELECTED, MENUINDENT, y,
-                              "  Enter a DNS address, e.g. 1.1.1.1.");
     } GAP;
 
 #ifdef TEENSYDUINO

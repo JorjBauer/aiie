@@ -102,13 +102,6 @@ extern uint16_t g_natPortOffset;
 // avoid a clash with the host's real LAN. Empty falls back to "10.0.2.0".
 extern char g_natSubnet[16];
 
-// Upstream DNS resolver the NAT proxies the Apple's name lookups to (and, on the
-// SDL hardware-socket path, advertises to the Apple directly). Empty means AUTO:
-// the host's own system resolver on SDL, the ESP's DHCP-assigned DNS on the
-// Teensy (falling back to 8.8.8.8 if neither is known yet). A dotted address
-// overrides that.
-extern char g_natDns[16];
-
 // RamWorks-compatible aux-memory expansion size, in megabytes.
 // 0 = none (stock Extended 80-column card); 1, 3, or 16 = total aux RAM.
 extern uint8_t g_ramworksSize;
