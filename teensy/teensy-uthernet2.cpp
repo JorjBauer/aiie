@@ -238,6 +238,22 @@ bool TeensyUthernet2::pingOnce()
   return linkUp;
 }
 
+bool TeensyUthernet2::espInfo(uint8_t &protoVer, uint8_t &fwMajor, uint8_t &fwMinor)
+{
+  // One CMD_GET_INFO round-trip. EVT_INFO carries proto_ver, fw_major, fw_minor
+  // (then wifi_state, mac[6], ip[4] which we don't need here). Re-probe when down
+  // so a late-booting ESP is still detected, matching wifiStatus().
+  if (!linkUp) probeLink();
+  if (!linkUp) return false;
+  if (command(CMD_GET_INFO, nullptr, 0, 300) && rpType == EVT_INFO && rpLen >= 3) {
+    protoVer = rpBuf[0];
+    fwMajor  = rpBuf[1];
+    fwMinor  = rpBuf[2];
+    return true;
+  }
+  return false;
+}
+
 bool TeensyUthernet2::probeLink()
 {
   // Throttled re-probe for repeated polling (tick and the BIOS status screen):

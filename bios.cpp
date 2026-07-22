@@ -13,6 +13,7 @@
 #include <Bounce2.h>
 #include "teensy-paddles.h"
 #include "teensy-selfupdate.h"
+#include "protocol.h"   // AIIE_ESP_PROTO_VERSION / AIIE_ESP_FW_* for the ESP fw check
 extern Bounce resetButtonDebouncer;
 extern void runDebouncer();
 #endif
@@ -1124,6 +1125,10 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
   static uint32_t connectStartMs = 0; // when "Connect" was pressed, to bound the wait
   static int  cachedSt = 0;
   static uint8_t cachedIp[4] = {0, 0, 0, 0};
+  // Co-processor firmware, read alongside the WiFi status so a stale/incompatible
+  // ESP is flagged. haveEspInfo is false until a successful CMD_GET_INFO.
+  static bool haveEspInfo = false;
+  static uint8_t espProto = 0, espFwMaj = 0, espFwMin = 0;
 #endif
 
 #ifdef TEENSYDUINO
@@ -1236,6 +1241,10 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
     if (refreshStatus) {
       if (g_uthernet) cachedSt = g_uthernet->wifiStatus(cachedIp);
       else            cachedSt = -1;
+      // With the link up, read the ESP firmware so the version line below can flag
+      // a mismatch; drop it when the link is down so a stale readout can't linger.
+      haveEspInfo = (g_uthernet && cachedSt >= 1 &&
+                     g_uthernet->espInfo(espProto, espFwMaj, espFwMin));
       refreshStatus = false;
       // Leave the "connecting..." state once we're up, or give up after a while
       // so a genuinely bad password eventually reads as failed rather than
@@ -1353,6 +1362,27 @@ uint16_t BIOS::WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t ke
     else if (connecting)    strcpy(buf, "Status: connecting...");
     else                    strcpy(buf, "Status: WiFi not joined (check password?)");
     g_display->drawString(M_DISABLED, MENUINDENT, y, buf); NL;
+
+    // ESP firmware version, with a warning when it can't talk to this build. A
+    // different wire protocol is a hard mismatch (nothing will work until the
+    // ESP is reflashed); an older firmware still works but should be updated.
+    if (haveEspInfo) {
+      bool protoBad = (espProto != AIIE_ESP_PROTO_VERSION);
+      bool fwOld    = (!protoBad &&
+                       (espFwMaj <  AIIE_ESP_FW_MAJOR ||
+                        (espFwMaj == AIIE_ESP_FW_MAJOR && espFwMin < AIIE_ESP_FW_MINOR)));
+      if (protoBad)
+        snprintf(buf, sizeof(buf), "ESP fw: v%d.%d - REFLASH (needs proto %d, has %d)",
+                 espFwMaj, espFwMin, AIIE_ESP_PROTO_VERSION, espProto);
+      else if (fwOld)
+        snprintf(buf, sizeof(buf), "ESP fw: v%d.%d - update available (v%d.%d)",
+                 espFwMaj, espFwMin, AIIE_ESP_FW_MAJOR, AIIE_ESP_FW_MINOR);
+      else
+        snprintf(buf, sizeof(buf), "ESP fw: v%d.%d (proto %d)",
+                 espFwMaj, espFwMin, espProto);
+      g_display->drawString((protoBad || fwOld) ? M_SELECTED : M_DISABLED,
+                            MENUINDENT, y, buf); NL;
+    }
 
     // Live link counters, to see which side is dead: TX = commands sent to the
     // ESP, RX = valid replies, err = bytes that arrived but failed CRC.

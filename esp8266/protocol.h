@@ -28,6 +28,15 @@
 /* ---- versioning -------------------------------------------------------- */
 #define AIIE_ESP_PROTO_VERSION   2   /* v2: half-duplex, master-polled */
 
+/* The ESP-01 co-processor firmware version, reported in EVT_INFO. This header is
+ * shared by the ESP firmware and the Teensy, so the Teensy's build-time value is
+ * the version it EXPECTS: an ESP still running older firmware reports a lower
+ * number and the BIOS flags it (see BIOS::WiFiScreenHandler / TeensyUthernet2::
+ * espInfo). Bump MINOR for a compatible firmware change, and PROTO_VERSION above
+ * only for a wire-protocol break. 0.3: connection abort() on close + PCB census. */
+#define AIIE_ESP_FW_MAJOR        0
+#define AIIE_ESP_FW_MINOR        3
+
 /* ---- framing ----------------------------------------------------------- *
  * On the wire, every message is:
  *

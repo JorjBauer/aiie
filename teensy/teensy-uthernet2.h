@@ -92,6 +92,7 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
   virtual int  wifiStatus(uint8_t ip[4]);
 
   virtual bool resolveName(const char *host, uint8_t ip[4]);
+  virtual bool espInfo(uint8_t &protoVer, uint8_t &fwMajor, uint8_t &fwMinor);
   virtual void tick(int64_t cycleCount);
 
   virtual uint32_t statFramesSent();

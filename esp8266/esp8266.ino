@@ -38,8 +38,8 @@
                                * kept moderate so the ESP's UART FIFO/ring can
                                * ride out WiFi/flash interrupt-disable stalls. */
 #endif
-#define FW_MAJOR 0
-#define FW_MINOR 2
+#define FW_MAJOR AIIE_ESP_FW_MAJOR   /* from protocol.h (shared with the Teensy) */
+#define FW_MINOR AIIE_ESP_FW_MINOR
 #define STAGE     1460        /* per-socket RX staging buffer (one MTU)        */
 #define RX_CHUNK  STAGE       /* max data bytes returned per CMD_SOCK_POLL     */
 

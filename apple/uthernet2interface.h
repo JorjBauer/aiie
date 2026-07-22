@@ -104,6 +104,14 @@ class Uthernet2Interface {
   /* Resolve a hostname to an IPv4 address. Returns true on success. */
   virtual bool resolveName(const char *host, uint8_t ip[4]) { return false; }
 
+  /* Query the network co-processor's firmware: protoVer is the wire-protocol
+   * version it speaks, fwMajor/fwMinor its firmware version. Returns true if the
+   * info was read. Backends with no co-processor (SDL's host stack) return false,
+   * so the BIOS simply omits the readout there. */
+  virtual bool espInfo(uint8_t &protoVer, uint8_t &fwMajor, uint8_t &fwMinor) {
+    (void)protoVer; (void)fwMajor; (void)fwMinor; return false;
+  }
+
   /* Service asynchronous I/O; the card calls this from its maintenance tick. */
   virtual void tick(int64_t cycleCount) {}
 

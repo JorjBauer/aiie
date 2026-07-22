@@ -37,11 +37,16 @@
 #include "teensy-fwversion.h"
 
 // Firmware version, embedded so the SD self-update can find it in a raw image.
-// __attribute__((used)) keeps the linker from discarding it (nothing references
-// the blob directly). See teensy-fwversion.h for the on-flash layout.
+// The blob is magic + version + an implicit NUL terminator; see teensy-fwversion.h.
 extern "C" const char aiie_fw_version_blob[] __attribute__((used)) =
-    AIIE_FW_MAGIC AIIE_FW_VERSION "\x1e";
-const char *g_fwVersion = AIIE_FW_VERSION;
+    AIIE_FW_MAGIC AIIE_FW_VERSION;
+// g_fwVersion points INTO the blob, just past the 8-byte magic, so it is the same
+// bytes the SD updater scans for. This reference is also what actually keeps the
+// blob in the image: __attribute__((used)) only stops the COMPILER from dropping
+// an unreferenced symbol, not the linker's --gc-sections (and this arm-none-eabi
+// binutils ignores the 'retain' attribute), so without a reference from kept code
+// the blob was garbage-collected and the updater saw "New image: unknown".
+const char *g_fwVersion = aiie_fw_version_blob + (sizeof(AIIE_FW_MAGIC) - 1);
 
 BIOS bios;
 
