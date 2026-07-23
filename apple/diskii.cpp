@@ -545,7 +545,13 @@ int64_t DiskII::calcExpectedBits()
 
 void DiskII::setWriteMode(bool enable)
 {
-  if (enable) {
+  // Advancing the track write pointer only makes sense when a disk is actually in
+  // the selected drive and the head is on a valid track. Without these guards, any
+  // program that pokes the write-mode switch ($C0EF) while no floppy is inserted
+  // (e.g. running entirely from the hard drive) dereferenced a NULL
+  // disk[selectedDisk] and segfaulted the emulator. Mirrors readOrWriteByte()'s
+  // guards; emulated software must never be able to crash the host.
+  if (enable && disk[selectedDisk] && curWozTrack[selectedDisk] != 0xFF) {
     // At this point we need to update the track pointer so we know
     // where we're going to start writing bits.
 
