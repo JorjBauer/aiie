@@ -124,12 +124,17 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
   bool cmdOk()   const { return cmdOkFlag; }     // finished with a matching reply
   // owner: 0 = control path (reply left in rp* for command()); 1 = UnBackendEsp
   // (on completion pump() dispatches the reply to unEsp.onCommandDone(tag)).
+  // maxRetries bounds the resends on timeout. It defaults to TU2_MAX_RETRIES for
+  // data commands (a lost POLL/SEND reply must be re-fetched or the stream tears),
+  // but a pure liveness probe passes 0: a timeout IS the answer, and retrying an
+  // absent ESP 8x per ping turned the boot ping burst into multi-second dead air.
   bool issue(uint8_t type, const uint8_t *payload, uint16_t len,
-             uint32_t timeoutMs, uint8_t owner = 0, uint8_t tag = 0);
+             uint32_t timeoutMs, uint8_t owner = 0, uint8_t tag = 0,
+             uint8_t maxRetries = TU2_MAX_RETRIES);
   void pump();
   void completeCommand(bool ok); // finish the in-flight command + dispatch
   bool command(uint8_t type, const uint8_t *payload, uint16_t len,
-               uint32_t timeoutMs = 200);
+               uint32_t timeoutMs = 200, uint8_t maxRetries = TU2_MAX_RETRIES);
   bool pingOnce();   // one link probe (sets linkUp on reply)
   bool probeLink();  // throttled re-probe while the link is down
 
@@ -159,6 +164,7 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
   uint8_t  cmdType;
   uint8_t  cmdSeq;
   uint8_t  cmdTries;
+  uint8_t  cmdMaxTries;   // resend ceiling for the in-flight command (see issue())
   uint32_t cmdSentMs;
   uint32_t cmdTimeoutMs;
   uint16_t cmdPayLen;

@@ -111,7 +111,8 @@ uint8_t TeensyUthernet2::nextSeq()
 // dedups by seq, so a resend either gets reprocessed (first never arrived) or
 // re-fetches the cached reply (only the reply was lost), never double-executing.
 bool TeensyUthernet2::issue(uint8_t type, const uint8_t *payload, uint16_t len,
-                            uint32_t timeoutMs, uint8_t owner, uint8_t tag)
+                            uint32_t timeoutMs, uint8_t owner, uint8_t tag,
+                            uint8_t maxRetries)
 {
   if (cmdInFlight) return false;
   if (len > sizeof(cmdPayload)) return false;
@@ -123,6 +124,7 @@ bool TeensyUthernet2::issue(uint8_t type, const uint8_t *payload, uint16_t len,
   cmdOwner = owner;
   cmdTag = tag;
   cmdTries = 0;
+  cmdMaxTries = maxRetries;
   rpGot = false;
   cmdDoneFlag = false;
   cmdOkFlag = false;
@@ -165,7 +167,7 @@ void TeensyUthernet2::pump()
   }
 
   if ((uint32_t)(millis() - cmdSentMs) >= cmdTimeoutMs) {
-    if (cmdTries < TU2_MAX_RETRIES) {
+    if (cmdTries < cmdMaxTries) {
       cmdTries++;
       cRetries++;
       rpGot = false;
@@ -190,10 +192,11 @@ bool TeensyUthernet2::espIssue(uint8_t type, const uint8_t *payload, uint16_t le
 // in-flight async command, issue this one, then pump until it completes. Same
 // external behavior as before; now built on the async engine.
 bool TeensyUthernet2::command(uint8_t type, const uint8_t *payload, uint16_t len,
-                              uint32_t timeoutMs)
+                              uint32_t timeoutMs, uint8_t maxRetries)
 {
   while (cmdInFlight) { pump(); yield(); }
-  if (!issue(type, payload, len, timeoutMs)) return false;
+  if (!issue(type, payload, len, timeoutMs, /*owner=*/0, /*tag=*/0, maxRetries))
+    return false;
   while (!cmdDoneFlag) { pump(); yield(); }
   return cmdOkFlag;
 }
@@ -232,9 +235,13 @@ void TeensyUthernet2::wifiJoin(const char *ssid, const char *pass)
 
 bool TeensyUthernet2::pingOnce()
 {
-  // One link probe. The ESP is reply-only, so we ping and see if it answers.
+  // One link probe, single attempt (maxRetries=0). A ping is pure liveness: a
+  // timeout just means "not there yet", so retrying it is wasted time. With the
+  // default 8 retries this one probe took up to 9*60ms, and begin()'s 10-ping
+  // burst against an absent/slow ESP stalled the boot for ~5s of white screen.
+  // begin() already re-pings up to 10 times, so the burst itself is the retry.
   uint8_t echo = 0x5A;
-  if (command(CMD_LINK_PING, &echo, 1, 60)) linkUp = true;
+  if (command(CMD_LINK_PING, &echo, 1, 60, /*maxRetries=*/0)) linkUp = true;
   return linkUp;
 }
 

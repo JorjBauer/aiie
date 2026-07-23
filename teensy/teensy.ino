@@ -20,6 +20,12 @@
 
 //#define DEBUG_TIMING
 
+// Uncomment (or build with -DAIIE_BOOT_CONSOLE) to call Serial.begin() in setup(),
+// which waits up to ~2s for a serial console to attach so it catches the startup
+// println()s. Off by default because that wait is otherwise pure boot delay; see
+// the note in setup(). Runtime Serial output works either way once tio connects.
+//#define AIIE_BOOT_CONSOLE
+
 #if F_CPU < 240000000
 #warning "AiiE: performance will improve if you overclock the Teensy to 240MHz or higher"
 #endif
@@ -268,13 +274,17 @@ void bringUpUthernet()
 
 void setup()
 {
-  Serial.begin(230400);
-#if 0
-  // Wait for USB serial connection before booting while debugging
-  while (!Serial) {
-    yield();
-  }
-  delay(2000);
+  // Serial.begin() on Teensy does NOT bring up the USB serial port (that happens
+  // automatically at startup) and it ignores the baud -- its ONLY effect is a
+  // busy-wait of up to 2 seconds for the host to OPEN the virtual port. Skipping
+  // it saves ~2s off every boot. BUT that wait is also what gives a console (tio)
+  // time to attach before setup()'s startup println()s scroll past, so without it
+  // the boot log is lost (runtime Serial output still works once tio connects).
+  // Hence it is gated: fast boot by default; get the boot console back with
+  //   make teensy-install TEENSY_EXTRA_FLAGS=-DAIIE_BOOT_CONSOLE
+  // (or uncomment the AIIE_BOOT_CONSOLE define up top).
+#ifdef AIIE_BOOT_CONSOLE
+  Serial.begin(230400);   // waits up to ~2s so a console can attach + catch boot msgs
 #endif
   delay(200); // let the power settle & serial to get its bearings
   // A pending crash report from the previous run is saved to the SD card once
@@ -436,7 +446,7 @@ void setup()
 
   println("Drawing UI border");
   g_display->redraw();
-  
+
   println("free-running");
   Serial.flush();
 }
