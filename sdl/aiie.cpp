@@ -2,9 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#include <pthread.h>
+#else
 #include <curses.h>
 #include <termios.h>
 #include <pthread.h>
+#endif
 
 #include "applevm.h"
 #include "sdl-display.h"
@@ -26,6 +31,101 @@
 
 BIOS bios;
 Debugger debugger;
+
+#ifdef __EMSCRIPTEN__
+#include "applekeyboard.h"
+#include "woz.h"
+#include <fcntl.h>
+#include <unistd.h>
+// Reach Woz's protected tracks[] (the nibblized GCR bitstreams) to export them to JS, which then
+// assembles the WOZ2 container itself.  aiie's own file-based .woz writer seeks by track offset,
+// which Emscripten MEMFS rejects; sequential writes (below) are fine, so we dump bits + bitCounts.
+#include "nibutil.h"
+namespace { struct WozBits : public Woz {
+  WozBits() : Woz(false, 0) {}
+  // Reads a .po, nibblizes all 35 tracks, and writes them sequentially to `out` as
+  // 35 records of [uint32 bitCount][NIBTRACKSIZE bytes].
+  int dump(const char *in, const char *out) {
+    if (!readFile(in, true, T_PO)) return 1;
+    int fd = open(out, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return 3;
+    static uint8_t zero[NIBTRACKSIZE];
+    for (int t = 0; t < 35; t++) {
+      uint32_t bc = tracks[t].bitCount;
+      if (write(fd, &bc, 4) != 4) { close(fd); return 2; }
+      uint8_t *td = tracks[t].trackData ? tracks[t].trackData : zero;
+      if (write(fd, td, NIBTRACKSIZE) != NIBTRACKSIZE) { close(fd); return 2; }
+    }
+    close(fd);
+    return 0;
+  }
+}; }
+extern "C" {
+// Inject one 7-bit key from JS (browser keydown). Bypasses SDL's event system,
+// which is null-stubbed under Emscripten. Delivered on the //e keyboard strobe.
+EMSCRIPTEN_KEEPALIVE void aiie_inject(int c) {
+  if (g_vm) ((AppleKeyboard *)g_vm->getKeyboard())->injectByte((uint8_t)(c & 0x7f));
+}
+EMSCRIPTEN_KEEPALIVE double aiie_cycles(void) { return g_cpu ? (double)g_cpu->cycles : 0.0; }
+
+// ---- machine bridge: let JS read/write the //e's RAM and save/restore whole-machine state.
+// This is what the playground uses to inject a freshly compiled .L2E straight into RAM and run
+// it, and to snapshot a booted "ready" machine so every run starts from a known-good state.
+EMSCRIPTEN_KEEPALIVE int aiie_peek(int addr) {
+  return g_vm ? g_vm->getMMU()->read((uint16_t)addr) : 0;
+}
+EMSCRIPTEN_KEEPALIVE void aiie_poke(int addr, int val) {
+  if (g_vm) g_vm->getMMU()->write((uint16_t)addr, (uint8_t)(val & 0xff));
+}
+// bulk RAM write: `data` is a pointer into the wasm heap (JS _malloc + HEAPU8.set).
+EMSCRIPTEN_KEEPALIVE void aiie_poke_block(int addr, uint8_t *data, int len) {
+  if (!g_vm) return;
+  MMU *m = g_vm->getMMU();
+  for (int i = 0; i < len; i++) m->write((uint16_t)(addr + i), data[i]);
+}
+// whole-machine save/restore (RAM + aux banks + soft switches + CPU) to an Emscripten FS file.
+EMSCRIPTEN_KEEPALIVE int aiie_save_state(const char *path) {
+  return (g_vm && g_vm->Suspend(path)) ? 0 : 1;
+}
+EMSCRIPTEN_KEEPALIVE int aiie_load_state(const char *path) {
+  return (g_vm && g_vm->Resume(path)) ? 0 : 1;
+}
+EMSCRIPTEN_KEEPALIVE int  aiie_get_pc(void)   { return g_cpu ? g_cpu->pc : 0; }
+EMSCRIPTEN_KEEPALIVE void aiie_set_pc(int pc)  { if (g_cpu) g_cpu->pc = (uint16_t)pc; }
+// Emulator speed multiplier (1.0 = real ~1MHz).  Boost for non-real-time programs (turtle, big text).
+EMSCRIPTEN_KEEPALIVE void aiie_set_speed(double mult) { extern double g_speedMult; g_speedMult = (mult > 0.0) ? mult : 1.0; }
+EMSCRIPTEN_KEEPALIVE double aiie_get_speed(void) { extern double g_speedMult; return g_speedMult; }
+// Speaker volume, 0 (silent) .. 15 (loudest).  The page exposes this as aiieVolume(n).
+// g_volume is declared in globals.h (already included), so use it directly.
+EMSCRIPTEN_KEEPALIVE void aiie_set_volume(int v) { g_volume = (v < 0) ? 0 : (v > 15 ? 15 : (int8_t)v); }
+EMSCRIPTEN_KEEPALIVE int  aiie_get_volume(void)  { return g_volume; }
+// ---- audio-driven timing --------------------------------------------------------------------------
+// When g_audioPaced is set, loop() skips its own wall-clock CPU pacing and the playground's audio fill
+// loop drives the CPU instead via aiie_run_cycles(), passing exactly the cycles for the samples the
+// audio worklet just consumed.  Emulation then advances in lockstep with audio consumption, so the
+// producer (the //e speaker) and consumer (the audio device) share one clock: no drift, no under/
+// over-run.  Used only for 1x programs (sound, breakout); boosted programs keep wall-clock pacing.
+EMSCRIPTEN_KEEPALIVE void aiie_set_audiopaced(int on) { extern int g_audioPaced; g_audioPaced = on ? 1 : 0; }
+EMSCRIPTEN_KEEPALIVE void aiie_run_cycles(int cycles) {
+  if (!g_cpu || cycles <= 0) return;
+  uint64_t target = g_cpu->cycles + (uint64_t)cycles;
+  int guard = 0, guardMax = cycles / 24 + 64;
+  while (g_cpu->cycles < target && ++guard < guardMax) {
+    g_cpu->Run(24);
+    ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
+  }
+}
+// Convert a ProDOS-order .po (in the FS) to a bootable .woz (in the FS), reusing aiie's own
+// tested GCR nibblizer.  Used by the playground's "Download" to hand out a portable disk.
+EMSCRIPTEN_KEEPALIVE int aiie_track_bits(const char *inpath, const char *outpath) {
+  WozBits w;
+  return w.dump(inpath, outpath);
+}
+}
+#endif
+
+double g_speedMult = 1.0;   // emulator speed multiplier (set via aiie_set_speed / window.aiieSpeed)
+int g_audioPaced = 0;       // 1 = external audio-driven pacing (loop() skips wall-clock CPU pacing)
 
 #define NB_ENABLE 1
 #define NB_DISABLE 0
@@ -56,6 +156,9 @@ void sigint_handler(int n)
 
 void nonblock(int state)
 {
+#ifdef __EMSCRIPTEN__
+  (void)state;
+#else
   struct termios ttystate;
  
   //get the terminal state
@@ -75,6 +178,7 @@ void nonblock(int state)
     }
   //set the terminal attributes.
   tcsetattr(STDIN_FILENO, TCSANOW, &ttystate);
+#endif
  
 }
 
@@ -377,7 +481,28 @@ void loop()
 
   if (!g_biosInterrupt && !((SDLPrinter *)g_printer)->isHalted()) {
     // Freeze the VM while the printer roll is full and waiting to be saved/cleared.
+#ifdef __EMSCRIPTEN__
+    // The browser calls loop() at the DISPLAY refresh rate (requestAnimationFrame),
+    // which is not necessarily 60Hz (ProMotion/120Hz, 144Hz externals, etc.). Pace
+    // the CPU by REAL elapsed wall-clock time so the //e stays at its true ~1MHz
+    // regardless of refresh rate.
+    if (!g_audioPaced) {   // audio-paced runs the CPU from the audio fill loop via aiie_run_cycles instead
+      static struct timespec last = {0, 0};
+      double dt;
+      if (last.tv_sec == 0 && last.tv_nsec == 0) dt = 1.0 / 60.0;
+      else dt = (double)(now.tv_sec - last.tv_sec) + (double)(now.tv_nsec - last.tv_nsec) * 1e-9;
+      last = now;
+      if (dt > 0.1) dt = 0.1;   // cap catch-up after a stall / backgrounded tab
+      uint64_t target = g_cpu->cycles + (uint64_t)((double)g_speed * g_speedMult * dt);
+      int guard = 0;
+      while (g_cpu->cycles < target && ++guard < 4000000) {   // guard scales with the speed multiplier
+        (void)g_cpu->Run(24);
+        ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
+      }
+    }
+#else
     shortest = runCPU(now); // about 13% CPU utilization on my laptop
+#endif
   }
   struct timespec diff;
   diff = runDisplay(now); // about 47% CPU utilization on my laptop
@@ -388,9 +513,11 @@ void loop()
     shortest = diff;
 
   // If they all have time remaining then sleep until one is ready
+#ifndef __EMSCRIPTEN__
   if (shortest.tv_sec || shortest.tv_nsec) {
     nanosleep(&shortest, NULL);
   }
+#endif
 }
 
 bool use8875 = true;
@@ -447,11 +574,23 @@ int main(int argc, char *argv[])
     }
   }
 
+#ifdef __EMSCRIPTEN__
+  // Scope SDL's DOM keyboard listeners to the canvas only (default is the whole document, which
+  // swallows keystrokes meant for the page's <textarea> editor).  We inject keys to the //e via
+  // our own canvas keydown handler + aiie_inject, so SDL's keyboard is unused anyway.
+  SDL_SetHint(SDL_HINT_EMSCRIPTEN_KEYBOARD_ELEMENT, "#canvas");
+  SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO);
+#else
   SDL_Init(SDL_INIT_EVERYTHING);
+#endif
 
   g_speaker = new SDLSpeaker();
   g_printer = new SDLPrinter();
+#ifdef __EMSCRIPTEN__
+  g_uthernet = NULL;
+#else
   g_uthernet = new SDLUthernet2();
+#endif
 
   // create the filemanager - the interface to the host file system.
   g_filemanager = new NixFileManager();
@@ -505,6 +644,15 @@ int main(int argc, char *argv[])
       }
     }
   }
+
+  // Headless RamWorks override for automated testing: AIIE_RW=<1|3|16> (MB).
+  // Set before the VM/MMU is created so setRamworksSize() picks it up.
+  if (getenv("AIIE_RW")) g_ramworksSize = (uint8_t)atoi(getenv("AIIE_RW"));
+#ifdef __EMSCRIPTEN__
+  if (!g_ramworksSize) g_ramworksSize = 3; // default RamWorks in the browser
+#endif
+  // Headless speed override for long batch runs: AIIE_SPEED=<steps> (2=1x, 512=256x).
+  if (getenv("AIIE_SPEED")) g_speed = (uint32_t)atoi(getenv("AIIE_SPEED")) * (1023000/2);
 
   // Next create the virtual CPU. This needs the VM's MMU in order to run, but we don't have that yet.
   g_cpu = new Cpu();
@@ -561,17 +709,26 @@ int main(int argc, char *argv[])
 
   nonblock(NB_ENABLE);
 
+#ifndef __EMSCRIPTEN__
   signal(SIGINT, sigint_handler);
   signal(SIGPIPE, SIG_IGN); // debugger might have a SIGPIPE happen if the remote end drops
 
   atexit(writePrefs);
+#endif
 
+#ifdef __EMSCRIPTEN__
+  g_volume = 13;   // no prefs UI in the browser; default to a clearly audible level (desktop uses saved prefs)
+#endif
   g_speaker->begin();
 
   printf("Starting loop\n");
+#ifdef __EMSCRIPTEN__
+  emscripten_set_main_loop(loop, 0, 1);
+#else
   while (1) {
     loop();
   }
+#endif
 }
 
 void readPrefs()

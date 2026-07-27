@@ -30,6 +30,8 @@ AppleKeyboard::AppleKeyboard(AppleMMU *m)
   repeatTimer = 0;
 
   capsLockEnabled = true;
+
+  injectHead = injectTail = 0;
 }
 
 AppleKeyboard::~AppleKeyboard()
@@ -205,8 +207,50 @@ void AppleKeyboard::releaseAllKeys()
   // capsLockEnabled is a latched toggle, not a held key; leave it as-is.
 }
 
+bool AppleKeyboard::injectByte(uint8_t c)
+{
+  uint16_t next = (injectHead + 1) % kInjectQueueSize;
+  if (next == injectTail) {
+    return false; // queue full
+  }
+  injectQueue[injectHead] = c & 0x7F;
+  injectHead = next;
+  return true;
+}
+
+uint16_t AppleKeyboard::injectString(const char *s, uint16_t len)
+{
+  uint16_t queued = 0;
+  for (uint16_t i=0; i<len; i++) {
+    if (!injectByte((uint8_t)s[i])) {
+      break;
+    }
+    queued++;
+  }
+  return queued;
+}
+
+uint16_t AppleKeyboard::injectQueueDepth()
+{
+  return (injectHead - injectTail + kInjectQueueSize) % kInjectQueueSize;
+}
+
 void AppleKeyboard::maintainKeyboard(int64_t cycleCount)
 {
+  // Scripted/automation type-ahead: deliver the next queued key only once the
+  // running program has consumed the previous strobe (and no physical key is
+  // held), so nothing is dropped or doubled however fast the CPU polls. This
+  // takes priority over key-repeat, which can't be active while the queue
+  // drains because a queued key is a momentary tap (anyKeyIsDown stays false).
+  if (injectHead != injectTail &&
+      !anyKeyIsDown &&
+      !mmu->keyboardStrobePending()) {
+    uint8_t c = injectQueue[injectTail];
+    injectTail = (injectTail + 1) % kInjectQueueSize;
+    mmu->injectKeypress(c);
+    return;
+  }
+
   if (anyKeyIsDown) {
     if (startRepeatTimer) {
       if (cycleCount >= startRepeatTimer) {

@@ -1,5 +1,24 @@
 #include <ctype.h> // isgraph
 #include "sdl-display.h"
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+// Blit the //e framebuffer (SDL_PIXELFORMAT_RGB888 = 0xXXRRGGBB) straight to the
+// page canvas as ImageData. Bypasses SDL_Renderer, and sizes the canvas to match.
+EM_JS(void, aiie_present, (unsigned int *buf, int w, int h), {
+  var c = Module.canvas; if (!c) return;
+  if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  var ctx = c.getContext('2d'); if (!ctx) return;
+  var img = ctx.createImageData(w, h), d = img.data, base = buf >> 2, n = w*h;
+  for (var i = 0; i < n; i++) {
+    var px = HEAPU32[base + i];
+    d[i*4]   = (px >> 16) & 255;
+    d[i*4+1] = (px >> 8) & 255;
+    d[i*4+2] = px & 255;
+    d[i*4+3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+});
+#endif
 
 #include "images.h"
 
@@ -292,6 +311,11 @@ void SDLDisplay::drawImageOfSizeAt(const uint8_t *img,
 
 void SDLDisplay::blit()
 {
+#ifdef __EMSCRIPTEN__
+  aiie_present(videoBuffer, use8875 ? RA8875_WIDTH : ILI9341_WIDTH,
+                            use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT);
+  return;
+#endif
   uint32_t *pixels = NULL;
   int pitch = 0;
   SDL_LockTexture(buffer,

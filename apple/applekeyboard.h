@@ -16,6 +16,16 @@ class AppleKeyboard : public VMKeyboard {
   virtual void maintainKeyboard(int64_t cycleCount);
   virtual void releaseAllKeys();
 
+  // Type-ahead injection for scripted/automation input (the desktop debugger's
+  // 'K' command feeds this). Enqueued characters are delivered one at a time by
+  // maintainKeyboard() as the running program consumes each keyboard strobe, so
+  // input is neither dropped nor doubled no matter how fast the CPU runs.
+  // injectByte() queues one 7-bit key (returns false if the queue is full);
+  // injectString() queues as many bytes as fit and returns how many it took.
+  bool injectByte(uint8_t c);
+  uint16_t injectString(const char *s, uint16_t len);
+  uint16_t injectQueueDepth();
+
  protected:
   bool isVirtualKey(uint8_t kc);
   uint8_t translateKeyWithModifiers(uint8_t k);
@@ -53,6 +63,14 @@ class AppleKeyboard : public VMKeyboard {
   int64_t startRepeatTimer;
   uint8_t keyThatIsRepeating;
   int64_t repeatTimer;
+
+  // Type-ahead injection queue (single-producer/single-consumer ring; both ends
+  // run on the CPU thread, so no locking is needed). Head is where the next
+  // enqueue lands; tail is the next byte to deliver; empty when head == tail.
+  static const uint16_t kInjectQueueSize = 256;
+  uint8_t injectQueue[kInjectQueueSize];
+  uint16_t injectHead;
+  uint16_t injectTail;
 };
 
 #endif

@@ -10,7 +10,7 @@
 // faster than real time, WSOLA compresses the audio without
 // chipmunking its pitch; at 1× speed it's near pass-through.
 //
-// The algorithm itself has no threading story — the caller is
+// The algorithm itself has no threading story; the caller is
 // responsible for wrapping these functions in whichever critical-
 // section primitive its platform uses (pthread_mutex on SDL,
 // __disable_irq on Teensy).
@@ -22,7 +22,7 @@ void wsola_reset();
 
 // Register a speaker toggle at CPU cycle `cycles`. Takes the
 // volume-scaled HIGH and LOW levels and manages the toggle-state
-// flip INTERNALLY — only flipping when a sample actually gets
+// flip INTERNALLY, only flipping when a sample actually gets
 // written. Must be so: flipping on every call (including sub-
 // sample toggles that get dropped by the cycle-to-sample
 // truncation) would accumulate wrong parity and destroy the output
@@ -40,7 +40,7 @@ void wsola_flush(int64_t cycles);
 void wsola_produce(int16_t *output, int count);
 
 // Gate for initial buffer fill. Returns true once we've accumulated
-// at least `minSamples` worth of emu-rate audio — useful to let the
+// at least `minSamples` worth of emu-rate audio, useful to let the
 // platform speaker write silence during startup rather than running
 // WSOLA on an almost-empty ring.
 bool wsola_has_primed_fill(int minSamples);
@@ -53,5 +53,10 @@ int wsola_peek_emubuf(int16_t *out, int count);
 
 // Diagnostic: current count of samples buffered (emuWriteIdx - emuReadIdx).
 int64_t wsola_buffered();
+
+// Drain up to `count` emu-rate samples straight from emuBuf (advancing the read pointer), bypassing
+// WSOLA's overlap-add entirely.  Pure passthrough, correct only at 1x speed.  Pads a shortfall by
+// holding the last level.  Returns the number of real samples drained.
+int wsola_drain(int16_t *out, int count);
 
 #endif

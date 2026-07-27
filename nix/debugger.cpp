@@ -1,6 +1,7 @@
 #include "debugger.h"
 #include "globals.h"
 #include "disassembler.h"
+#include "applekeyboard.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,16 +36,21 @@ static void *cpu_thread(void *objptr) {
 
 Debugger::Debugger()
 {
-  struct sockaddr_in server;
-  int optval;
-
-  sd = socket(AF_INET, SOCK_STREAM, 0);
   cd = -1;
   removeAllBreakpoints();
 
   history = NULL;
   endh = NULL;
   historyCount = 0;
+
+  steppingOut = false;
+  singleStep = false;
+
+#ifndef __EMSCRIPTEN__
+  struct sockaddr_in server;
+  int optval;
+
+  sd = socket(AF_INET, SOCK_STREAM, 0);
 
   optval=1;
   setsockopt(sd, SOL_SOCKET, SO_REUSEADDR,
@@ -55,9 +61,6 @@ Debugger::Debugger()
   server.sin_addr.s_addr = INADDR_ANY;
   server.sin_port = htons(12345);
 
-  steppingOut = false;
-  singleStep = false;
-
   if (bind(sd, (struct sockaddr *) &server, sizeof(server)) < 0) {
     perror("error binding to debug socket");
     exit(1);
@@ -65,10 +68,12 @@ Debugger::Debugger()
 
   listen(sd,5);
 
-
   if (!pthread_create(&listenThreadID, NULL, &cpu_thread, (void *)this)) {
     ; // ... what?
   }
+#else
+  sd = -1;
+#endif
 }
 
 Debugger::~Debugger()
@@ -131,6 +136,59 @@ bool getTwoAddresses(const char *buf, unsigned int *addrOut1, unsigned int *addr
 
 #define HEXCHAR(x) ((x>='0'&&x<='9')?x-'0':(x>='a'&&x<='f')?x-'a'+10:(x>='A'&&x<='F')?x-'A'+10:(x=='i' || x=='I')?1:(x=='o' || x=='O')?0:0)
 #define FROMHEXP(p) ((HEXCHAR(*p) << 4) | HEXCHAR(*(p+1)))
+
+// Fold an Apple screen code (normal / inverse / flashing / lowercase) down to a
+// printable ASCII byte for a text dump.
+static char foldScreenChar(uint8_t c)
+{
+  c &= 0x7F;
+  if (c < 0x20) c += 0x40;
+  return (char)c;
+}
+
+// The first byte of visible text row 'row' (0..23). Apple II text rows are
+// interleaved: base + 0x80*(row&7) + 0x28*(row>>3). See deinterlaceAddress().
+static uint16_t textRowBase(uint16_t base, uint8_t row)
+{
+  return base + 0x80 * (row & 7) + 0x28 * (row >> 3);
+}
+
+// Dump 24 rows of 40-column text read straight from main RAM (variant 0),
+// bypassing the memory soft switches - matching redraw40ColumnText().
+static void dumpText40(int cd, MMU *mmu, uint16_t base)
+{
+  char buf[64];
+  snprintf(buf, sizeof(buf), "40-column text at $%04X:\r\n", base);
+  if (write(cd, buf, strlen(buf)) != (ssize_t)strlen(buf)) return;
+  for (uint8_t row = 0; row < 24; row++) {
+    uint16_t rowBase = textRowBase(base, row);
+    char line[42];
+    for (uint8_t col = 0; col < 40; col++) {
+      line[col] = foldScreenChar(mmu->readDirect(rowBase + col, 0));
+    }
+    line[40] = '\r'; line[41] = '\n';
+    if (write(cd, line, 42) != 42) return;
+  }
+}
+
+// Dump 24 rows of 80-column text. 80-column text always lives on page 1
+// ($400); aux RAM (variant 1) holds the even (left) column of each cell and
+// main RAM (variant 0) the odd (right) column - matching redraw80ColumnText().
+static void dumpText80(int cd, MMU *mmu)
+{
+  const char *hdr = "80-column text at $0400 (aux=even cols, main=odd cols):\r\n";
+  if (write(cd, hdr, strlen(hdr)) != (ssize_t)strlen(hdr)) return;
+  for (uint8_t row = 0; row < 24; row++) {
+    uint16_t rowBase = textRowBase(0x400, row);
+    char line[82];
+    for (uint8_t i = 0; i < 40; i++) {
+      line[i*2]     = foldScreenChar(mmu->readDirect(rowBase + i, 1)); // aux, even col
+      line[i*2 + 1] = foldScreenChar(mmu->readDirect(rowBase + i, 0)); // main, odd col
+    }
+    line[80] = '\r'; line[81] = '\n';
+    if (write(cd, line, 82) != 82) return;
+  }
+}
 
 void Debugger::step()
 {
@@ -196,6 +254,7 @@ void Debugger::step()
              b != 'D' && // dump memory
 	     b != 'h' && // show history
 	     b != 'T' && // dump text screen
+	     b != 'K' && // inject keyboard input
 	     b != 'y' && // show cycle count
 	     b != 'G' && // goto (set PC)
 	     b != '*'    // show memory (byte)
@@ -329,30 +388,83 @@ void Debugger::step()
       }
       goto doover;
       
-    case 'T': // Dump the 40-column text screen as ASCII, in display order.
-              // Use "T" for page 1 ($400) or "T 0x800" for page 2.
+    case 'T': // Dump the text screen as ASCII, in display order. With no
+              // argument, auto-detect 40- vs 80-column mode and the active
+              // page from the video soft switches and dump what's on screen.
+              // With an explicit base ("T 0x800") force a 40-column dump.
       {
         GETLN;
-        uint16_t base = 0x400;
-        if (getAddress(buf, &val)) base = val;
-        snprintf(buf, sizeof(buf), "Text screen at $%04X:\r\n", base);
-        write(cd, buf, strlen(buf));
-        for (uint8_t row = 0; row < 24; row++) {
-          // Apple II text rows are interleaved; the base of each visible row
-          // is base + 0x80*(row&7) + 0x28*(row>>3). See deinterlaceAddress().
-          uint16_t rowBase = base + 0x80 * (row & 7) + 0x28 * (row >> 3);
-          char line[41];
-          for (uint8_t col = 0; col < 40; col++) {
-            uint8_t c = g_vm->getMMU()->read(rowBase + col);
-            // Fold screen code (normal/inverse/flashing) to plain ASCII.
-            c &= 0x7F;
-            if (c < 0x20) c += 0x40;
-            line[col] = c;
-          }
-          line[40] = 0;
-          snprintf(buf, sizeof(buf), "%s\r\n", line);
-          write(cd, buf, strlen(buf));
+        MMU *mmu = g_vm->getMMU();
+        if (getAddress(buf, &val)) {
+          dumpText40(cd, mmu, val);
+          goto doover;
         }
+        // Read the video status soft switches (all side-effect-free reads).
+        bool col80   = (mmu->read(0xC01F) & 0x80); // RD80VID   (S_80COL)
+        bool page2   = (mmu->read(0xC01C) & 0x80); // RDPAGE2   (S_PAGE2)
+        bool store80 = (mmu->read(0xC018) & 0x80); // RD80STORE (S_80STORE)
+        bool textOn  = (mmu->read(0xC01A) & 0x80); // RDTEXT    (S_TEXT)
+        bool mixed   = (mmu->read(0xC01B) & 0x80); // RDMIXED   (S_MIXED)
+
+        snprintf(buf, sizeof(buf), "mode: %s, %s%s%s\r\n",
+                 col80 ? "80-column" : "40-column",
+                 textOn ? "TEXT" :
+                   (mixed ? "MIXED (only bottom 4 rows shown over graphics)" :
+                            "GRAPHICS (text below is in RAM but not on screen)"),
+                 store80 ? ", 80STORE" : "",
+                 page2 ? ", PAGE2" : "");
+        write(cd, buf, strlen(buf));
+
+        if (col80) {
+          dumpText80(cd, mmu);
+        } else {
+          dumpText40(cd, mmu, page2 ? 0x800 : 0x400);
+        }
+      }
+      goto doover;
+
+    case 'K': // Inject keyboard input. "K <text>" queues keystrokes that the
+              // emulator types as it runs; they are delivered one at a time as
+              // the running program reads each keyboard strobe, so nothing is
+              // dropped. Continue ('c'/breakpoint) or quit ('q') to let the CPU
+              // run so the keys are consumed. Backslash escapes: \r or \n =
+              // Return, \t = Tab, \e = Esc, \0 = NUL, \\ = backslash, \xHH = a
+              // raw hex byte.
+      {
+        GETLN;
+        const char *p = buf;
+        if (*p == ' ') p++; // skip one separating space after the 'K'
+        AppleKeyboard *kbd = (AppleKeyboard *)g_vm->getKeyboard();
+        unsigned int queued = 0;
+        bool full = false;
+        while (*p) {
+          uint8_t c;
+          if (*p == '\\' && *(p+1)) {
+            p++;
+            switch (*p) {
+            case 'r': case 'n': c = 0x0D; break;
+            case 't':           c = 0x09; break;
+            case 'e':           c = 0x1B; break;
+            case '0':           c = 0x00; break;
+            case '\\':          c = 0x5C; break;
+            case 'x':
+              if (*(p+1) && *(p+2)) { c = FROMHEXP((p+1)); p += 2; }
+              else                  { c = 'x'; }
+              break;
+            default:            c = (uint8_t)*p; break;
+            }
+            p++;
+          } else {
+            c = (uint8_t)*p++;
+          }
+          if (!kbd->injectByte(c)) { full = true; break; }
+          queued++;
+        }
+        snprintf(buf, sizeof(buf), "Queued %u key%s%s (queue depth now %u)\r\n",
+                 queued, queued == 1 ? "" : "s",
+                 full ? " (queue full, remainder dropped)" : "",
+                 (unsigned int)kbd->injectQueueDepth());
+        write(cd, buf, strlen(buf));
       }
       goto doover;
 

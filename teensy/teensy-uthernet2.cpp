@@ -194,6 +194,12 @@ bool TeensyUthernet2::espIssue(uint8_t type, const uint8_t *payload, uint16_t le
 bool TeensyUthernet2::command(uint8_t type, const uint8_t *payload, uint16_t len,
                               uint32_t timeoutMs, uint8_t maxRetries)
 {
+  // Link known down -> only a ping may go out (that is how the link gets
+  // (re)detected). Every other command would just retry into a dead ESP and time
+  // out; with the ESP power switch off at boot, those stacked timeouts (card
+  // reset, socket setup, etc.) hung startup for seconds on the black screen.
+  if (!linkUp && type != CMD_LINK_PING)
+    return false;
   while (cmdInFlight) { pump(); yield(); }
   if (!issue(type, payload, len, timeoutMs, /*owner=*/0, /*tag=*/0, maxRetries))
     return false;
@@ -323,9 +329,12 @@ void TeensyUthernet2::debugNetState(char *buf, uint16_t n)
 void TeensyUthernet2::begin()
 {
   linkUp = false;
-  // Aggressive burst at startup so a ready ESP is found quickly; later re-probes
-  // (tick, wifiStatus) are throttled via probeLink().
-  for (int i = 0; i < 10 && !linkUp; i++) pingOnce();
+  // Short burst at startup so a ready ESP is found quickly. Kept small (4 pings ~=
+  // 240ms) because when the ESP switch is off this whole burst is dead time on the
+  // boot screen, and a ready ESP answers the first ping anyway; an ESP still
+  // booting (or switched on later) is picked up by the throttled probeLink() from
+  // tick()/wifiStatus() without blocking startup.
+  for (int i = 0; i < 4 && !linkUp; i++) pingOnce();
   if (linkUp && haveCreds) {
     uint8_t buf[1 + 32 + 1 + 64];
     uint16_t o = 0;

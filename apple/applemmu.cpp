@@ -1084,6 +1084,25 @@ void AppleMMU::setKeyDown(bool isTrue)
   anyKeyDown = isTrue;
 }
 
+// Deliver a keypress from scripted/automation input. Unlike keyboardInput(),
+// this deliberately does not latch anyKeyDown: a queued keystroke is a
+// momentary tap, so the any-key-down flag ($C010 bit 7 / AKD) must not stick
+// on after the type-ahead queue drains. The strobe is set just as a real press
+// does; the running program clears it by reading $C010.
+void AppleMMU::injectKeypress(uint8_t v)
+{
+  g_ram.writeByte((writePages[0xC0] << 8) | 0x10,
+		  (v & 0x7F) | 0x80);
+}
+
+// True while a keypress is latched but not yet consumed (bit 7 of the keyboard
+// data cell). Used to pace type-ahead injection so no character is dropped or
+// doubled regardless of how fast the emulated program polls the keyboard.
+bool AppleMMU::keyboardStrobePending()
+{
+  return (g_ram.readByte((readPages[0xC0] << 8) | 0x10) & 0x80) != 0;
+}
+
 void AppleMMU::triggerPaddleTimer(uint8_t paddle)
 {
   g_ram.writeByte((writePages[0xC0] << 8) | (0x64 + paddle), 0);

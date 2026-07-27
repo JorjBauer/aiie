@@ -77,8 +77,8 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
 
   // Keep-alive dither. The producer-frozen debugger test proved the periodic
   // click is generated below us: when the buffer is drained we emit a constant
-  // value (DC, or zeros before priming), and the output device — built-in amp,
-  // HDMI, USB/BT DAC — mutes / re-syncs on bit-identical silence and clicks on
+  // value (DC, or zeros before priming), and the output device (built-in amp,
+  // HDMI, USB/BT DAC) mutes / re-syncs on bit-identical silence and clicks on
   // each transition. A few-LSB broadband dither keeps the stream "alive" so the
   // device never sees silence; at ~-78 dBFS it is inaudible under real audio.
   {
@@ -139,6 +139,19 @@ void SDLSpeaker::reset()
 
 void SDLSpeaker::begin()
 {
+  wsola_reset();
+  audioRunning = 0;
+
+#ifndef __EMSCRIPTEN__
+  // Desktop: open SDL's audio device; its callback (audioCallback) pulls the speaker.
+  //
+  // The WASM/playground build must NOT open it.  Emscripten's SDL2 wires SDL_OpenAudio to its OWN
+  // Web Audio node (a ScriptProcessorNode at the device's NATIVE rate) that runs audioCallback,
+  // i.e. wsola_produce (the overlap-add path we deliberately bypass) plus the keep-alive dither.
+  // That is a SECOND audio output: it competes with the playground's aiie_audio_pull path for the
+  // same emuBuf and mixes its dither/overlap-add artifacts over the tone, which is audible as static
+  // (silent on a headless test box, since it has no audio device to drive the callback).  The
+  // playground drives audio entirely through aiie_audio_pull, so we leave SDL's device closed.
   SDL_AudioSpec audioDevice, audioActual;
   SDL_memset(&audioDevice, 0, sizeof(audioDevice));
   audioDevice.freq     = AUDIO_SAMPLE_RATE_EXACT;
@@ -148,13 +161,11 @@ void SDLSpeaker::begin()
   audioDevice.callback = audioCallback;
   audioDevice.userdata = NULL;
 
-  wsola_reset();
-  audioRunning = 0;
-
   SDL_OpenAudio(&audioDevice, &audioActual);
   printf("Actual: freq %d channels %d samples %d\n",
          audioActual.freq, audioActual.channels, audioActual.samples);
   SDL_PauseAudio(0);
+#endif
 }
 
 void SDLSpeaker::toggle(int64_t c)
@@ -180,3 +191,31 @@ void SDLSpeaker::maintainSpeaker(int64_t c, uint64_t microseconds)
 }
 void SDLSpeaker::beginMixing() {}
 void SDLSpeaker::mixOutput(uint8_t v) {}
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+// The WASM build does not open SDL's audio device (see SDLSpeaker::begin), so audioCallback never
+// runs here.  The playground drives audio itself: a JS AudioWorklet calls aiie_audio_pull() each
+// block to fetch `count` mono int16 samples straight from the //e speaker.
+extern "C" EMSCRIPTEN_KEEPALIVE void aiie_audio_pull(int16_t *out, int count) {
+  // Drain the speaker straight from WSOLA, not through audioCallback, which (a) gates on a
+  // 4096-sample "primed" fill (that swallowed breakout's short early beeps until several had queued)
+  // and (b) renders the mockingboard into a fixed stack buffer (the earlier "null function" crash).
+  // The playground pulls exactly wsola_buffered() samples, so there is nothing to prime or stretch;
+  // wsola_produce holds the last level (silence) if asked for more than it has.  No mockingboard
+  // program runs in the playground, so skipping its mix is fine.
+  pthread_mutex_lock(&togmutex);
+  wsola_drain(out, count);   // raw passthrough, no overlap-add -> stable pitch (playground runs at 1x)
+  pthread_mutex_unlock(&togmutex);
+}
+
+// How many emu-rate samples are ready to pull right now.  The playground fills its audio ring with
+// exactly this many per frame; pulling MORE makes WSOLA time-stretch the little it has, smearing
+// the //e's square wave toward DC (which sounded like clicks/noise).  Pull only what's really there.
+extern "C" EMSCRIPTEN_KEEPALIVE int aiie_audio_avail() {
+  int64_t n = wsola_buffered();
+  if (n < 0) n = 0;
+  if (n > 1000000000) n = 1000000000;
+  return (int)n;
+}
+#endif

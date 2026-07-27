@@ -48,6 +48,14 @@ class AppleMMU : public MMU {
   void keyboardInput(uint8_t v);
   void setKeyDown(bool isTrue);
 
+  // Scripted/automation keyboard support (see AppleKeyboard's type-ahead queue
+  // and the desktop debugger's 'K' command). injectKeypress() latches a key
+  // exactly like a real press but does NOT hold anyKeyDown (a queued keystroke
+  // is a momentary tap). keyboardStrobePending() reports whether a latched key
+  // is still waiting to be read, so injection can be paced one key at a time.
+  void injectKeypress(uint8_t v);
+  bool keyboardStrobePending();
+
   void triggerPaddleTimer(uint8_t paddle);
 
   void resetRAM(); // used by BIOS on cold boot

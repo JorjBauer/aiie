@@ -10,7 +10,7 @@
 // Apple II speaker time-scale resampler.
 //
 //   wsola_toggle(c, level)   writes emu-rate samples to `emuBuf` at
-//                            44.1 kHz *emulated* time — bit-exactly
+//                            44.1 kHz *emulated* time - bit-exactly
 //                            what the pre-WSOLA code wrote into its
 //                            soundBuf. Flat blocks of the post-flip
 //                            level, exactly as Apple II speaker code
@@ -21,8 +21,8 @@
 //   wsola_produce(out, N)    drains N wall-clock samples. At 1×
 //                            emulation (ratio ≈ 1) this is a bit-
 //                            exact memcpy from emuBuf to out, which
-//                            preserves every sample the game toggled
-//                            — critical for fake-polyphonic music.
+//                            preserves every sample the game toggled -
+//                            critical for fake-polyphonic music.
 //                            Only when ratio exceeds RATIO_WSOLA_ON
 //                            (i.e., emulator is sustainedly faster
 //                            than real-time) does WSOLA kick in.
@@ -45,13 +45,13 @@
 // (SDLSIZE, currently 2048): a single audioCallback drains that many
 // samples in one burst, and the producer thread may be asleep for the
 // whole burst. The rate controller below is one-sided (ratio floored at
-// 1.0 — it can drain a too-full buffer but never refill a too-empty
+// 1.0 - it can drain a too-full buffer but never refill a too-empty
 // one), so this cushion is the only thing standing between host/audio
 // clock drift and a periodic underrun click. Keep it ~2x the callback.
 #define TARGET_LAG          4096
 
 // Only engage WSOLA when the buffer is sustainedly beyond this ratio.
-// Below it we do bit-exact passthrough — essential for PWM-based
+// Below it we do bit-exact passthrough, essential for PWM-based
 // polyphonic music whose audible content lives in the sequence of
 // constant-block polarities. WSOLA's crossfade smears those.
 #define RATIO_WSOLA_ON      1.50
@@ -89,6 +89,27 @@ static int64_t sampleStartCycle = 0;
 static int16_t cachedHigh = 0;
 static int16_t cachedLow  = 0;
 
+// One-pole DC-blocking high-pass for the playground's drained output.  The emulated //e speaker rests
+// at a static +/-HIGHVAL between toggles, so every beep leaves a large DC offset and each new beep flips
+// which rail it rests on: the ear hears those baseline jumps as loud clicks throughout a game.  The
+// real machine's speaker is AC-coupled and removes the DC; we do the same in software so silence sits at
+// zero and beeps are symmetric.  y[n] = x[n] - x[n-1] + R*y[n-1]; R=0.995 -> ~35 Hz cutoff at 44.1 kHz
+// (well below any //e speaker tone, so audible pitches pass essentially untouched).
+#define DC_BLOCK_R 0.995f
+static float dcBlockX1 = 0.0f;
+static float dcBlockY1 = 0.0f;
+
+// Push one input sample through the DC blocker and return the clamped int16 result.
+static inline int16_t dcBlock(float x)
+{
+  float y = x - dcBlockX1 + DC_BLOCK_R * dcBlockY1;
+  dcBlockX1 = x;
+  dcBlockY1 = y;
+  int32_t o = (int32_t)(y >= 0.0f ? y + 0.5f : y - 0.5f);
+  if (o > 32767) o = 32767; else if (o < -32768) o = -32768;
+  return (int16_t)o;
+}
+
 // --- Public API ---
 
 void wsola_reset()
@@ -111,6 +132,8 @@ void wsola_reset()
   sampleStartCycle = 0;
   cachedHigh = 0;
   cachedLow  = 0;
+  dcBlockX1 = 0.0f;
+  dcBlockY1 = 0.0f;
 }
 
 // Emit integrated samples into emuBuf up to (but not including) the
@@ -203,6 +226,26 @@ int wsola_peek_emubuf(int16_t *out, int count)
   for (int i = 0; i < n; i++) {
     out[i] = emuBuf[(emuReadIdx + i) & EMU_BUF_MASK];
   }
+  return n;
+}
+
+// Drain up to `count` emu-rate samples STRAIGHT from emuBuf (advancing emuReadIdx), a pure passthrough
+// with none of WSOLA's frame-based overlap-add, whose similarity splicing shifts a square wave's period
+// frame to frame and makes the pitch wander.  Correct only at 1x (emu-rate == wall-rate), which is the
+// speed the playground runs speaker programs at.  Pads any shortfall by holding the last level.
+int wsola_drain(int16_t *out, int count)
+{
+  uint64_t avail = emuWriteIdx - emuReadIdx;
+  int n = (int)((avail < (uint64_t)count) ? avail : (uint64_t)count);
+  int16_t lastIn = 0;
+  for (int i = 0; i < n; i++) {
+    lastIn = emuBuf[(emuReadIdx + i) & EMU_BUF_MASK];
+    out[i] = dcBlock((float)lastIn);
+  }
+  emuReadIdx += n;
+  // Underrun pad: keep feeding the DC blocker the last real level.  Since the filter drives a constant
+  // input toward zero, a stall fades to true silence rather than freezing at a +/-HIGHVAL DC step.
+  for (int i = n; i < count; i++) out[i] = dcBlock((float)lastIn);
   return n;
 }
 

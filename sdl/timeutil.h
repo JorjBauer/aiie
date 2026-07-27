@@ -1,5 +1,7 @@
 #include <time.h>
+#ifndef __EMSCRIPTEN__
 #include <mach/mach_time.h>
+#endif
 // Derived from
 // http://stackoverflow.com/questions/5167269/clock-gettime-alternative-in-mac-os-x
 
@@ -8,6 +10,12 @@
 #define NANOSECONDS_PER_SECOND 1000000000UL
 #define CYCLES_PER_SECOND g_speed
 
+#ifdef __EMSCRIPTEN__
+static void _init_darwin_shim(void) { }
+static int do_gettime(struct timespec *tp) {
+  return clock_gettime(CLOCK_MONOTONIC, tp);
+}
+#else
 static double orwl_timebase = 0.0;
 static uint64_t orwl_timestart = 0;
 static void _init_darwin_shim(void) {
@@ -24,6 +32,7 @@ static int do_gettime(struct timespec *tp) {
   tp->tv_nsec = diff - (tp->tv_sec * ORWL_GIGA);
   return 0;
 }
+#endif
 
 // adds the number of nanoseconds that 'cycles' takes to *start and
 // returns it in *out

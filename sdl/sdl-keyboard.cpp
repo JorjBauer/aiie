@@ -6,6 +6,18 @@
 #include "globals.h"
 #include "sdl-display.h"
 
+#ifdef __EMSCRIPTEN__
+// Emscripten's SDL2 implements SDL_PollEvent as SDL_WaitEventTimeout(e,0), and
+// SDL_WaitEventTimeout is a null stub in the wasm build. Pump + peep directly.
+static int em_pollEvent(SDL_Event *e) {
+  SDL_PumpEvents();
+  return SDL_PeepEvents(e, 1, SDL_GETEVENT, SDL_FIRSTEVENT, SDL_LASTEVENT);
+}
+#define AIIE_POLL(e) em_pollEvent(e)
+#else
+#define AIIE_POLL(e) SDL_PollEvent(e)
+#endif
+
 SDLKeyboard::SDLKeyboard(VMKeyboard *k) : PhysicalKeyboard(k)
 {
 }
@@ -213,13 +225,16 @@ static bool confirmQuit()
 
 void SDLKeyboard::maintainKeyboard()
 {
+#ifdef __EMSCRIPTEN__
+  return; // input arrives via aiie_inject(); SDL events are unavailable
+#endif
   // Drain the ENTIRE event queue each call, not one event per 60Hz tick. At high
   // emulation speed the main loop iterates slowly (more work per pass), so a
   // one-event-per-tick drain falls behind: a key-up can sit in the queue long
   // enough (~0.68s) to cross the auto-repeat threshold, which is exactly the
   // "Return sticks at 8x" symptom. Clearing the whole queue keeps key-ups prompt.
   SDL_Event event;
-  while (SDL_PollEvent( &event )) {
+  while (AIIE_POLL( &event )) {
 
     // Handle keydown/keyup (and quit, incidentally)
     switch (event.type) {
@@ -308,7 +323,7 @@ static void pushBiosKey(uint8_t k)
 bool SDLKeyboard::kbhit()
 {
   SDL_Event event;
-  while (SDL_PollEvent( &event )) {
+  while (AIIE_POLL( &event )) {
     if (event.type == SDL_QUIT) {
       if (confirmQuit())
 	exit(0);
