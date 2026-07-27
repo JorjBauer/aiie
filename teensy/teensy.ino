@@ -286,12 +286,18 @@ void setup()
 #ifdef AIIE_BOOT_CONSOLE
   Serial.begin(230400);   // waits up to ~2s so a console can attach + catch boot msgs
 #endif
-  delay(200); // let the power settle & serial to get its bearings
-  // A pending crash report from the previous run is saved to the SD card once
-  // the filemanager is up (this device has no usable serial console at boot,
-  // and the old code blocked here for 5 seconds printing to a port nobody could
-  // read - which showed up as a multi-second boot delay whenever a stale report
-  // was present). See the crash-report save just after the filemanager below.
+  // Bring the display up FIRST and paint it black. The panel's raw power-on
+  // state is white, and the remaining ~1s of init (SD, ESP, VM, prefs) can't be
+  // avoided -- but by initializing the display before all of that and clearing
+  // it to black, that time passes on an intentional black screen instead of a
+  // stuck-looking white one. The display ctor needs only its own pins (not the
+  // SD/speaker/VM), so it is safe to construct this early. It gets the VM's
+  // video buffer later; redraw() at the end paints the actual Apple screen.
+  println(" display");
+  g_display = new TeensyDisplay();
+  g_display->clrScr(c_black);
+  g_display->blit();
+
   if (CrashReport) {
     Serial.print(CrashReport); // only useful on the bench with serial attached
   }
@@ -301,14 +307,10 @@ void setup()
   digitalWrite(BATTERYSELECT, false); // leave it off by default
   pinMode(BATTERYLEVEL, INPUT);
 
-//  enableFaultHandler();
-//  SCB_SHCSR |= SCB_SHCSR_BUSFAULTENA | SCB_SHCSR_USGFAULTENA | SCB_SHCSR_MEMFAULTENA;
-
   memset(keysPressed, 0, sizeof(keysPressed));
 
   // set the Time library to use Teensy 3.0's RTC to keep time
   setSyncProvider(getTeensy3Time);
-  delay(100); // don't know if we need this
   if (timeStatus() == timeSet) {
     println("RTC set from Teensy");
   } else {
@@ -320,7 +322,7 @@ void setup()
 
   analogReadRes(8); // We only need 8 bits of resolution (0-255) for paddles
   analogReadAveraging(4); // ?? dunno if we need this or not.
-  
+
   println("creating virtual hardware");
   g_speaker = new TeensySpeaker(18, 19); // FIXME abstract constants
 
@@ -339,12 +341,6 @@ void setup()
     }
     CrashReport.clear();
   }
-
-  // Construct the interface to the host display. This will need the
-  // VM's video buffer in order to draw the VM, but we don't have that
-  // yet. 
-  println(" display");
-  g_display = new TeensyDisplay();
 
   println(" UI");
   g_ui = new AppleUI();
