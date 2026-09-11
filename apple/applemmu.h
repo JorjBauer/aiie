@@ -7,11 +7,19 @@
 #include "mmu.h"
 #include "noslotclock.h"
 
-// when we read a nondeterministic result, we return
-// _FLOATINGBUS. Maybe some day we can come back here and figure out
-// how to return what the Apple would have.
+// Reading a soft switch that drives nothing onto the data bus returns
+// whatever the video scanner last put there: see AppleMMU::floatingBus().
+// This used to be the constant 0, with a note wondering how to return
+// what the Apple would have. It now does.
 
-#define _FLOATINGBUS 0
+// A card can leave the floating bus on the data bus too (a Disk II read of
+// an odd address does: UTA2E Table 9.1, note 2), and a card has no MMU
+// pointer, so the macro goes through this rather than through a member.
+// It answers 0 before there is a machine, which is what a bench with no
+// MMU wants.
+uint8_t appleFloatingBus();
+
+#define _FLOATINGBUS appleFloatingBus()
 
 // Switches activated by various memory locations
 enum {
@@ -70,6 +78,18 @@ class AppleMMU : public MMU {
 
   void setAppleKey(int8_t which, bool isDown);
 
+  // Video soft-switch transition log, for scanline-accurate rendering of
+  // mid-frame ("VBL-timed") mode changes. logVideoState() records the
+  // current switches word with a cycle stamp whenever it has changed;
+  // switchesAtCycle() answers what the switches were at a given cycle.
+  void logVideoState();
+  uint16_t switchesAtCycle(int64_t cyc);
+
+  // What the video scanner is fetching this cycle: the floating bus. See
+  // the implementation in applemmu.cpp.
+  uint8_t floatingBus();
+  uint16_t videoScannerAddress(int64_t cyc);
+
  protected:
   bool handleNoSlotClock(uint16_t address, uint8_t *rv);
 
@@ -83,6 +103,17 @@ class AppleMMU : public MMU {
  private:
   AppleDisplay *display;
   uint16_t switches;
+
+  // Rolling ring of video-switch transitions. Sized to hold more than one
+  // video frame's worth of changes even for a demo that flips modes every
+  // scanline (a frame is 262 lines); the display samples at ~30Hz, so a
+  // couple of frames can accumulate between redraws.
+  static const int kVideoLogSize = 1024;
+  struct VideoXsn { int64_t cyc; uint16_t sw; };
+  VideoXsn videoLog[kVideoLogSize];
+  int videoLogHead;              // index of the next slot to write
+  int videoLogCount;             // valid entries, capped at kVideoLogSize
+  uint16_t lastLoggedSwitches;   // dedup: only log real changes
  public: // 'public' for debugging
   bool auxRamRead;
   bool auxRamWrite;

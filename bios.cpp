@@ -94,6 +94,7 @@ enum {
   ACT_UPDATEFW = 30,
   ACT_SLOT_UTHERNET = 31,
   ACT_WIFI = 32,
+  ACT_VIDEO7 = 33,
 };
 
 // The tab bar is drawn across a 320px-wide display with a fixed 8px font, so the
@@ -112,7 +113,8 @@ const uint8_t vmActions[] = { ACT_EXIT, ACT_RESET, ACT_REBOOT, ACT_REBOOTANDEJEC
 			      ACT_UPDATEFW,
 #endif
 };
-const uint8_t hardwareActions[] = { ACT_DISPLAYTYPE,  ACT_LUMINANCEUP,
+const uint8_t hardwareActions[] = { ACT_DISPLAYTYPE,  ACT_VIDEO7,
+                                    ACT_LUMINANCEUP,
                                     ACT_LUMINANCEDOWN, ACT_SPEED,
 				    ACT_PADX_INV, ACT_PADY_INV,
 				    ACT_PADDLES, ACT_VOLPLUS, ACT_VOLMINUS };
@@ -565,6 +567,15 @@ uint16_t BIOS::HardwareMenuHandler(bool needsRedraw, bool performAction)
 	((AppleDisplay*)g_display)->displayTypeChanged();
 	localRedraw = true;
 	break;
+
+     case ACT_VIDEO7:
+       // Whether the machine has an RGB card with the Video7 extensions,
+       // which turn aux text page 1 into a color-attribute plane for
+       // 40-column text. See video7.md. It takes effect on the next
+       // frame; the //e does not need to be reset for it.
+       g_video7 = !g_video7;
+       localRedraw = true;
+       break;
 
      case ACT_LUMINANCEUP:
        if (g_luminanceCutoff < 255)
@@ -1560,6 +1571,7 @@ bool BIOS::isActionActive(int8_t action)
   case ACT_SLOT_RAMWORKS:
   case ACT_SLOT_DEFAULTS:
   case ACT_WIFI:
+  case ACT_VIDEO7:
     return true;
 
   case ACT_LUMINANCEUP:
@@ -1720,6 +1732,17 @@ void BIOS::DrawHardwareMenu()
       }
       break;
       
+    case ACT_VIDEO7:
+      // The renderer also requires a color display type, so say so
+      // rather than leaving the user to wonder why "Yes" changed
+      // nothing. See video7.md and redraw40ColumnText().
+      if (g_video7 && g_displayType != m_ntsclike &&
+	  g_displayType != m_perfectcolor)
+	strcpy(buf, "Video7: Yes (display is mono)");
+      else
+	snprintf(buf, sizeof(buf), "Video7: %s", g_video7 ? "Yes" : "No");
+      break;
+
     case ACT_LUMINANCEUP:
       snprintf(buf, sizeof(buf), "Luminance+: %d", g_luminanceCutoff);
       break;

@@ -37,6 +37,7 @@ class SDLUthernet2 : public Uthernet2Interface {
 
   virtual int sendRawFrame(const uint8_t *frame, uint16_t len);
   virtual int recvRawFrame(uint8_t *buf, uint16_t maxLen);
+  virtual void dropRawFrame();
 
   virtual bool resolveName(const char *host, uint8_t ip[4]);
   virtual void tick(int64_t cycleCount);

@@ -40,7 +40,19 @@
     }                               \
 }
 
-#define drawApplePixel(c,x,y) { g_display->cacheDoubleWidePixel(x,y,c); }
+// Pixel emitters are clipped to [clipTop, clipBottom) in Apple scanline
+// coordinates. In the ordinary whole-frame path the clip is the full screen
+// (0..191), so these are exactly the old unconditional writes. The per-
+// scanline band path narrows the clip so a renderer called for a band only
+// paints that band's rows. See needsRedraw().
+#define drawApplePixel(c,x,y) {                                 \
+    if ((int)(y) >= clipTop && (int)(y) < clipBottom)           \
+      g_display->cacheDoubleWidePixel(x,y,c);                   \
+}
+#define cachePixelClipped(x,y,c) {                              \
+    if ((int)(y) >= clipTop && (int)(y) < clipBottom)           \
+      g_display->cachePixel(x,y,c);                             \
+}
 
 #define DrawLoresPixelAt(c, x, y) {     \
   uint8_t pixel = c & 0x0F;             \
@@ -62,6 +74,9 @@
 AppleDisplay::AppleDisplay() : VMDisplay()
 {
   this->switches = NULL;
+
+  clipTop = 0;
+  clipBottom = 192; // full screen: the clip is a no-op unless a band narrows it
 
   modeChange();
 }
@@ -222,16 +237,16 @@ inline void AppleDisplay::Draw14DoubleHiresPixelsAt(uint16_t addr)
 
 	if (g_displayType == m_blackAndWhite) { color = c_white; } 
 
-	g_display->cachePixel((col*2)+(xoff*2), row, 
+	cachePixelClipped((col*2)+(xoff*2), row, 
 			      ((bitTrain & 0x01) ? color : c_black));
 	
-	g_display->cachePixel((col*2)+(xoff*2)+1, row, 
+	cachePixelClipped((col*2)+(xoff*2)+1, row, 
 			      ((bitTrain & 0x02) ? color : c_black));
 	
-	g_display->cachePixel((col*2)+(xoff*2)+2, row, 
+	cachePixelClipped((col*2)+(xoff*2)+2, row, 
 			      ((bitTrain & 0x04 )? color : c_black));
 
-	g_display->cachePixel((col*2)+(xoff*2)+3, row, 
+	cachePixelClipped((col*2)+(xoff*2)+3, row, 
 			      ((bitTrain & 0x08 ) ? color : c_black));
       }
 
@@ -382,7 +397,9 @@ void AppleDisplay::redraw80ColumnText(uint8_t startingY)
   bool invert;
   const uint8_t *cptr;
 
-  // FIXME: is there ever a case for 0x800, like in redraw40ColumnText?
+  // 80-column text is always page 1: the two banks of $0400-$07FF are
+  // the odd/even column halves, so PAGE2 is a main/aux steering bit here,
+  // never a display selector.
   uint16_t start = 0x400;
 
   // Every time through this loop, we increment the column. That's going to be correct most of the time.
@@ -411,10 +428,10 @@ void AppleDisplay::redraw80ColumnText(uint8_t startingY)
 	  bool pixelOn = (d & (1<<x2));
 	  if (pixelOn) {
 	    uint8_t val = (invert ? c_black : c_white);
-	    g_display->cachePixel(basex + x2, row*8+y2, val);
+	    cachePixelClipped(basex + x2, row*8+y2, val);
 	  } else {
 	    uint8_t val = (invert ? c_white : c_black);
-	    g_display->cachePixel(basex + x2, row*8+y2, val);
+	    cachePixelClipped(basex + x2, row*8+y2, val);
 	  }
 	}
       }
@@ -428,10 +445,10 @@ void AppleDisplay::redraw80ColumnText(uint8_t startingY)
 	  bool pixelOn = (d & (1<<x2));
 	  if (pixelOn) {
 	    uint8_t val = (invert ? c_black : c_white);
-	    g_display->cachePixel(basex + x2, row*8+y2, val);
+	    cachePixelClipped(basex + x2, row*8+y2, val);
 	  } else {
 	    uint8_t val = (invert ? c_white : c_black);
-	    g_display->cachePixel(basex + x2, row*8+y2, val);
+	    cachePixelClipped(basex + x2, row*8+y2, val);
 	  }
 	}
       }
@@ -443,9 +460,57 @@ void AppleDisplay::redraw40ColumnText(uint8_t startingY)
 {
   bool invert;
 
-  uint16_t start = ((*switches) & S_PAGE2) ? 0x800 : 0x400;
+  // 80STORE MUST BE OFF TO DISPLAY PAGE 2 (Apple //e Technical Note #3,
+  // and UTA2E p. 5-14). With 80STORE on, PAGE2 stops being a display
+  // selector and becomes a main/aux steering bit for the CPU's accesses
+  // to $0400-$07FF; the scanner keeps showing page 1. redrawHires()
+  // already had this rule; text and lores did not, so any program that
+  // parks color or attribute bytes in aux text page 1 by holding PAGE2
+  // on (K2's fbtext does exactly that) had the whole screen redrawn out
+  // of $0800, which is program memory, not video memory.
+  uint16_t start = (((*switches) & S_PAGE2) &&
+		    !((*switches) & S_80STORE)) ? 0x800 : 0x400;
   uint8_t row, col;
   col = -1; // will force us to deinterlaceAddress()
+
+  // VIDEO7 / A2DVI FOREGROUND-BACKGROUND COLOR TEXT (see video7.md).
+  //
+  // An RGB card with the Video7 extensions reads AUX text page 1 as a
+  // character-attribute plane: one byte per cell at the same offset as
+  // the character in main, high nibble foreground and low nibble
+  // background, both indexing the ordinary lores palette (which is
+  // already this file's c_* enum, in the same order). A stock //e
+  // ignores the aux plane and shows monochrome text, so a program can
+  // write colors unconditionally and degrade with no detection logic.
+  //
+  // The card recognizes the mode by a switch combination that does
+  // nothing on an unmodified machine: TEXT on, 80STORE on, DHIRES on
+  // (AN3 off), and 80COL OFF. DHIRES has no effect in text mode on real
+  // hardware, which is exactly why it was chosen as the signal. The
+  // mode is 40-column only: 80COL must be off, so color text and
+  // 80-column text are mutually exclusive.
+  //
+  // Two gates of our own sit in front of that. g_video7 is the BIOS
+  // "Video7" setting, off by default, because a stock //e has no such
+  // card and an existing program that happens to hit the combination
+  // must not suddenly gain colors. And the monochrome display types
+  // stay monochrome, the way A2DVI's own mono_rendering flag does: a
+  // green screen plugged into an RGB card is still a green screen.
+  //
+  // MIXED mode's bottom four text rows are deliberately NOT colored:
+  // this requires TEXT itself to be on, so the graphics modes keep the
+  // monochrome text they have always had.
+  const bool video7 = g_video7 &&
+		      ((*switches) & S_TEXT) &&
+		      ((*switches) & S_80STORE) &&
+		      ((*switches) & S_DHIRES) &&
+		     // Redundant in practice -- needsRedraw() sends 80COL
+		     // text to redraw80ColumnText(), which has no attribute
+		     // plane -- but the mode is defined with 80COL off and
+		     // this keeps that true if the dispatcher ever changes.
+		     !((*switches) & S_80COL) &&
+		      (g_displayType == m_ntsclike ||
+		       g_displayType == m_perfectcolor);
   
   // Every time through this loop, we increment the column. That's going to be correct most of the time.
   // Sometimes we'll get beyond the end (40 columns), and wind up on another line 8 rows down.
@@ -460,14 +525,28 @@ void AppleDisplay::redraw40ColumnText(uint8_t startingY)
     // Only draw onscreen locations
     if (row >= startingY && col <= 39 && row <= 23) {
       const uint8_t *cptr = xlateChar(mmu->readDirect(addr, 0), &invert);
+
+      // White on black unless the attribute plane is in play; that
+      // makes the colored and monochrome paths the same code, with the
+      // ordinary screen falling out as the fg=white bg=black case.
+      // Inverse swaps the cell's OWN two colors rather than swapping
+      // black and white, so inverse text in a colored cell stays in
+      // that cell's colors.
+      uint8_t fg = c_white, bg = c_black;
+      if (video7) {
+	uint8_t attr = mmu->readDirect(addr, 1); // aux: the attribute byte
+	fg = (attr >> 4) & 0x0F;
+	bg =  attr       & 0x0F;
+      }
+
       for (uint8_t y2 = 0; y2<8; y2++) {
 	uint8_t d = *(cptr + y2);
 	for (uint8_t x2 = 0; x2 < 7; x2++) {
 	  if (d & 1) {
-	    uint8_t val = (invert ? c_black : c_white);
+	    uint8_t val = (invert ? bg : fg);
 	    drawApplePixel(val, col*7+x2, row*8+y2);
 	  } else {
-	    uint8_t val = (invert ? c_white : c_black);
+	    uint8_t val = (invert ? fg : bg);
 	    drawApplePixel(val, col*7+x2, row*8+y2);
 	  }
 	  d >>= 1;
@@ -514,7 +593,9 @@ void AppleDisplay::redrawLores()
       }
     }
   } else {
-    uint16_t start = ((*switches) & S_PAGE2) ? 0x800 : 0x400;
+    // Same rule as 40-column text: 80STORE on pins the scanner to page 1.
+    uint16_t start = (((*switches) & S_PAGE2) &&
+		      !((*switches) & S_80STORE)) ? 0x800 : 0x400;
     for (uint16_t addr = start; addr <= start + 0x3FF; addr++) {
       uint8_t row, col;
       deinterlaceAddress(addr, &row, &col);
@@ -608,36 +689,85 @@ bool AppleDisplay::needsRedraw()
    */
 
   if (dirty) {
-    // Figure out what graphics mode we're in and redraw it in its entirety.
+    // Build the switch state for each of the 192 visible scanlines from the
+    // MMU's transition log. A scanline is scanned at cycle (line * 65) into
+    // its frame; NTSC //e video is 65 cycles/line and 262 lines (17030
+    // cycles) per frame. We render the last COMPLETE frame relative to the
+    // current cycle, so the picture is coherent rather than torn.
+    const int64_t kCyclesPerLine = 65;
+    const int64_t kCyclesPerFrame = 17030;
+    int64_t now = g_cpu->cycles;
+    int64_t frameStart = now - (now % kCyclesPerFrame) - kCyclesPerFrame;
 
-    if ((*switches) & S_TEXT) {
-      if ((*switches) & S_80COL) {
-	redraw80ColumnText(0);
-      } else {
-	redraw40ColumnText(0);
-      }
-      
-      return true;
+    uint16_t lineSw[192];
+    bool uniform = true;
+    for (int y = 0; y < 192; y++) {
+      lineSw[y] = ((AppleMMU *)mmu)->switchesAtCycle(frameStart + y * kCyclesPerLine);
+      if (lineSw[y] != lineSw[0])
+        uniform = false;
     }
 
-    // Not text mode - what mode are we in?
-    if ((*switches) & S_HIRES) {
-      redrawHires();
+    if (uniform) {
+      // The common case: one video mode for the whole frame. Use the live
+      // switches pointer and the original whole-frame path, byte-for-byte
+      // as before -- ordinary software is completely unaffected by the
+      // per-scanline machinery below.
+      renderFrameWithSwitches();
     } else {
-      redrawLores();
-    }
-
-    // Mixed graphics modes: draw text @ bottom
-    if ((*switches) & S_MIXED) {
-      if ((*switches) & S_80COL) {
-	redraw80ColumnText(20);
-      } else {
-	redraw40ColumnText(20);
+      // A mid-frame ("VBL-timed") mode change: render the frame in
+      // horizontal bands, each band a run of scanlines sharing one switch
+      // state. Aim the switches pointer at the band's state and narrow the
+      // clip so a whole-frame renderer only paints that band's rows.
+      uint16_t *savedSwitches = switches;
+      int y = 0;
+      while (y < 192) {
+        int y1 = y + 1;
+        while (y1 < 192 && lineSw[y1] == lineSw[y])
+          y1++;
+        uint16_t bandSw = lineSw[y];
+        clipTop = y;
+        clipBottom = y1;
+        switches = &bandSw;
+        renderFrameWithSwitches();
+        y = y1;
       }
+      switches = savedSwitches;
+      clipTop = 0;
+      clipBottom = 192;
     }
   }
 
   return dirty;
+}
+
+// The original whole-frame dispatch, factored out. Reads (*switches), which
+// the caller may temporarily aim at a band's state.
+void AppleDisplay::renderFrameWithSwitches()
+{
+  if ((*switches) & S_TEXT) {
+    if ((*switches) & S_80COL) {
+      redraw80ColumnText(0);
+    } else {
+      redraw40ColumnText(0);
+    }
+    return;
+  }
+
+  // Not text mode - what mode are we in?
+  if ((*switches) & S_HIRES) {
+    redrawHires();
+  } else {
+    redrawLores();
+  }
+
+  // Mixed graphics modes: draw text @ bottom
+  if ((*switches) & S_MIXED) {
+    if ((*switches) & S_80COL) {
+      redraw80ColumnText(20);
+    } else {
+      redraw40ColumnText(20);
+    }
+  }
 }
 
 void AppleDisplay::didRedraw()

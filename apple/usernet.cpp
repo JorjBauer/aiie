@@ -221,13 +221,22 @@ void UserNet::queueFrame(const uint8_t *frame, uint16_t len) {
   qlen[qTail] = len;
   qTail = (uint8_t)((qTail + 1) % USERNET_QUEUE);
 }
-uint16_t UserNet::toApple(uint8_t *buf, uint16_t maxLen) {
+int UserNet::toApple(uint8_t *buf, uint16_t maxLen) {
   if (qHead == qTail) return 0;
   uint16_t len = qlen[qHead];
-  if (len > maxLen) len = maxLen;
+  // A frame that does not fit stays queued, and the caller is told how big it
+  // is. Truncating instead would hand the Apple a frame that fails its own
+  // checksum, and since nothing here retransmits toward the Apple (sendTcp has
+  // already advanced sndNext), the payload would be gone for good and the flow
+  // would hang. The caller either waits for room or calls dropFrame().
+  if (len > maxLen) return -(int)len;
   memcpy(buf, q[qHead], len);
   qHead = (uint8_t)((qHead + 1) % USERNET_QUEUE);
-  return len;
+  return (int)len;
+}
+void UserNet::dropFrame() {
+  if (qHead == qTail) return;
+  qHead = (uint8_t)((qHead + 1) % USERNET_QUEUE);
 }
 uint16_t UserNet::ethHeader(uint8_t *out, const uint8_t *dstMac, uint16_t ethertype) {
   memcpy(out, dstMac, 6);

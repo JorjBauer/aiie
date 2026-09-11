@@ -14,8 +14,13 @@ extern "C"
 #include "wsola-speaker.h"
 #include "applevm.h"
 
-#define HIGHVAL ((int16_t)((0x4FFF) >> (15-g_volume)))
-#define LOWVAL  ((int16_t)(-((0x4FFF) >> (15-g_volume))))
+// Volume 0..15 maps LINEARLY to amplitude. The old form shifted 0x4FFF
+// right by (15 - g_volume), which HALVES the level per step: by mid-scale
+// it was already near -36 dB, so anything under ~60% was effectively muted
+// and only the top few steps carried any level. A straight proportion of
+// full scale keeps the whole range usable (step 1 is ~1/15, 15 is full).
+#define HIGHVAL ((int16_t)(((int32_t)0x4FFF * (g_volume)) / 15))
+#define LOWVAL  ((int16_t)(-(((int32_t)0x4FFF * (g_volume)) / 15)))
 
 #define SDLSIZE (2048)
 #define AUDIO_SAMPLE_RATE_EXACT 44100

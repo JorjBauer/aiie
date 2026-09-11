@@ -578,7 +578,7 @@ uint8_t Cpu::step()
     break;
   case A_ZPREL:
     // Two params - zero page and relative.
-    param = (int8_t) readmem(pc++); // a zero-page memory location
+    param = readmem(pc++); // a zero-page memory location
     zprelParam2 = (int8_t)readmem(pc++); // a relative branch destination
     zprelParam2 += pc;
     break;
@@ -1031,7 +1031,9 @@ uint8_t Cpu::step()
 	}
 	Cout = (Aout >= 0x100) ? 1 : 0;
 
-	B = readmem(param);
+	// Restore the raw operand rather than re-reading it; a second
+	// bus read would double any I/O side effects.
+	B ^= 0xFF;
 	int8_t AL = (a & 0x0F) - (B & 0x0F) + (Cin - 1);
 	Aout = a - B + Cin - 1;
 	if (Aout < 0) {

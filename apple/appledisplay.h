@@ -71,11 +71,24 @@ class AppleDisplay : public VMDisplay{
   void redrawHires();
   void redrawLores();
 
+  // Draw one whole frame from whatever (*switches) currently points at.
+  // This is the original needsRedraw() body, factored out so it can be
+  // called once (a frame with a single mode) or once per horizontal band
+  // (a frame with mid-frame mode changes), with the switches pointer aimed
+  // at the band's state and the clip narrowed to the band.
+  void renderFrameWithSwitches();
+
  private:
   volatile bool dirty;
   AiieRect dirtyRect;
 
   uint16_t *switches; // pointer to the MMU's switches
+
+  // Pixel clip band, in Apple scanline coordinates [top, bottom). Full
+  // screen (0..191) except while rendering a single band; see needsRedraw()
+  // and the drawApplePixel / cachePixelClipped macros.
+  int clipTop;
+  int clipBottom;
 };
 
 #endif

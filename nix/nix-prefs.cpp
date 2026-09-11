@@ -7,8 +7,24 @@
 #include <pwd.h>
 #include <string.h>
 
+// The override set by --prefs, or NULL for ~/.aiie. Owned here and
+// never freed: it lives as long as the process does.
+static char *g_prefsPathOverride = NULL;
+
+void NixPrefs::setPath(const char *path)
+{
+  if (g_prefsPathOverride)
+    free(g_prefsPathOverride);
+  g_prefsPathOverride = (path && *path) ? strdup(path) : NULL;
+}
+
 NixPrefs::NixPrefs()
 {
+  if (g_prefsPathOverride) {
+    prefsFilePath = strdup(g_prefsPathOverride);
+    return;
+  }
+
   struct passwd *pw = getpwuid(getuid());
 
   char *homedir = pw->pw_dir;

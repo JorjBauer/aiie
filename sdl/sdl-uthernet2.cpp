@@ -248,7 +248,12 @@ int SDLUthernet2::sendRawFrame(const uint8_t *frame, uint16_t len)
 
 int SDLUthernet2::recvRawFrame(uint8_t *buf, uint16_t maxLen)
 {
-  return (int)usernet.toApple(buf, maxLen);
+  return usernet.toApple(buf, maxLen);
+}
+
+void SDLUthernet2::dropRawFrame()
+{
+  usernet.dropFrame();
 }
 
 void SDLUthernet2::socketConnect(uint8_t sock, const uint8_t ip[4],

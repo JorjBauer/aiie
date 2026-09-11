@@ -49,7 +49,7 @@ TEENSY_SDIMAGE ?= AIIE.HEX
 # board in bootloader mode (you may need to press the button on the Teensy).
 PORT          ?=
 
-.PHONY: roms clean teensy teensy-libs teensy-upload teensy-install teensy-clean teensy-sdimage
+.PHONY: test-video7 test-vsplit test-floatingbus roms clean teensy teensy-libs teensy-upload teensy-install teensy-clean teensy-sdimage
 
 all:
 	@echo You want \'make sdl\', \'make linuxfb\', or \'make teensy\'.
@@ -113,6 +113,56 @@ DISKIITEST_FLAGS = -Wall -g -I .. -I . -I apple -I nix -I sdl \
 test-diskii: roms $(DISKIITEST_SRCS) tests/test-diskii.cpp
 	g++ $(DISKIITEST_FLAGS) $(DISKIITEST_SRCS) -o tests/test-diskii
 	./tests/test-diskii
+
+# The Video7 / A2DVI color text renderer, checked against a recording
+# display: see tests/test-video7.cpp and video7.md. Links the real
+# AppleDisplay and AppleMMU, so the soft-switch sequence under test is
+# the one a program actually issues.
+VIDEO7TEST_SRCS = tests/test-video7.cpp \
+                  apple/appledisplay.cpp apple/applemmu.cpp \
+                  apple/noslotclock.cpp nix/nix-clock.cpp \
+                  cpu.cpp vmram.cpp lcg.cpp LRingBuffer.cpp \
+                  nix/nix-filemanager.cpp physicaldisplay.cpp
+VIDEO7TEST_FLAGS = -Wall -g -I .. -I . -I apple -I nix -I sdl \
+                   -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE
+
+test-video7: roms $(VIDEO7TEST_SRCS)
+	g++ $(VIDEO7TEST_FLAGS) $(VIDEO7TEST_SRCS) -o tests/test-video7
+	./tests/test-video7
+
+# Mid-frame video mode changes, rendered as horizontal scanline bands: see
+# tests/test-vsplit.cpp. A real //e reads the soft switches as the raster
+# goes, so a demo that flips TEXT part way down the frame gets graphics
+# above the flip and text below it; aiie replays the MMU's cycle-stamped
+# switch log across the 192 visible lines to reproduce that. Same shape as
+# test-video7: the real AppleDisplay and AppleMMU against a display that
+# records every pixel, driven through the soft switches a program uses.
+VSPLITTEST_SRCS = tests/test-vsplit.cpp \
+                  apple/appledisplay.cpp apple/applemmu.cpp \
+                  apple/noslotclock.cpp nix/nix-clock.cpp \
+                  cpu.cpp vmram.cpp lcg.cpp LRingBuffer.cpp \
+                  nix/nix-filemanager.cpp physicaldisplay.cpp
+VSPLITTEST_FLAGS = $(VIDEO7TEST_FLAGS)
+
+test-vsplit: roms $(VSPLITTEST_SRCS)
+	g++ $(VSPLITTEST_FLAGS) $(VSPLITTEST_SRCS) -o tests/test-vsplit
+	./tests/test-vsplit
+
+# The video scanner address and the floating bus: see
+# tests/test-floatingbus.cpp. Reading a soft switch that drives nothing
+# returns the byte the scanner is fetching, which is how software finds the
+# raster without an interrupt. This used to be the constant 0, and a program
+# that spins waiting for a known byte hung forever.
+FLOATBUSTEST_SRCS = tests/test-floatingbus.cpp \
+                    apple/appledisplay.cpp apple/applemmu.cpp \
+                    apple/noslotclock.cpp nix/nix-clock.cpp \
+                    cpu.cpp vmram.cpp lcg.cpp LRingBuffer.cpp \
+                    nix/nix-filemanager.cpp physicaldisplay.cpp
+FLOATBUSTEST_FLAGS = $(VIDEO7TEST_FLAGS)
+
+test-floatingbus: roms $(FLOATBUSTEST_SRCS)
+	g++ $(FLOATBUSTEST_FLAGS) $(FLOATBUSTEST_SRCS) -o tests/test-floatingbus
+	./tests/test-floatingbus
 
 roms: apple2e.rom disk.rom parallel.rom HDDRVR.BIN mouse.rom
 	./util/genrom.pl apple2e.rom disk.rom parallel.rom HDDRVR.BIN mouse.rom

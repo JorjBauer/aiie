@@ -11,6 +11,7 @@
 #include <netinet/in.h>
 
 #include <string.h>
+#include <errno.h>
 
 Disassembler dis;
 
@@ -46,7 +47,21 @@ Debugger::Debugger()
   steppingOut = false;
   singleStep = false;
 
+  sd = -1;
+}
+
+void Debugger::listenOn(uint16_t port)
+{
 #ifndef __EMSCRIPTEN__
+  if (sd != -1)
+    return; // already listening
+  if (port == 0) {
+    printf("Debug socket disabled\n");
+    fflush(stdout);
+    fflush(stdout);
+    return;
+  }
+
   struct sockaddr_in server;
   int optval;
 
@@ -59,20 +74,28 @@ Debugger::Debugger()
   memset(&server, 0, sizeof(struct sockaddr_in));
   server.sin_family = AF_INET;
   server.sin_addr.s_addr = INADDR_ANY;
-  server.sin_port = htons(12345);
+  server.sin_port = htons(port);
 
   if (bind(sd, (struct sockaddr *) &server, sizeof(server)) < 0) {
-    perror("error binding to debug socket");
+    // Almost always a second instance on the same port. Say which port,
+    // and how to move: dying with a bare "Address already in use" makes
+    // this look like a bug rather than a collision.
+    fprintf(stderr, "error binding debug socket to port %u: %s\n",
+	    (unsigned)port, strerror(errno));
+    fprintf(stderr, "  (another aiie is probably using it; "
+	    "pass -p <port> to move, or -p 0 to disable)\n");
     exit(1);
   }
 
   listen(sd,5);
 
+  printf("Debug socket listening on port %u\n", (unsigned)port);
+  fflush(stdout);
+  fflush(stdout);
+
   if (!pthread_create(&listenThreadID, NULL, &cpu_thread, (void *)this)) {
     ; // ... what?
   }
-#else
-  sd = -1;
 #endif
 }
 
@@ -245,7 +268,8 @@ void Debugger::step()
     do {
       GETCH;
     } while (b != 'c' && // continue (with any breakpoint set)
-	     b != 'q' && // quit
+	     b != 'q' && // quit (close the socket)
+	     b != 'Q' && // quit the emulator, no confirmation
 	     b != 's' && // single step
 	     b != 'S' && // step out
 	     b != 'b' && // set breakpoint
@@ -290,6 +314,55 @@ void Debugger::step()
       removeAllBreakpoints();
       close(cd); cd=-1;
       break;
+
+    case 'Q': // Quit the emulator, confirming HERE rather than on screen
+      // The window's Cmd-Q pops a native "are you sure" modal, because
+      // Cmd-Q sits next to Cmd-W and losing in-flight disk writes to a
+      // slip is expensive. That modal is useless to a socket client:
+      // nobody is at the keyboard to answer it, and it would hang the
+      // emulator waiting. So the confirmation happens on the socket
+      // instead -- same question, asked of whoever actually issued the
+      // command. Answering anything but 'y' leaves the machine running.
+      //
+      // The answer may ride along on the command line ("Q y"), so a
+      // script needs one line rather than a dialogue.
+      //
+      // A confirmed quit is exit(0), exactly as the GUI's is, which
+      // means atexit() runs and PREFERENCES ARE WRITTEN: a scratch
+      // instance quitting this way saves its own disks and window size
+      // over whatever was there.
+      GETLN;
+      {
+	char answer = buf[0];
+	// skip leading spaces of an inline answer
+	for (const char *q = buf; *q; q++) {
+	  if (*q != ' ' && *q != '\t') { answer = *q; break; }
+	  answer = 0;
+	}
+	if (answer != 'y' && answer != 'Y') {
+	  if (answer) {
+	    snprintf(buf, sizeof(buf), "Not quitting\012\015");
+	    write(cd, buf, strlen(buf));
+	    goto doover;
+	  }
+	  snprintf(buf, sizeof(buf),
+		   "Really quit the emulator? Unsaved disk changes will be"
+		   " lost. [y/N] ");
+	  write(cd, buf, strlen(buf));
+	  GETLN;
+	  if (buf[0] != 'y' && buf[0] != 'Y') {
+	    snprintf(buf, sizeof(buf), "Not quitting\012\015");
+	    write(cd, buf, strlen(buf));
+	    goto doover;
+	  }
+	}
+      }
+      snprintf(buf, sizeof(buf), "Quitting\012\015");
+      write(cd, buf, strlen(buf));
+      printf("Quit requested over the debug socket\n");
+      fflush(stdout);
+      close(cd); cd=-1;
+      exit(0);
       
     case 's':
       singleStep = true; // for when any breakpoint is set: just step once
@@ -418,7 +491,9 @@ void Debugger::step()
         if (col80) {
           dumpText80(cd, mmu);
         } else {
-          dumpText40(cd, mmu, page2 ? 0x800 : 0x400);
+          // 80STORE on pins the scanner to page 1; PAGE2 is then only a
+          // main/aux steering bit for the CPU's $0400-$07FF accesses.
+          dumpText40(cd, mmu, (page2 && !store80) ? 0x800 : 0x400);
         }
       }
       goto doover;
@@ -506,6 +581,7 @@ void Debugger::step()
       break;
       
       // ... ?
+      //   Q - quit the emulator immediately (no confirmation dialog)
       //   b - set breakpoint
       //   s - step over
       //   S - step out

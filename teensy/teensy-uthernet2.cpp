@@ -230,7 +230,12 @@ int TeensyUthernet2::sendRawFrame(const uint8_t *frame, uint16_t len)
 
 int TeensyUthernet2::recvRawFrame(uint8_t *buf, uint16_t maxLen)
 {
-  return (int)usernet.toApple(buf, maxLen);
+  return usernet.toApple(buf, maxLen);
+}
+
+void TeensyUthernet2::dropRawFrame()
+{
+  usernet.dropFrame();
 }
 
 void TeensyUthernet2::wifiJoin(const char *ssid, const char *pass)

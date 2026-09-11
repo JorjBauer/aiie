@@ -530,12 +530,28 @@ int main(int argc, char *argv[])
    *   -8 / -9         select the 8875 / 9341 display
    *   -hd <image>     connect a hard-drive image (repeat for the 2nd HD drive)
    *   --cycle-beacon  print a cycle-count line to stderr on writes to $C074
+   *   -p <port>       debug socket port (default 12345; 0 disables it)
+   *   -t <title>      window title (default "Aiie!"), to tell instances apart
+   *   --video7        turn the BIOS Video7 color-text setting on
+   *   --prefs <file>  read and write settings here instead of ~/.aiie
    *   <image>         positional floppy disk image (drive 1, then drive 2)
    * The images are stashed here and actually inserted once the VM exists. */
   const char *floppy[2] = { NULL, NULL };
   const char *hd[2]     = { NULL, NULL };
   int numFloppy = 0, numHd = 0;
   bool noHd = false;
+  // The debug socket's port. Several instances at once is normal now
+  // (one running a slideshow, one being poked at), and they collided on
+  // the hardcoded 12345 -- the second one died at startup, which looks
+  // nothing like a port collision from the outside.
+  long debugPort = 12345;
+  // Window title. Several instances at once means several identical
+  // "Aiie!" windows; naming them is how you tell which is which.
+  const char *windowTitle = NULL;
+  // Video7 color text, overriding whatever the saved preferences hold.
+  // Applied after readPrefs() so the flag wins, and it is the same
+  // setting the BIOS toggles, so quitting saves it like any other.
+  bool forceVideo7 = false;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "-9")) {
       use8875 = false;
@@ -560,9 +576,41 @@ int main(int argc, char *argv[])
     else if (!strcmp(argv[i], "-cycle-beacon") || !strcmp(argv[i], "--cycle-beacon")) {
       g_cycleBeacon = true;
     }
+    else if (!strcmp(argv[i], "-t") || !strcmp(argv[i], "--title")) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "Error: %s requires a window title\n", argv[i]);
+        exit(1);
+      }
+      windowTitle = argv[++i];
+    }
+    else if (!strcmp(argv[i], "--video7")) {
+      forceVideo7 = true;
+    }
+    else if (!strcmp(argv[i], "--prefs")) {
+      // Set before anything constructs a NixPrefs. Quitting always
+      // writes preferences, so pointing a scratch instance at its own
+      // file is what keeps it from saving its disks over the real ones.
+      if (i + 1 >= argc) {
+        fprintf(stderr, "Error: %s requires a filename\n", argv[i]);
+        exit(1);
+      }
+      NixPrefs::setPath(argv[++i]);
+    }
+    else if (!strcmp(argv[i], "-p") || !strcmp(argv[i], "--debug-port")) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "Error: %s requires a port number (0 disables the debug socket)\n", argv[i]);
+        exit(1);
+      }
+      char *end = NULL;
+      debugPort = strtol(argv[++i], &end, 10);
+      if (!end || *end || debugPort < 0 || debugPort > 65535) {
+        fprintf(stderr, "Error: '%s' is not a port number in 0..65535\n", argv[i]);
+        exit(1);
+      }
+    }
     else if (argv[i][0] == '-') {
       fprintf(stderr, "Unknown option '%s'\n", argv[i]);
-      fprintf(stderr, "Usage: %s [-8|-9] [-hd <image>] [-hd <image>] [-nohd] [--cycle-beacon] [floppy1] [floppy2]\n", argv[0]);
+      fprintf(stderr, "Usage: %s [-8|-9] [-hd <image>] [-hd <image>] [-nohd] [--cycle-beacon] [-p <port>] [-t <title>] [--video7] [--prefs <file>] [floppy1] [floppy2]\n", argv[0]);
       exit(1);
     }
     else if (numFloppy < 2) {
@@ -572,6 +620,18 @@ int main(int argc, char *argv[])
       fprintf(stderr, "Error: at most 2 floppy disks are supported\n");
       exit(1);
     }
+  }
+
+  // Now that argv has been read, the debug socket can pick its port.
+  // AIIE_DEBUG_PORT does the same thing for scripts that would rather
+  // not rewrite a command line; the flag wins if both are given.
+  {
+    const char *e = getenv("AIIE_DEBUG_PORT");
+    if (e && debugPort == 12345) {
+      long v = strtol(e, NULL, 10);
+      if (v >= 0 && v <= 65535) debugPort = v;
+    }
+    debugger.listenOn((uint16_t)debugPort);
   }
 
 #ifdef __EMSCRIPTEN__
@@ -596,6 +656,8 @@ int main(int argc, char *argv[])
   g_filemanager = new NixFileManager();
 
   g_display = new SDLDisplay();
+  if (windowTitle)
+    SDL_SetWindowTitle(((SDLDisplay *)g_display)->getWindow(), windowTitle);
   //  g_displayType = m_blackAndWhite;
 
   g_ui = new AppleUI();
@@ -642,6 +704,9 @@ int main(int argc, char *argv[])
         strncpy(g_natSubnet, p.natSubnet, sizeof(g_natSubnet)-1); g_natSubnet[sizeof(g_natSubnet)-1]=0;
       }
       }
+      if (p.version >= 13) {
+        g_video7 = p.video7 ? true : false;
+      }
     }
   }
 
@@ -677,6 +742,11 @@ int main(int argc, char *argv[])
 
   /* Load remaining prefs (disk images, window size) now that the VM exists */
   readPrefs();
+
+  // --video7 overrides the saved setting, and has to land after
+  // readPrefs() because that is what loads it.
+  if (forceVideo7)
+    g_video7 = true;
   /* -nohd disconnects any hard drives that prefs restored (e.g. from an earlier
    * -hd run), for a clean floppy-only boot. */
   if (noHd) {
@@ -772,6 +842,9 @@ void readPrefs()
         strncpy(g_natSubnet, p.natSubnet, sizeof(g_natSubnet)-1); g_natSubnet[sizeof(g_natSubnet)-1]=0;
       }
     }
+    if (p.version >= 13) {
+      g_video7 = p.video7 ? true : false;
+    }
     if (p.disk1[0]) {
       ((AppleVM *)g_vm)->insertDisk(0, p.disk1);
       strcpy(disk1name, p.disk1);
@@ -829,6 +902,7 @@ void writePrefs()
   strncpy(p.natSubnet, g_natSubnet, sizeof(p.natSubnet)); p.natSubnet[sizeof(p.natSubnet)-1]=0;
 
   p.ramworksSize = g_ramworksSize;
+  p.video7 = g_video7 ? 1 : 0;
 
   strcpy(p.disk1, ((AppleVM *)g_vm)->DiskName(0));
   strcpy(p.disk2, ((AppleVM *)g_vm)->DiskName(1));

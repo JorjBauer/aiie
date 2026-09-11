@@ -38,6 +38,8 @@ char g_natSubnet[16] = "10.0.2.0";  // user-mode NAT /24 network (gw .2, dns .3,
 
 uint8_t g_ramworksSize = 0; // 0=none, else total aux MB (1, 3, 16)
 
+bool g_video7 = false; // Video7/A2DVI color text: off unless the user asks
+
 #ifdef TEENSYDUINO
 EXTMEM
 #endif

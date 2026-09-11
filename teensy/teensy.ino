@@ -377,6 +377,7 @@ void setup()
         strncpy(g_natSubnet, p.natSubnet, sizeof(g_natSubnet)-1); g_natSubnet[sizeof(g_natSubnet)-1]=0;
       }
       if (p.version >= 7)          g_ramworksSize = p.ramworksSize;
+      if (p.version >= 13)         g_video7 = p.video7 ? true : false;
     }
   }
 
@@ -922,6 +923,8 @@ void readPrefs()
     }
 
     g_ramworksSize = p.ramworksSize;
+    if (p.version >= 13)
+      g_video7 = p.video7 ? true : false;
 
   } else {
     // Set some defaults!
@@ -932,6 +935,7 @@ void readPrefs()
     g_luminanceCutoff = 127;
     g_invertPaddleX = g_invertPaddleY = false;
     g_ramworksSize = 0;
+    g_video7 = false;   // a stock //e has no RGB card
 
   }
   // Update the paddles with the new inversion state
@@ -979,6 +983,7 @@ void writePrefs()
   strncpy(p.natSubnet, g_natSubnet, sizeof(p.natSubnet)); p.natSubnet[sizeof(p.natSubnet)-1]=0;
 
   p.ramworksSize = g_ramworksSize;
+  p.video7 = g_video7 ? 1 : 0;
 
   np.writePrefs(&p);
 }

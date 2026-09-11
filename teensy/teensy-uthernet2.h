@@ -87,6 +87,7 @@ class TeensyUthernet2 : public Uthernet2Interface, public EspTransport {
   // which NATs to the ESP's sockets.
   virtual int sendRawFrame(const uint8_t *frame, uint16_t len);
   virtual int recvRawFrame(uint8_t *buf, uint16_t maxLen);
+  virtual void dropRawFrame();
 
   virtual void wifiJoin(const char *ssid, const char *pass);
   virtual int  wifiStatus(uint8_t ip[4]);

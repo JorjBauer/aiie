@@ -6,7 +6,7 @@
 // Fun trivia: the Apple //e was in production from January 1983 to
 // November 1993. And the 65C02 in them supported weird BCD math modes.
 #define PREFSMAGIC 0x01831093
-#define PREFSVERSION 12
+#define PREFSVERSION 13
 
 #ifndef MAXPATH
 #define MAXPATH 255
@@ -69,7 +69,12 @@ typedef struct _prefs {
   // and the footer do not move.
   char natSubnet[16];
 
-  char reserved[MAXPATH - 4 - 5 - 1 - 2 - 1 - 33 - 64 - 2 - 48 - 16]; // 255 is the Teensy MAXPATH size (less fields above)
+  // v13+: Video7 / A2DVI foreground-background color text. 0 = off (a stock
+  // //e with no RGB card), 1 = on. Carved from reserved so the disk/hd path
+  // offsets and the footer do not move.
+  uint8_t video7;
+
+  char reserved[MAXPATH - 4 - 5 - 1 - 2 - 1 - 33 - 64 - 2 - 48 - 16 - 1]; // 255 is the Teensy MAXPATH size (less fields above)
 
   char disk1[MAXPATH];
   char disk2[MAXPATH];

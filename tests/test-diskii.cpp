@@ -48,6 +48,14 @@ PhysicalSpeaker *g_speaker = NULL;
 PhysicalPaddles *g_paddles = NULL;
 PhysicalPrinter *g_printer = NULL;
 VMui *g_ui = &s_ui;
+
+// A Disk II read of an odd address leaves the floating bus on the data bus
+// (UTA2E Table 9.1, note 2), and the real one lives in AppleMMU, which this
+// bench deliberately does not link: it is a disk bench, and the sequencer
+// behavior under test must not depend on what happens to be on screen. A
+// quiet bus is the right isolation here. See tests/test-floatingbus.cpp for
+// the real thing.
+uint8_t appleFloatingBus() { return 0; }
 int8_t g_volume = 0;
 uint8_t g_displayType = 0;
 VMRam g_ram;

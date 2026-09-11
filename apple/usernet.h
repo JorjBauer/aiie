@@ -78,8 +78,17 @@ class UserNet {
 
   // One outbound Ethernet frame from the Apple. May enqueue reply frames.
   void fromApple(const uint8_t *frame, uint16_t len);
-  // Hand one queued frame to the Apple; returns its length (0 if none waiting).
-  uint16_t toApple(uint8_t *buf, uint16_t maxLen);
+  // Hand one queued frame to the Apple. Returns its length, 0 if none is
+  // waiting, or NEGATIVE if the head frame is longer than maxLen: the frame
+  // stays queued and -(return) is the size a buffer would need. It is never
+  // truncated, because half an Ethernet frame is not a smaller frame, it is a
+  // corrupt one, and a spliced TCP flow cannot recover from losing it (see
+  // dropFrame).
+  int toApple(uint8_t *buf, uint16_t maxLen);
+  // Discard the head frame. For a caller whose receive buffer can never be
+  // large enough for it, which is what real hardware does at the wire when a
+  // frame will not fit; without it that frame blocks every one behind it.
+  void dropFrame();
   // Service host sockets: pull inbound data/close, complete connects, time out.
   void tick();
 

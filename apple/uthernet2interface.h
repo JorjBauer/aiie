@@ -85,10 +85,17 @@ class Uthernet2Interface {
   /* MAC-RAW transport. In MAC-RAW mode the Apple runs its own TCP/IP stack and
    * moves whole Ethernet frames; there are no per-peer sockets. sendRawFrame
    * hands one outbound frame to the backend; recvRawFrame drains one waiting
-   * inbound frame into buf (returns its length, 0 if none). Backends that do
-   * not support MAC-RAW leave these as no-ops. */
+   * inbound frame into buf. It returns the frame's length, 0 if none is
+   * waiting, or NEGATIVE if the waiting frame is longer than maxLen, in which
+   * case the frame is left intact for a later call and -(return) is the buffer
+   * size it needs. A frame is never truncated to fit: the Apple would reject
+   * the fragment and no layer here retransmits it. When the caller's buffer can
+   * never grow to that size, dropRawFrame discards the frame so it stops
+   * blocking the ones behind it. Backends that do not support MAC-RAW leave
+   * these as no-ops. */
   virtual int sendRawFrame(const uint8_t *frame, uint16_t len) { return 0; }
   virtual int recvRawFrame(uint8_t *buf, uint16_t maxLen) { return 0; }
+  virtual void dropRawFrame() { }
 
   /* WiFi control for backends with a real radio (the Teensy's ESP). The BIOS
    * uses these to configure and show connection status. Backends with no radio

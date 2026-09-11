@@ -8,6 +8,7 @@
 #endif
 
 #include "applemmu.h"
+
 #include "applemmu-rom.h"
 #include "physicalspeaker.h"
 #include "cpu.h"
@@ -154,9 +155,22 @@ static uint16_t _slotRomPageForSlot(uint8_t slotnum)
   return _pageNumberForRam(0xC0 + slotnum, 0);
 }
 
+// THE ONE MACHINE. There is exactly one AppleMMU in a running program, the
+// same way there is one g_cpu and one g_display, and a card that needs the
+// floating bus has no pointer to it. Registered by the constructor rather
+// than reached through g_vm because the disk benches run a DiskII with no
+// VM at all, and answering 0 there is right where crashing is not.
+static AppleMMU *g_theAppleMMU = NULL;
+
 AppleMMU::AppleMMU(AppleDisplay *display)
 {
   anyKeyDown = false;
+
+  videoLogHead = 0;
+  videoLogCount = 0;
+  lastLoggedSwitches = 0xFFFF; // force the first logVideoState() to record
+
+  g_theAppleMMU = this; // see appleFloatingBus()
 
   for (int8_t i=0; i<=7; i++) {
     slots[i] = NULL;
@@ -183,6 +197,7 @@ AppleMMU::AppleMMU(AppleDisplay *display)
 
 AppleMMU::~AppleMMU()
 {
+  if (g_theAppleMMU == this) g_theAppleMMU = NULL;
   delete display;
   if (auxExpansion) {
 #ifdef TEENSYDUINO
@@ -271,27 +286,39 @@ bool AppleMMU::Deserialize(int8_t fd)
     deserialize16(savedNumBanks);
     deserialize32(bytes);
 
-    // (Re)allocate the expansion buffer to match the saved bank count.
-    if (auxExpansion) {
+    // Size the expansion buffer to the saved bank count. When the size is
+    // unchanged (the common case: restoring a snapshot taken on this same
+    // configuration) reuse the buffer in place rather than free+malloc: under
+    // WASM heap pressure that churn could fail, and the old silent fallback
+    // to a single aux bank made "bank 1" (code) and "bank 3" (heap) alias
+    // onto the same memory, corrupting relocated code as the heap grew.
+    uint16_t newBanks = (savedNumBanks < 1) ? 1 : savedNumBanks;
+    uint32_t want = (newBanks > 1) ? (uint32_t)(newBanks - 1) * 0x10000 : 0;
+    uint32_t have = (auxExpansion && numAuxBanks > 1) ?
+      (uint32_t)(numAuxBanks - 1) * 0x10000 : 0;
+    if (want != have) {
+      if (auxExpansion) {
 #ifdef TEENSYDUINO
-      extmem_free(auxExpansion);
+        extmem_free(auxExpansion);
 #else
-      free(auxExpansion);
+        free(auxExpansion);
 #endif
-      auxExpansion = NULL;
-    }
-    numAuxBanks = (savedNumBanks < 1) ? 1 : savedNumBanks;
-    if (numAuxBanks > 1) {
-      uint32_t want = (uint32_t)(numAuxBanks - 1) * 0x10000;
+        auxExpansion = NULL;
+      }
+      if (want) {
 #ifdef TEENSYDUINO
-      auxExpansion = (uint8_t *)extmem_malloc(want);
+        auxExpansion = (uint8_t *)extmem_malloc(want);
 #else
-      auxExpansion = (uint8_t *)malloc(want);
+        auxExpansion = (uint8_t *)malloc(want);
 #endif
-      if (!auxExpansion) {
-        numAuxBanks = 1; // couldn't fit; fall back to stock aux
+        if (!auxExpansion) {
+          printf("RamWorks: could not allocate %u bytes on restore; falling back to stock aux\n",
+                 (unsigned)want);
+          newBanks = 1; // couldn't fit; fall back to stock aux
+        }
       }
     }
+    numAuxBanks = newBanks;
 
     if (bytes) {
       if (auxExpansion && numAuxBanks > 1 &&
@@ -345,7 +372,9 @@ uint8_t AppleMMU::read(uint16_t address)
 
   if (address >= 0xC000 &&
       address <= 0xC0FF) {
-    return readSwitches(address);
+    uint8_t rv = readSwitches(address);
+    logVideoState();  // capture any video-switch change this access made
+    return rv;
   }
 
   // If C800-CFFF isn't latched to a slot ROM, and we try to
@@ -410,7 +439,9 @@ void AppleMMU::write(uint16_t address, uint8_t v)
 
   if (address >= 0xC000 &&
       address <= 0xC0FF) {
-    return writeSwitches(address, v);
+    writeSwitches(address, v);
+    logVideoState();  // capture any video-switch change this access made
+    return;
   }
 
   // Cards that intercept their slot ROM space get writes routed.
@@ -490,6 +521,169 @@ void AppleMMU::resetDisplay()
 {
   updateMemoryPages();
   display->modeChange();
+}
+
+// Record the current switches word with a cycle stamp, but only when it has
+// actually changed since the last record. Called after every $C0xx access
+// (see read()/write()), which is the one point all the video switches funnel
+// through regardless of which handler (readSwitches / writeSwitches /
+// handleMemorySwitches) did the toggling.
+void AppleMMU::logVideoState()
+{
+  if (switches == lastLoggedSwitches)
+    return;
+  lastLoggedSwitches = switches;
+  videoLog[videoLogHead].cyc = g_cpu->cycles;
+  videoLog[videoLogHead].sw  = switches;
+  videoLogHead = (videoLogHead + 1) % kVideoLogSize;
+  if (videoLogCount < kVideoLogSize)
+    videoLogCount++;
+}
+
+// What were the switches at (or most recently before) cycle 'cyc'? Walks the
+// ring newest-to-oldest and returns the first entry at or before cyc. If the
+// log has nothing that old (or is empty), fall back to the live switches:
+// that is the pre-log behavior and is correct for a screen that has not
+// changed mode within the window.
+uint16_t AppleMMU::switchesAtCycle(int64_t cyc)
+{
+  int idx = videoLogHead;
+  for (int n = 0; n < videoLogCount; n++) {
+    idx = (idx == 0 ? kVideoLogSize : idx) - 1;
+    if (videoLog[idx].cyc <= cyc)
+      return videoLog[idx].sw;
+  }
+  return switches;
+}
+
+// THE FLOATING BUS: what the video scanner is fetching right now.
+//
+// The scanner and the 6502 take turns on the RAM, the scanner on one phase
+// of the 1MHz clock and the CPU on the other. An address in $C0xx that
+// drives nothing onto the data bus during the CPU's phase leaves the last
+// thing the scanner put there, so reading such an address hands back the
+// byte being displayed at that instant. Software uses it as a raster
+// position sensor: spin on $C070 until a known byte shows up and you know
+// exactly where the beam is, with no interrupt, no timer and no cycle
+// counting. A demo that draws a graphical banner across the top of the
+// screen above other graphics does exactly that, and against a constant it
+// spins forever and never draws anything.
+//
+// The equations below are the scanner's own, from Sather, UNDERSTANDING
+// THE APPLE IIe: the horizontal and vertical counter states (3-15, T3.2),
+// the HIRES TIME term (5-7, P3), the SUM adder (5-9), and the address
+// assembly (5-8, T5.1). They are spelled out bit by bit rather than folded
+// into arithmetic because that is the form the book states them in, and
+// because anyone who doubts one of these bits should be able to find it on
+// the page.
+//
+// PHASE. Line = cycles/65 and frame = 17030 cycles here, which is the same
+// mapping RDVBLBAR ($C019) and AppleDisplay::needsRedraw() use. All three
+// have to agree: software that finds the raster with this and then flips a
+// mode switch is relying on the renderer putting the switch where this
+// said the beam was.
+uint16_t AppleMMU::videoScannerAddress(int64_t cyc)
+{
+  const int kHClocks      =    65; // clocks per scan line, HBL included
+  const int kScanLines    =   262; // scan lines per frame, VBL included
+  const int kHClock0State =  0x18; // H[543210] = 011000 at clock 0
+  const int kHPEClock     =    40; // clock at which HPE goes low
+  const int kHPresetClock =    41; // clock at which the H state presets
+  const int kVLine0State  = 0x100; // V[543210CBA] at line 0
+  const int kVPresetLine  =   256; // line at which the V state presets
+
+  int64_t nCycles = cyc % (int64_t)(kHClocks * kScanLines);
+  if (nCycles < 0) nCycles += kHClocks * kScanLines; // a negative cycle count is not ours to judge
+
+  // horizontal state. The 40 displayed bytes of a line are fetched in the
+  // last 40 of its 65 clocks; the first 25 are HBL, where the scanner is
+  // still fetching, just from addresses nobody displays.
+  int nHClock = (int)((nCycles + kHPEClock) % kHClocks);
+  int nHState = kHClock0State + nHClock;
+  if (nHClock >= kHPresetClock)
+    nHState -= 1; // correct for the preset: there are two 0 states
+
+  int h_0 = (nHState >> 0) & 1;
+  int h_1 = (nHState >> 1) & 1;
+  int h_2 = (nHState >> 2) & 1;
+  int h_3 = (nHState >> 3) & 1;
+  int h_4 = (nHState >> 4) & 1;
+  int h_5 = (nHState >> 5) & 1;
+
+  // vertical state
+  int nVLine = (int)(nCycles / kHClocks);
+  int nVState = kVLine0State + nVLine;
+  if (nVLine >= kVPresetLine)
+    nVState -= kScanLines;
+
+  int v_A = (nVState >> 0) & 1;
+  int v_B = (nVState >> 1) & 1;
+  int v_C = (nVState >> 2) & 1;
+  int v_0 = (nVState >> 3) & 1;
+  int v_1 = (nVState >> 4) & 1;
+  int v_2 = (nVState >> 5) & 1;
+  int v_3 = (nVState >> 6) & 1;
+  int v_4 = (nVState >> 7) & 1;
+
+  bool hires = (switches & S_HIRES) && !(switches & S_TEXT);
+
+  // HIRES TIME (5-7, P3): in mixed mode the bottom four rows fetch out of
+  // text memory even though HIRES is still on.
+  if (hires && (switches & S_MIXED) && v_4 && v_2)
+    hires = false;
+
+  // the SUM adder (5-9)
+  int addend0 = 0x0D;
+  int addend1 =               (h_5 << 2) | (h_4 << 1) | (h_3 << 0);
+  int addend2 = (v_4 << 3) | (v_3 << 2) | (v_4 << 1) | (v_3 << 0);
+  int sum = (addend0 + addend1 + addend2) & 0x0F;
+
+  uint16_t a = 0;
+  a |= h_0 << 0;
+  a |= h_1 << 1;
+  a |= h_2 << 2;
+  a |= sum << 3;   // a3..a6
+  a |= v_0 << 7;
+  a |= v_1 << 8;
+  a |= v_2 << 9;
+
+  // 80STORE MUST BE OFF FOR PAGE2 TO SELECT A PAGE. With it on, PAGE2 is a
+  // main/aux steering bit for the CPU's own $0400-$07FF accesses and the
+  // scanner stays on page 1. Same rule the renderers follow: see
+  // AppleDisplay::redrawHires() and Apple //e Technical Note #3.
+  bool page2 = (switches & S_PAGE2) && !(switches & S_80STORE);
+
+  if (hires) {
+    a |= v_A << 10;
+    a |= v_B << 11;
+    a |= v_C << 12;
+    a |= (page2 ? 0 : 1) << 13;  // $2000
+    a |= (page2 ? 1 : 0) << 14;  // $4000
+  } else {
+    a |= (page2 ? 0 : 1) << 10;  // $0400
+    a |= (page2 ? 1 : 0) << 11;  // $0800
+  }
+
+  return a;
+}
+
+// The byte itself. readDirect() bypasses the switches and the soft-switch
+// dispatch, so this cannot recurse back into readSwitches().
+//
+// MAIN MEMORY, always. In 80-column modes the real scanner fetches aux and
+// main in the same clock and it is the main byte that is left on the bus
+// for the CPU, so this is right there too; what it does not model is the
+// IIgs, which is not this machine.
+uint8_t AppleMMU::floatingBus()
+{
+  return readDirect(videoScannerAddress(g_cpu->cycles), 0);
+}
+
+uint8_t appleFloatingBus()
+{
+  if (!g_theAppleMMU || !g_cpu)
+    return 0;
+  return g_theAppleMMU->floatingBus();
 }
 
 void AppleMMU::handleMemorySwitches(uint16_t address, uint16_t lastSwitch)
@@ -684,14 +878,21 @@ uint8_t AppleMMU::readSwitches(uint16_t address)
 
   case 0xC018: // RD80COL
     return (switches & S_80STORE) ? 0x80 : 0x00;
-  case 0xC019: // RDVBLBAR -- vertical blanking, for 4550 cycles of every 17030
-    // Should return 0 for 4550 of 17030 cycles. Since we're not really 
-    // running full speed video, instead, I'm returning 0 for 4096 (2^12)
-    // of every 16384 (2^14) cycles; the math is easier.
-    if ((g_cpu->cycles & 0x3000) == 0x3000) {
-      return 0x00;
-    } else {
-      return 0xFF; // FIXME: is 0xFF correct? Or 0x80?
+  case 0xC019: // RDVBLBAR -- bit 7 tracks the vertical-blanking signal
+    // FRAME-ALIGNED, not a free-running approximation. NTSC //e video is
+    // 65 cycles per scanline and 262 scanlines per frame (17030 cycles);
+    // lines 0..191 are the visible raster and 192..261 are vertical
+    // blanking (70 lines = 4550 cycles, which is the "4550 of 17030" the
+    // hardware spec gives). Deriving the phase from the same cycle counter
+    // the renderer maps to scanlines lets a demo poll this to land a mode
+    // switch on a known line. Polarity matches the //e: bit 7 is 1 during
+    // the active display and 0 during vertical blanking (RDVBLBAR). The
+    // low seven bits are the floating bus on real hardware.
+    {
+      uint16_t line = (uint16_t)((g_cpu->cycles % 17030) / 65);
+      // ...and the low seven bits really are the floating bus, now that
+      // there is one. Software that polls this looks at bit 7 only.
+      return ((line < 192) ? 0x80 : 0x00) | (floatingBus() & 0x7F);
     }
   case 0xC01A: // RDTEXT
     return ( (switches & S_TEXT) ? 0x80 : 0x00 );

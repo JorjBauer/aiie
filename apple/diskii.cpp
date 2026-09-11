@@ -284,6 +284,12 @@ uint8_t DiskII::readSwitches(uint8_t s)
     readWriteLatch = sequencer;
   }
   uint8_t retval = (s & 1) ? _FLOATINGBUS : readWriteLatch;
+#ifdef DISKII_LSS_TRACE
+  fprintf(stderr, "DK s=%x cyc=%lld seq=%02X lss=%X half=%d woz=%d del=%lld\n",
+          s, (long long)g_cpu->cycles, sequencer, lssState,
+          curHalfTrack[selectedDisk], curWozTrack[selectedDisk],
+          (long long)deliveredDiskBits[selectedDisk]);
+#endif
   return retval;
 }
 
@@ -489,6 +495,11 @@ void DiskII::tickLSS()
   int64_t bitsToDeliver = calcExpectedBits();
   while (bitsToDeliver > 0) {
     uint8_t bit = disk[selectedDisk]->nextDiskBit(curWozTrack[selectedDisk]);
+#ifdef DISKII_BIT_TRACE
+    fprintf(stderr, "BIT del=%lld val=%d lss=%X seq=%02X\n",
+            (long long)deliveredDiskBits[selectedDisk], bit, lssState,
+            sequencer);
+#endif
     for (uint8_t sub = 0; sub < 8; sub++) {
       uint8_t rp = (sub == 0 && bit) ? 1 : 0;
       uint8_t qa = (sequencer & 0x80) ? 1 : 0;

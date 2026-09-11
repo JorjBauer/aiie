@@ -17,6 +17,13 @@ class Debugger {
   Debugger();
   ~Debugger();
 
+  // START LISTENING. Separate from the constructor because the Debugger
+  // is a global, so it is built before main() has seen argv: the port
+  // has to be handed to it afterwards. Port 0 means "do not listen",
+  // which is the simplest way for one of several instances to stay out
+  // of the way. Safe to call once; a second call is ignored.
+  void listenOn(uint16_t port);
+
   void setSocket(int cliSock);
   void step();
   bool active();

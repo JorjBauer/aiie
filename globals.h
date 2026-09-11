@@ -102,6 +102,14 @@ extern uint16_t g_natPortOffset;
 // avoid a clash with the host's real LAN. Empty falls back to "10.0.2.0".
 extern char g_natSubnet[16];
 
+// Video7 / A2DVI foreground-background color text. When true, aiie renders
+// the RGB card's 40-column color text mode: aux text page 1 is read as a
+// character-attribute plane (high nibble foreground, low nibble background)
+// alongside the characters in main text page 1. Off by default, because a
+// stock //e has no such card and a program that happens to hit the switch
+// combination should not suddenly gain colors. See video7.md.
+extern bool g_video7;
+
 // RamWorks-compatible aux-memory expansion size, in megabytes.
 // 0 = none (stock Extended 80-column card); 1, 3, or 16 = total aux RAM.
 extern uint8_t g_ramworksSize;

@@ -25,7 +25,15 @@ bool TeensyPrefs::readPrefs(prefs_t *readTo)
   if (readTo->prefsSize != sizeof(prefs_t)) {
     return false;
   }
-  if (readTo->version != PREFSVERSION) {
+  // ONE VERSION BACK IS STILL READ, matching nix/nix-prefs.cpp. Fields are
+  // only ever carved out of 'reserved', so the layout does not move and an
+  // older blob's fields all still mean what they meant; each new field is
+  // gated on its own version test at the call site. Insisting on an exact
+  // match threw away every setting on the board when it ran a
+  // firmware with one field more, which is a lot of retyping for a byte
+  // that was already zero.
+  if (readTo->version != PREFSVERSION &&
+      readTo->version != PREFSVERSION - 1) {
     return false;
   }
 

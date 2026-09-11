@@ -228,7 +228,19 @@ void Uthernet2::pullReceived(uint8_t sock)
 
     uint8_t tmp[1522];
     int n = g_uthernet->recvRawFrame(tmp, maxData);
-    if (n <= 0) return;
+    if (n == 0) return;
+    if (n < 0) {
+      // The waiting frame is bigger than the room we have. The backend kept it
+      // whole and told us what it needs, so there are two cases. If this ring
+      // could hold it once the Apple drains what is already there, wait: it
+      // will be delivered intact on a later pass. If it could never hold it
+      // (RMSR gave this socket a buffer smaller than the frame), waiting would
+      // block this frame and every one behind it forever, so discard it, which
+      // is what the real chip does at the wire when a frame will not fit.
+      const uint16_t need = (uint16_t)(-n);
+      if ((uint32_t)need + 3 > (uint32_t)size) g_uthernet->dropRawFrame();
+      return;
+    }
     writeRx16(sock, (uint16_t)(n + 2)); // size includes the 2 header bytes
     for (int i = 0; i < n; i++) writeRxByte(sock, tmp[i]);
     return;
