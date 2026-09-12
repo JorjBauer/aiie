@@ -39,6 +39,15 @@ class DiskII : public Slot {
 
   uint8_t selectedDrive();
   uint8_t headPosition(uint8_t drive);
+
+  // Drive events, for a host that plays drive sounds. The listener is
+  // called on the emulator thread as each happens; NULL means nobody is
+  // listening. Steps are reported only while the drive is enabled (the
+  // motor on, or in its spin-down second), because a real drive's phases
+  // do nothing otherwise. STOP_HIT is a step asked for below track 0:
+  // the head against the stop, the boot-time chatter.
+  enum DriveEvent { DRIVE_MOTOR_ON, DRIVE_MOTOR_OFF, DRIVE_STEP_IN, DRIVE_STEP_OUT, DRIVE_STOP_HIT };
+  static void (*eventListener)(uint8_t drive, DriveEvent e);
   
  private:
   void setPhase(uint8_t phase);

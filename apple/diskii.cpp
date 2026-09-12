@@ -32,6 +32,8 @@
 #define SPINFOREVER -2
 #define NOTSPINNING -1
 
+void (*DiskII::eventListener)(uint8_t drive, DiskII::DriveEvent e) = NULL;
+
 DiskII::DiskII(AppleMMU *mmu)
 {
   this->mmu = mmu;
@@ -201,6 +203,10 @@ void DiskII::driveOn()
     // that might be in the Woz disk image).
     driveSpinupCycles[selectedDisk] = g_cpu->cycles;
     deliveredDiskBits[selectedDisk] = 0;
+    // From a full stop the motor starts; from the spin-down second it
+    // never stopped, so there is nothing to hear.
+    if (diskIsSpinningUntil[selectedDisk] == NOTSPINNING && eventListener)
+      eventListener(selectedDisk, DRIVE_MOTOR_ON);
     diskIsSpinningUntil[selectedDisk] = SPINFOREVER;
   }
   // FIXME: does the sequencer get reset? Maybe if it's the selected disk? Or no?
@@ -409,9 +415,18 @@ void DiskII::setPhase(uint8_t phase)
   }
 
   // Don't go past the innermost track, of course.
+  bool hitStop = false;
   if (curHalfTrack[selectedDisk] < 0) {
     curHalfTrack[selectedDisk] = 0;
     // recalibrate! This is where the fun noise goes DaDaDaDaDaDaDaDaDa
+    hitStop = true;
+  }
+
+  // The sounds. Only an enabled drive moves its head.
+  if (eventListener && diskIsSpinningUntil[selectedDisk] != NOTSPINNING) {
+    if (hitStop) eventListener(selectedDisk, DRIVE_STOP_HIT);
+    else if (curHalfTrack[selectedDisk] > prevHalfTrack) eventListener(selectedDisk, DRIVE_STEP_IN);
+    else if (curHalfTrack[selectedDisk] < prevHalfTrack) eventListener(selectedDisk, DRIVE_STEP_OUT);
   }
 
   if (curHalfTrack[selectedDisk] != prevHalfTrack) {
@@ -764,12 +779,17 @@ void DiskII::maintenance(int64_t cycle)
   // Handle spin-down for the drive. Drives stay on for a second after
   // the stop was noticed.
   for (int i=0; i<2; i++) {
-    if (diskIsSpinningUntil[i] != SPINFOREVER && 
+    // A spin-down deadline that has passed. NOTSPINNING is not a
+    // deadline; without the test the drive is "stopped" again on every
+    // call, redrawing the LED and, now, reporting a motor-off each time.
+    if (diskIsSpinningUntil[i] != SPINFOREVER &&
+	diskIsSpinningUntil[i] != NOTSPINNING &&
 	g_cpu->cycles > diskIsSpinningUntil[i]) {
       // Stop the given disk drive spinning
       diskIsSpinningUntil[i] = NOTSPINNING;
       // FIXME: consume any disk bits that need to be consumed, and spin it down
       g_ui->drawOnOffUIElement(UIeDisk1_activity + i, false);
+      if (eventListener) eventListener(i, DRIVE_MOTOR_OFF);
     }
 
     if (flushAt[i] &&
