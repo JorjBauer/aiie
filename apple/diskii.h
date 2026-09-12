@@ -71,6 +71,7 @@ class DiskII : public Slot {
   // data latch reflects a continuously-running LSS, not one that only
   // ticks on C08C reads.
   void tickLSS();
+  void lssClockBit(uint8_t bit);
 
  public:
   // debugging
@@ -84,6 +85,7 @@ private:
   volatile uint8_t lssState;                // LSS state machine (0-F), UTA2E Fig 9.11
   volatile int64_t driveSpinupCycles[2];
   volatile int64_t deliveredDiskBits[2];
+  volatile int64_t noiseBits[2];   // random bits fed while the head is on an unmapped position
   
   bool writeMode;   // Q7: false=read, true=write
   bool q6;          // Q6: false (toggled by $C08C)=shift/write, true ($C08D)=load

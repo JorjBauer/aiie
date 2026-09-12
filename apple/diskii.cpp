@@ -51,6 +51,7 @@ DiskII::DiskII(AppleMMU *mmu)
   lssState = 0;
   driveSpinupCycles[0] = driveSpinupCycles[1] = 0; // CPU cycle number when the disk drive spins up
   deliveredDiskBits[0] = deliveredDiskBits[1] = 0;
+  noiseBits[0] = noiseBits[1] = 0;
 
   disk[0] = disk[1] = NULL;
   diskIsSpinningUntil[0] = diskIsSpinningUntil[1] = -1;
@@ -524,7 +525,27 @@ void DiskII::tickLSS()
   // proportional cross-track scaling, this reproduces the real
   // hardware's angular position after a seek: P_new = P_old_scaled +
   // transit_bits. Blazing Paddles' cross-track check depends on this.
-  if (curWozTrack[selectedDisk] == 0xFF) return;
+  //
+  // But the head does not read nothing there. A real drive on an
+  // unformatted or half-track position sees noise, and a loader that
+  // polls the latch for a byte with bit 7 set gets garbage that lets its
+  // timeout run. With nothing delivered, a poll loop without a timeout
+  // (Sundog's, after it seeks past track 34) never leaves. So feed random
+  // bits through the LSS, counted separately so that deliveredDiskBits
+  // still measures the transit backlog when the head lands on a track.
+  if (curWozTrack[selectedDisk] == 0xFF) {
+    int64_t due = calcExpectedBits() - noiseBits[selectedDisk];
+    if (due > 4096) due = 4096;   // a long stay is not worth replaying
+    static uint32_t noiseState = 0x9E3779B9;
+    while (due > 0) {
+      noiseState ^= noiseState << 13; noiseState ^= noiseState >> 17; noiseState ^= noiseState << 5;
+      lssClockBit((noiseState >> 7) & 1);
+      noiseBits[selectedDisk]++;
+      due--;
+    }
+    return;
+  }
+  noiseBits[selectedDisk] = 0;
 
   int64_t bitsToDeliver = calcExpectedBits();
   while (bitsToDeliver > 0) {
@@ -534,33 +555,40 @@ void DiskII::tickLSS()
             (long long)deliveredDiskBits[selectedDisk], bit, lssState,
             sequencer);
 #endif
-    for (uint8_t sub = 0; sub < 8; sub++) {
-      uint8_t rp = (sub == 0 && bit) ? 1 : 0;
-      uint8_t qa = (sequencer & 0x80) ? 1 : 0;
-      uint8_t col = (q6 ? 4 : 0) | (qa << 1) | (rp ? 0 : 1);
-      uint8_t rom = lssReadRom[lssState][col];
-      lssState = rom >> 4;
-      uint8_t cmd = rom & 0x0F;
-      if (!(cmd & 0x08)) {
-	sequencer = 0;                                // CLR
-      } else {
-	switch (cmd & 0x07) {
-	case 0: case 4: break;                        // NOP (8, C)
-	case 1: sequencer <<= 1; break;               // SL0 (9)
-	case 5: sequencer = (sequencer << 1) | 1;     // SL1 (D)
-	  break;
-	case 2: case 6:                               // SR (A, E)
-	  sequencer = (sequencer >> 1) |
-	              (isWriteProtected() ? 0x80 : 0x00);
-	  break;
-	case 3: case 7:                               // LD (B, F)
-	  sequencer = readWriteLatch;
-	  break;
-	}
-      }
-    }
+    lssClockBit(bit);
     bitsToDeliver--;
     deliveredDiskBits[selectedDisk]++;
+  }
+}
+
+// One WOZ bit through the LSS: eight sequencer clocks, a read pulse on
+// the first when the bit is a 1.
+void DiskII::lssClockBit(uint8_t bit)
+{
+  for (uint8_t sub = 0; sub < 8; sub++) {
+    uint8_t rp = (sub == 0 && bit) ? 1 : 0;
+    uint8_t qa = (sequencer & 0x80) ? 1 : 0;
+    uint8_t col = (q6 ? 4 : 0) | (qa << 1) | (rp ? 0 : 1);
+    uint8_t rom = lssReadRom[lssState][col];
+    lssState = rom >> 4;
+    uint8_t cmd = rom & 0x0F;
+    if (!(cmd & 0x08)) {
+      sequencer = 0;                                // CLR
+    } else {
+      switch (cmd & 0x07) {
+      case 0: case 4: break;                        // NOP (8, C)
+      case 1: sequencer <<= 1; break;               // SL0 (9)
+      case 5: sequencer = (sequencer << 1) | 1;     // SL1 (D)
+	break;
+      case 2: case 6:                               // SR (A, E)
+	sequencer = (sequencer >> 1) |
+	            (isWriteProtected() ? 0x80 : 0x00);
+	break;
+      case 3: case 7:                               // LD (B, F)
+	sequencer = readWriteLatch;
+	break;
+      }
+    }
   }
 }
 
