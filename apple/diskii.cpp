@@ -175,6 +175,25 @@ void DiskII::Reset()
   writeProt = false; // FIXME: expose an interface to this
   readWriteLatch = 0x00;
   lssState = 0;
+  sequencer = 0;
+  dataRegister = 0;
+
+  // The reset line clears the controller's motor and drive-select
+  // flip-flops, so a drive that was running stops. Without this a reboot
+  // during disk activity left the drive "spinning" through the reset:
+  // the boot ROM's motor-on was then a no-op (no spin-up, no LED, no
+  // event) and the loader read a drive whose bit timing carried over from
+  // before the reset.
+  for (int i = 0; i < 2; i++) {
+    if (diskIsSpinningUntil[i] != NOTSPINNING) {
+      diskIsSpinningUntil[i] = NOTSPINNING;
+      g_ui->drawOnOffUIElement(UIeDisk1_activity + i, false);
+      if (eventListener) eventListener(i, DRIVE_MOTOR_OFF);
+    }
+    driveSpinupCycles[i] = 0;
+    deliveredDiskBits[i] = 0;
+  }
+  selectedDisk = 0;
 
   ejectDisk(0);
   ejectDisk(1);
