@@ -31,7 +31,6 @@ void Fx80::Reset()
 {
   charsetEnabled = CS_USA;
   fontMode = FM_Pica;
-  fontMode |= FM_Emphasized;
 
   clearLine();
   escapeMode = false;
@@ -325,10 +324,10 @@ void Fx80::handleActiveEscapeMode(uint8_t c)
   case 83: // ESC S: script mode (0=superscript, 1=subscript)
     scriptMode = (c & 1) ? 2 : 1;
     break;
-  case 87:
-    if (c == 1)
+  case 87: // ESC W: expanded mode; 1/0 or "1"/"0" as the manual allows
+    if (c == 1 || c == '1')
       fontMode |= FM_Expanded;
-    else if (c == 0)
+    else if (c == 0 || c == '0')
       fontMode &= ~FM_Expanded;
     break;
   case 108: { // ESC l: set left margin (column number)
@@ -346,10 +345,30 @@ void Fx80::handleActiveEscapeMode(uint8_t c)
   }
 }
 
+// Whether the parameter bytes of the active escape carry meaning in all
+// eight bits. Graphics data does (every bit is a pin), and so do the
+// n/216" line-spacing magnitudes; everything else is a small number or an
+// on/off flag, which Applesoft can only send with the high bit set
+// (PRINT CHR$(1) puts $81 on the bus), so those get the bit stripped.
+static bool escapeParamIsRawByte(uint8_t esc)
+{
+  switch (esc) {
+  case 75: case 76: case 89: case 90:   // graphics column data
+  case 51: case 65: case 74:            // ESC 3 n, ESC A n, ESC J n
+    return true;
+  default:
+    return false;
+  }
+}
+
 void Fx80::input(uint8_t c)
 {
+  // The Apple sets bit 7 on everything it prints: Applesoft's
+  // CHR$(27) arrives as $9B. We check for both (by stripping the bit).
+  uint8_t c7 = c & 0x7F;
+
   if (escapeMode) {
-    handleEscape(c);
+    handleEscape(c7);
     escapeMode = false;
     return;
   }
@@ -370,14 +389,14 @@ void Fx80::input(uint8_t c)
       escapeModeExpectingBytes--;
     }
 
-    handleActiveEscapeMode(c);
+    handleActiveEscapeMode(escapeParamIsRawByte(escapeModeActive) ? c : c7);
     if (escapeModeExpectingBytes == 0) {
       escapeModeActive = 0;
     }
     return;
   }
 
-  if (c == 27) {
+  if (c7 == 27) {
     escapeMode = true;
     return;
   }
@@ -472,6 +491,17 @@ void Fx80::input(uint8_t c)
   addCharacter(c);
 }
 
+// One pin dot: 'width' half-dot columns starting at x, on row 'row'.
+void Fx80::plotDot(uint16_t x, uint8_t row, uint8_t width)
+{
+  for (uint8_t d = 0; d < width; d++) {
+    uint16_t px = x + d;
+    if (px >= FX80_MAXWIDTH) return;
+    uint16_t byteIdx = px / 8 + (FX80_MAXWIDTH/8) * row;
+    rowOfBits[byteIdx] |= (1 << (7 - (px % 8)));
+  }
+}
+
 // add the given character on the line at the current carriage dot position
 void Fx80::addCharacter(uint8_t c)
 {
@@ -523,11 +553,29 @@ void Fx80::addCharacter(uint8_t c)
 
   uint8_t charWidth = characterWidthOfSelectedFont(c);
 
-  if (carriageDot + charWidth > rightMarginDot)
-    return;
+  // Past the right margin: the FX-80 does a carriage return and line feed
+  // by itself and prints the character at the start of the next line.
+  // That line feed ends one-line expanded mode.
+  if (carriageDot + charWidth > rightMarginDot) {
+    cancelOneLineExpanded();
+    lineFeed();
+    charWidth = characterWidthOfSelectedFont(c);
+  }
 
   const uint8_t *charPtr = &Fx80Font[c * 19];
   charPtr++; // skip proportional width byte
+
+  // The row buffer is 960 dots across 8 inches: 120 per inch, which is the
+  // FX-80's HALF-dot column pitch, the resolution the font is drawn in. A
+  // pin dot is a full dot wide, so every fired dot covers two of these
+  // columns (the draft font never fires adjacent half-dot columns; that is
+  // why ".#.#.#" in the font is a solid stroke on paper). Narrower fonts
+  // scale the dot with the pitch, which keeps compressed text legible at
+  // this resolution; expanded mode doubles both the pitch and the dot.
+  bool expanded = (fontMode & FM_Expanded) != 0;
+  float pw = pixelWidthOfSelectedFont() * (expanded ? 2.0f : 1.0f);
+  uint8_t dotW = (uint8_t)(pw * 2.0f + 0.5f);
+  if (dotW < 1) dotW = 1;
 
   for (uint8_t fontRow = 0; fontRow < 9; fontRow++) {
     // Determine which output row this font row maps to
@@ -543,49 +591,22 @@ void Fx80::addCharacter(uint8_t c)
     }
 
     uint16_t rowData = (charPtr[2*fontRow] << 1) | (charPtr[2*fontRow+1]>>7);
-    float xoffTo = 0;
-    float pw = pixelWidthOfSelectedFont();
 
     for (uint8_t xoff = 0; xoff <= 8; xoff++) {
-      if (carriageDot + (uint16_t)xoffTo >= FX80_MAXWIDTH)
-	break;
+      if (!(rowData & (1 << (8 - xoff)))) continue;
 
-      xoffTo += pw;
-      uint16_t dotX = carriageDot + (uint16_t)xoffTo;
+      uint16_t dotX = carriageDot + (uint16_t)(pw * (xoff + 1));
       if (dotX >= FX80_MAXWIDTH) break;
 
-      if (rowData & (1 << (8 - xoff))) {
-	uint16_t byteIdx = dotX / 8 + (FX80_MAXWIDTH/8) * outRow;
-	uint8_t bitIdx = dotX % 8;
-	rowOfBits[byteIdx] |= (1 << (7 - bitIdx));
+      plotDot(dotX, outRow, dotW);
 
-	// Double-strike: also set the dot one row below
-	if (doubleStrike && outRow < 8) {
-	  uint16_t dsIdx = dotX / 8 + (FX80_MAXWIDTH/8) * (outRow + 1);
-	  rowOfBits[dsIdx] |= (1 << (7 - bitIdx));
-	}
-      }
+      // Double-strike: the line is printed again a dot lower
+      if (doubleStrike && outRow < 8)
+	plotDot(dotX, outRow + 1, dotW);
 
-      // Emphasized: repeat dot one position to the right
-      if (fontMode & FM_Emphasized) {
-	uint16_t empX = carriageDot + (uint16_t)(xoffTo + pw);
-	if (empX < FX80_MAXWIDTH && (rowData & (1 << (8 - xoff)))) {
-	  uint16_t byteIdx = empX / 8 + (FX80_MAXWIDTH/8) * outRow;
-	  uint8_t bitIdx = empX % 8;
-	  rowOfBits[byteIdx] |= (1 << (7 - bitIdx));
-	}
-      }
-
-      // Expanded: double-width by repeating and advancing
-      if (fontMode & FM_Expanded) {
-	xoffTo += pw;
-	uint16_t expX = carriageDot + (uint16_t)xoffTo;
-	if (expX < FX80_MAXWIDTH && (rowData & (1 << (8 - xoff)))) {
-	  uint16_t byteIdx = expX / 8 + (FX80_MAXWIDTH/8) * outRow;
-	  uint8_t bitIdx = expX % 8;
-	  rowOfBits[byteIdx] |= (1 << (7 - bitIdx));
-	}
-      }
+      // Emphasized: the column is printed again half a dot to the right
+      if (fontMode & FM_Emphasized)
+	plotDot(carriageDot + (uint16_t)(pw * (xoff + 1) + pw), outRow, dotW);
     }
   }
 

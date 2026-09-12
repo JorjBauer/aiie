@@ -98,6 +98,7 @@ class Fx80 {
   Charset charsetEnabled;
   uint8_t fontMode;
   bool italicsMode;
+  void plotDot(uint16_t x, uint8_t row, uint8_t width);
   bool oneLineExpanded;
   bool underlineMode;
   bool doubleStrike;
