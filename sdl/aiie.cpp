@@ -24,13 +24,15 @@
 #include "bios.h"
 #include "nix-prefs.h"
 #include "debugger.h"
+#ifndef __EMSCRIPTEN__
+#include "debug-socket.h"
+#endif
 
 #include "globals.h"
 
 #include "timeutil.h"
 
 BIOS bios;
-Debugger debugger;
 
 #ifdef __EMSCRIPTEN__
 #include "applekeyboard.h"
@@ -111,6 +113,7 @@ EMSCRIPTEN_KEEPALIVE void aiie_run_cycles(int cycles) {
   uint64_t target = g_cpu->cycles + (uint64_t)cycles;
   int guard = 0, guardMax = cycles / 24 + 64;
   while (g_cpu->cycles < target && ++guard < guardMax) {
+    if (g_debugger.state() == DBG_PAUSED) break;
     g_cpu->Run(24);
     ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
   }
@@ -261,6 +264,17 @@ static struct timespec runCPU(struct timespec now)
     wantResume = false;
   }
 
+  // A paused debugger holds the CPU. Idle like the BIOS does, and keep the
+  // pacer un-initialized so that resuming starts the clock from the resume
+  // rather than sprinting to make up the pause.
+  if (g_debugger.state() == DBG_PAUSED) {
+    cpuClockInitialized = false;
+    struct timespec idle;
+    idle.tv_sec = 0;
+    idle.tv_nsec = 5000000;
+    return idle;
+  }
+
   // Determine correct time for next CPU cycle
   timespec_add_cycles(&startTime, g_cpu->cycles - cycleBase, &nextInstructionTime);
 
@@ -271,30 +285,13 @@ static struct timespec runCPU(struct timespec now)
     return diff;
   }
 
-  // Run the CPU
-  bool debuggerWasActive = false;
-  if (debugger.active()) {
-    // With the debugger running, we need to single-step through
-    // instructions.
-    (void)g_cpu->Run(1);
-    debuggerWasActive = true;
-  } else {
-    // Otherwise we can run a bunch of instructions at once to
-    // save on the overhead.
-    (void)g_cpu->Run(24);
-    if (debuggerWasActive) {
-      cpuClockInitialized = false;
-      debuggerWasActive = false;
-    }
-  }
+  // Run the CPU. The debugger's hook is inside Cpu::step(), so the step
+  // size never changes; when it halts the machine, Run() returns at once.
+  (void)g_cpu->Run(24);
 
   // The paddles need to be triggered in real-time on the CPU
   // clock. That happens from the VM's CPU maintenance poller.
   ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
-  
-  if (debugger.active()) {
-    debugger.step();
-  }
   
   if (send_rst) {
     cpuDebuggerRunning = true;
@@ -452,6 +449,13 @@ void loop()
   struct timespec now;
   do_gettime(&now);
 
+#ifndef __EMSCRIPTEN__
+  // Run any debugger commands that arrived on the socket, and report a
+  // halt. Every iteration, paused or not, BIOS or not: the socket is how
+  // a paused machine gets told to go again.
+  g_debugSocket.poll();
+#endif
+
   struct timespec shortest;
   shortest.tv_sec = 0;
   shortest.tv_nsec = 5000000; // 5ms idle when the VM isn't running (BIOS or printer-full)
@@ -500,6 +504,7 @@ void loop()
       uint64_t target = g_cpu->cycles + (uint64_t)((double)g_speed * g_speedMult * dt);
       int guard = 0;
       while (g_cpu->cycles < target && ++guard < 4000000) {   // guard scales with the speed multiplier
+        if (g_debugger.state() == DBG_PAUSED) break;
         (void)g_cpu->Run(24);
         ((AppleVM *)g_vm)->cpuMaintenance(g_cpu->cycles);
       }
@@ -635,7 +640,7 @@ int main(int argc, char *argv[])
       long v = strtol(e, NULL, 10);
       if (v >= 0 && v <= 65535) debugPort = v;
     }
-    debugger.listenOn((uint16_t)debugPort);
+    g_debugSocket.listenOn((uint16_t)debugPort);
   }
 
 #ifdef __EMSCRIPTEN__

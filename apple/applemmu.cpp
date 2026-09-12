@@ -365,6 +365,13 @@ void AppleMMU::Reset()
 
 uint8_t AppleMMU::read(uint16_t address)
 {
+  uint8_t rv = readCore(address);
+  if (g_debugger.watchCount) g_debugger.onAccess(address, rv, false);
+  return rv;
+}
+
+uint8_t AppleMMU::readCore(uint16_t address)
+{
   uint8_t rv = 0;
   if (handleNoSlotClock(address, &rv)) {
     return rv;
@@ -431,8 +438,133 @@ uint8_t AppleMMU::readDirect(uint16_t address, uint8_t fromPage)
   return g_ram.readByte((page << 8) | (address & 0xFF));
 }
 
+// The debugger's view of memory. Resolves a (address, bank) pair to one
+// of three places: a RamWorks expansion byte, a g_ram page, or nowhere
+// (returns false: the $C0 page, or ROM space in a RAM bank that has no
+// RAM there). A side-effect-free twin of the page tables read() and
+// write() use, with the extra dimensions (which aux bank, which language
+// card bank) that the CPU's current switches would otherwise pick.
+bool AppleMMU::debugLocate(uint16_t address, const DebugBank &bank,
+			   bool forWrite, uint8_t **ramworks, uint32_t *ramAddr)
+{
+  uint8_t hi = address >> 8;
+  *ramworks = NULL;
+
+  if (hi == 0xC0) return false;
+
+  if (bank.kind == DBG_BANK_CPU) {
+    const uint16_t *pages = forWrite ? writePages : readPages;
+    const bool *isAux = forWrite ? writePageIsAux : readPageIsAux;
+    if (auxBank && auxExpansion && isAux[hi]) {
+      uint32_t ofs = address;
+      if (bank2 && address >= 0xD000 && address <= 0xDFFF) ofs = address - 0x1000;
+      *ramworks = &auxExpansion[(uint32_t)(auxBank - 1) * 0x10000 + ofs];
+      return true;
+    }
+    *ramAddr = ((uint32_t)pages[hi] << 8) | (address & 0xFF);
+    return true;
+  }
+
+  if (bank.kind == DBG_BANK_ROM) {
+    if (hi < 0xC1) return false;
+    // The internal ROM: variant 1 for $C100-$C7FF except $C300, which is
+    // variant 0; variant 0 from $C800 up. See resetRAM().
+    uint8_t variant = 0;
+    if (hi >= 0xC1 && hi <= 0xC7 && hi != 0xC3) variant = 1;
+    *ramAddr = ((uint32_t)_pageNumberForRam(hi, variant) << 8) | (address & 0xFF);
+    return true;
+  }
+
+  // MAIN or AUX RAM.
+  bool aux = (bank.kind == DBG_BANK_AUX);
+  bool lc2 = (bank.lcBank == 2);
+  if (hi >= 0xC1 && hi <= 0xCF) return false;   // no RAM behind the I/O ROM space
+
+  if (aux && bank.auxBank) {
+    if (!auxExpansion || bank.auxBank >= numAuxBanks) return false;
+    uint32_t ofs = address;
+    if (lc2 && address >= 0xD000 && address <= 0xDFFF) ofs = address - 0x1000;
+    *ramworks = &auxExpansion[(uint32_t)(bank.auxBank - 1) * 0x10000 + ofs];
+    return true;
+  }
+
+  uint8_t variant;
+  if (hi < 0xC0)       variant = aux ? 1 : 0;
+  else if (hi <= 0xDF) variant = aux ? (lc2 ? 4 : 3) : (lc2 ? 2 : 1);
+  else                 variant = aux ? 2 : 1;
+  *ramAddr = ((uint32_t)_pageNumberForRam(hi, variant) << 8) | (address & 0xFF);
+  return true;
+}
+
+uint8_t AppleMMU::peek(uint16_t address, const DebugBank &bank)
+{
+  if ((address >> 8) == 0xC0) {
+    uint8_t lo = address & 0xFF;
+    uint32_t c0 = (uint32_t)readPages[0xC0] << 8;
+    if (lo <= 0x0F) return g_ram.readByte(c0 | 0x10);   // keyboard latch
+    switch (lo) {
+    case 0x10: return anyKeyDown ? 0x80 : 0x00;
+    case 0x11: return bank2 ? 0x80 : 0x00;
+    case 0x12: return readbsr ? 0x80 : 0x00;
+    case 0x13: return auxRamRead ? 0x80 : 0x00;
+    case 0x14: return auxRamWrite ? 0x80 : 0x00;
+    case 0x15: return intcxrom ? 0x80 : 0x00;
+    case 0x16: return altzp ? 0x80 : 0x00;
+    case 0x17: return slot3rom ? 0x80 : 0x00;
+    case 0x18: return (switches & S_80STORE) ? 0x80 : 0x00;
+    case 0x19: return (((g_cpu->cycles % 17030) / 65) < 192) ? 0x80 : 0x00;
+    case 0x1A: return (switches & S_TEXT) ? 0x80 : 0x00;
+    case 0x1B: return (switches & S_MIXED) ? 0x80 : 0x00;
+    case 0x1C: return (switches & S_PAGE2) ? 0x80 : 0x00;
+    case 0x1D: return (switches & S_HIRES) ? 0x80 : 0x00;
+    case 0x1E: return (switches & S_ALTCH) ? 0x80 : 0x00;
+    case 0x1F: return (switches & S_80COL) ? 0x80 : 0x00;
+    case 0x61: case 0x62: case 0x63:
+      return g_ram.readByte(c0 | lo);   // the Apple keys and shift are RAM in this model
+    default:
+      return 0;
+    }
+  }
+
+  if (bank.kind == DBG_BANK_CPU && !intcxrom &&
+      address >= 0xC100 && address <= 0xC7FF) {
+    uint8_t slotNum = (address >> 8) & 0x07;
+    if (slots[slotNum] && slots[slotNum]->interceptsSlotRom()) return 0;
+  }
+
+  uint8_t *rw; uint32_t ra = 0;
+  if (!debugLocate(address, bank, false, &rw, &ra)) return 0;
+  return rw ? *rw : g_ram.readByte(ra);
+}
+
+void AppleMMU::poke(uint16_t address, uint8_t v, const DebugBank &bank)
+{
+  if ((address >> 8) == 0xC0) return;
+  if (bank.kind == DBG_BANK_CPU && !intcxrom &&
+      address >= 0xC100 && address <= 0xC7FF) {
+    uint8_t slotNum = (address >> 8) & 0x07;
+    if (slots[slotNum] && slots[slotNum]->interceptsSlotRom()) return;
+  }
+
+  // The CPU's view honors the CPU's write rules: no writes into ROM. A
+  // poke that means to patch ROM says so with DBG_BANK_ROM.
+  if (bank.kind == DBG_BANK_CPU) {
+    if (address >= 0xC100 && address <= 0xCFFF) return;
+    if (address >= 0xD000 && !writebsr) return;
+  }
+
+  uint8_t *rw; uint32_t ra = 0;
+  if (!debugLocate(address, bank, true, &rw, &ra)) return;
+  if (rw) *rw = v; else g_ram.writeByte(ra, v);
+
+  // A poke into a display page should show up on the screen.
+  if (address < 0xC000) display->modeChange();
+}
+
 void AppleMMU::write(uint16_t address, uint8_t v)
 {
+  if (g_debugger.watchCount) g_debugger.onAccess(address, v, true);
+
   if (handleNoSlotClock(address, NULL)) {
     return;
   }

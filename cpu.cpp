@@ -10,6 +10,7 @@
 #include "serialize.h"
 
 #include "globals.h"
+#include "debugger.h"
 
 #ifdef TEENSYDUINO
 #include "teensy-println.h"
@@ -474,7 +475,11 @@ uint8_t Cpu::Run(uint8_t numSteps)
   uint8_t runtime = 0;
   realtimeProcessing = false;
   while (runtime < numSteps && !realtimeProcessing) {
-    runtime += step();
+    uint8_t c = step();
+    // A halted debugger makes step() return 0 without running anything;
+    // stop here rather than spin, so Run() costs one call while paused.
+    if (c == 0 && g_debugger.state() == DBG_PAUSED) break;
+    runtime += c;
   }
   return runtime;
 }
@@ -484,6 +489,10 @@ uint8_t Cpu::step()
   if (irqPending) {
     irq();
   }
+
+  // The debugger sees every instruction boundary while it has anything
+  // armed (a breakpoint, a step, a pause, a trace) and nothing otherwise.
+  if (g_debugger.armed() && g_debugger.onInstruction()) return 0;
 
 #ifdef DEBUGSTEPS
   static uint8_t cmdbuf[10];

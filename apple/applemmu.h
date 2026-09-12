@@ -6,6 +6,7 @@
 #include "slot.h"
 #include "mmu.h"
 #include "noslotclock.h"
+#include "debugger.h"
 
 // Reading a soft switch that drives nothing onto the data bus returns
 // whatever the video scanner last put there: see AppleMMU::floatingBus().
@@ -51,6 +52,21 @@ class AppleMMU : public MMU {
   virtual uint8_t readDirect(uint16_t address, uint8_t fromPage);
   virtual void write(uint16_t address, uint8_t v);
 
+  // Side-effect-free access for the debugger. Never touches a soft switch.
+  // For $C000 to $C0FF, peek returns the value a status read would give at
+  // the read-only status locations ($C010 to $C01F, $C061 to $C063), the
+  // keyboard latch for $C000 to $C00F, and 0 elsewhere; poke there does
+  // nothing. For $C100 to $CFFF in DBG_BANK_CPU, peek returns what the CPU
+  // would fetch from ROM (a card that answers those addresses with live
+  // registers rather than a ROM reads as 0, so that peeking never pokes a
+  // chip).
+  uint8_t peek(uint16_t address, const DebugBank &bank);
+  void    poke(uint16_t address, uint8_t v, const DebugBank &bank);
+
+  // The video soft switches as a word of S_* bits.
+  uint16_t videoSwitches() { return switches; }
+  uint16_t auxBankCount() { return numAuxBanks; }
+
   virtual void Reset();
 
   void keyboardInput(uint8_t v);
@@ -91,6 +107,9 @@ class AppleMMU : public MMU {
   uint16_t videoScannerAddress(int64_t cyc);
 
  protected:
+  uint8_t readCore(uint16_t address);
+  bool debugLocate(uint16_t address, const DebugBank &bank, bool forWrite,
+		   uint8_t **ramworks, uint32_t *ramAddr);
   bool handleNoSlotClock(uint16_t address, uint8_t *rv);
 
   void resetDisplay();

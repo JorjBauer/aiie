@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 'use strict';
 
-// Interactive client for the aiie emulator's built-in debugger (nix/debugger.cpp).
+// Interactive client for the aiie emulator's built-in debugger: the socket
+// front end in nix/debug-socket.cpp over the core in debugger.cpp.
 //
 // It connects to the debug socket, prints everything the debugger sends to the
-// terminal, forwards your keystrokes as commands, and -- crucially -- detaches
-// SAFELY on exit by sending the 'q' command first.
+// terminal, forwards your keystrokes as commands, and detaches by sending the
+// 'q' command first.
 //
-// Why 'q' matters: the debugger's read loop checks for read() == -1, but a plain
-// TCP close makes its blocking read() return 0, which it never tests for -- so it
-// spins in a tight loop and wedges the emulator, and any breakpoints stay set.
-// 'q' makes the server remove all breakpoints, close the socket, and resume the
-// CPU. So we always send it before disconnecting.
+// Connecting does not pause the machine; 'p' does, as does a breakpoint ('b')
+// or a watchpoint ('w'). 'q' resumes a paused machine and closes the socket;
+// breakpoints and watchpoints stay set. A connection that simply drops also
+// resumes the machine, so a dead client never leaves it frozen.
 //
 // Usage:
 //   node tools/aiie-debug.js [host] [port]      (defaults: 127.0.0.1 12345)

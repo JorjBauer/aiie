@@ -127,7 +127,17 @@ opmode_t opmodeForInstruction(uint8_t ins)
   return ret;
 }
 
-uint8_t Disassembler::instructionToMnemonic(uint16_t addr, uint8_t *p, char *outp, uint16_t outpSize)
+uint8_t Disassembler::instructionToMnemonic(uint16_t addr, const uint8_t *p, char *outp, uint16_t outpSize)
+{
+  return format(addr, p, outp, outpSize, true);
+}
+
+uint8_t Disassembler::instructionToOperands(uint16_t addr, const uint8_t *p, char *outp, uint16_t outpSize)
+{
+  return format(addr, p, outp, outpSize, false);
+}
+
+uint8_t Disassembler::format(uint16_t addr, const uint8_t *p, char *outp, uint16_t outpSize, bool withAddress)
 {
   const char *mn = opnames[*p];
   addrmode amode = opcodes[*p].mode;
@@ -137,7 +147,7 @@ uint8_t Disassembler::instructionToMnemonic(uint16_t addr, uint8_t *p, char *out
 
   switch (amode) {
   case A_REL:
-    target = addr + *(int8_t *)(p+1) + 2; // FIXME: is this correct?
+    target = addr + *(const int8_t *)(p+1) + 2;
     break;
   case A_ABS:
   case A_ABY:
@@ -145,16 +155,18 @@ uint8_t Disassembler::instructionToMnemonic(uint16_t addr, uint8_t *p, char *out
   case A_ABI://indirect
   case A_ABXI:
   case A_ZIND:
-      target = (*(p+2) << 8) | (*(p+1)); // FIXME: is this correct?
+      target = (*(p+2) << 8) | (*(p+1));
       break;
   case A_ZER:
   case A_INX:
   case A_INY:
   case A_ZEX:
   case A_ZEY:
-  case A_ZPREL:
   case A_IMM:
-    target = *(int8_t *)(p+1);
+    target = *(p+1);   // an unsigned byte: LDA #$FF is #$FF, not #$FFFF
+    break;
+  case A_ZPREL:
+    target = *(p+1);
     break;
   default:
     target = 0;
@@ -165,19 +177,29 @@ uint8_t Disassembler::instructionToMnemonic(uint16_t addr, uint8_t *p, char *out
   switch (instructionBytes(*p)) {
   case 1:
     // no arguments
-    snprintf(bytes, sizeof(bytes), "      %.2X ", *(uint8_t *)p);
+    snprintf(bytes, sizeof(bytes), "      %.2X ", *p);
     break;
   case 2:
     snprintf(arg, sizeof(arg), "%s$%X%s", om.prefix, target, om.suffix);
-    snprintf(bytes, sizeof(bytes), "   %.2X %.2X ", *(uint8_t *)p, *(uint8_t *)(p+1));
+    snprintf(bytes, sizeof(bytes), "   %.2X %.2X ", *p, *(p+1));
     break;
   case 3:
-    snprintf(arg, sizeof(arg), "%s$%X%s", om.prefix, target, om.suffix);
-    snprintf(bytes, sizeof(bytes), "%.2X %.2X %.2X ", *(uint8_t *)p, *(uint8_t *)(p+1), *(uint8_t *)(p+2));
+    if (amode == A_ZPREL) {
+      // BBR/BBS: a zero-page address, then a relative branch target.
+      snprintf(arg, sizeof(arg), "$%X,$%X", target,
+	       (uint16_t)(addr + *(const int8_t *)(p+2) + 3));
+    } else {
+      snprintf(arg, sizeof(arg), "%s$%X%s", om.prefix, target, om.suffix);
+    }
+    snprintf(bytes, sizeof(bytes), "%.2X %.2X %.2X ", *p, *(p+1), *(p+2));
     break;
   }
 
-  snprintf(outp, outpSize, "$%.4X %s  %s    %s", addr, bytes, mn, arg);
+  if (withAddress) {
+    snprintf(outp, outpSize, "$%.4X %s  %s    %s", addr, bytes, mn, arg);
+  } else {
+    snprintf(outp, outpSize, "%s    %s", mn, arg);
+  }
 
   return instructionBytes(*p);
 }

@@ -3,22 +3,22 @@ LDFLAGS=-L/usr/local/lib -L/opt/homebrew/lib
 SDLLIBS=-lSDL2 -lpthread -lz
 FBLIBS=-lpthread
 
-CFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -O2 -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE
-CXXFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -O2 -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE
+CFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -O2 -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE -DAIIE_DEBUGGER
+CXXFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -O2 -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE -DAIIE_DEBUGGER
 
 TSRC=cpu.cpp util/testharness.cpp
 
-COMMONSRCS=cpu.cpp apple/appledisplay.cpp apple/applekeyboard.cpp apple/applemmu.cpp apple/applevm.cpp apple/diskii.cpp apple/nibutil.cpp LRingBuffer.cpp globals.cpp apple/parallelcard.cpp apple/fx80.cpp lcg.cpp apple/hd32.cpp images.cpp apple/appleui.cpp vmram.cpp bios.cpp apple/noslotclock.cpp apple/woz.cpp apple/crc32.c apple/woz-serializer.cpp apple/mouse.c physicaldisplay.cpp wsola-speaker.cpp apple/mockingboard.cpp apple/uthernet2.cpp apple/usernet.cpp
+COMMONSRCS=cpu.cpp apple/appledisplay.cpp apple/applekeyboard.cpp apple/applemmu.cpp apple/applevm.cpp apple/diskii.cpp apple/nibutil.cpp LRingBuffer.cpp globals.cpp apple/parallelcard.cpp apple/fx80.cpp lcg.cpp apple/hd32.cpp images.cpp apple/appleui.cpp vmram.cpp bios.cpp apple/noslotclock.cpp apple/woz.cpp apple/crc32.c apple/woz-serializer.cpp apple/mouse.c physicaldisplay.cpp wsola-speaker.cpp apple/mockingboard.cpp apple/uthernet2.cpp apple/usernet.cpp debugger.cpp disassembler.cpp
 
-COMMONOBJS=cpu.o apple/appledisplay.o apple/applekeyboard.o apple/applemmu.o apple/applevm.o apple/diskii.o apple/nibutil.o LRingBuffer.o globals.o apple/parallelcard.o apple/fx80.o lcg.o apple/hd32.o images.o apple/appleui.o vmram.o bios.o apple/noslotclock.o apple/woz.o apple/crc32.o apple/woz-serializer.o apple/mouse.o physicaldisplay.o wsola-speaker.o apple/mockingboard.o apple/uthernet2.o apple/usernet.o
+COMMONOBJS=cpu.o apple/appledisplay.o apple/applekeyboard.o apple/applemmu.o apple/applevm.o apple/diskii.o apple/nibutil.o LRingBuffer.o globals.o apple/parallelcard.o apple/fx80.o lcg.o apple/hd32.o images.o apple/appleui.o vmram.o bios.o apple/noslotclock.o apple/woz.o apple/crc32.o apple/woz-serializer.o apple/mouse.o physicaldisplay.o wsola-speaker.o apple/mockingboard.o apple/uthernet2.o apple/usernet.o debugger.o disassembler.o
 
 FBSRCS=linuxfb/linux-speaker.cpp linuxfb/fb-display.cpp linuxfb/linux-keyboard.cpp linuxfb/fb-paddles.cpp nix/nix-filemanager.cpp linuxfb/aiie.cpp linuxfb/linux-printer.cpp nix/nix-clock.cpp nix/nix-prefs.cpp
 
 FBOBJS=linuxfb/linux-speaker.o linuxfb/fb-display.o linuxfb/linux-keyboard.o linuxfb/fb-paddles.o nix/nix-filemanager.o linuxfb/aiie.o linuxfb/linux-printer.o nix/nix-clock.o nix/nix-prefs.o
 
-SDLSRCS=sdl/sdl-speaker.cpp sdl/sdl-display.cpp sdl/sdl-keyboard.cpp sdl/sdl-paddles.cpp nix/nix-filemanager.cpp sdl/aiie.cpp sdl/sdl-printer.cpp nix/nix-clock.cpp nix/nix-prefs.cpp nix/debugger.cpp nix/disassembler.cpp sdl/sdl-mouse.cpp sdl/sdl-uthernet2.cpp sdl/usernet-bsd.cpp
+SDLSRCS=sdl/sdl-speaker.cpp sdl/sdl-display.cpp sdl/sdl-keyboard.cpp sdl/sdl-paddles.cpp nix/nix-filemanager.cpp sdl/aiie.cpp sdl/sdl-printer.cpp nix/nix-clock.cpp nix/nix-prefs.cpp nix/debug-socket.cpp sdl/sdl-mouse.cpp sdl/sdl-uthernet2.cpp sdl/usernet-bsd.cpp
 
-SDLOBJS=sdl/sdl-speaker.o sdl/sdl-display.o sdl/sdl-keyboard.o sdl/sdl-paddles.o nix/nix-filemanager.o sdl/aiie.o sdl/sdl-printer.o nix/nix-clock.o nix/nix-prefs.o nix/debugger.o nix/disassembler.o sdl/sdl-mouse.o sdl/sdl-uthernet2.o sdl/usernet-bsd.o
+SDLOBJS=sdl/sdl-speaker.o sdl/sdl-display.o sdl/sdl-keyboard.o sdl/sdl-paddles.o nix/nix-filemanager.o sdl/aiie.o sdl/sdl-printer.o nix/nix-clock.o nix/nix-prefs.o nix/debug-socket.o sdl/sdl-mouse.o sdl/sdl-uthernet2.o sdl/usernet-bsd.o
 
 ROMS=apple/applemmu-rom.h apple/diskii-rom.h apple/parallel-rom.h apple/hd32-rom.h apple/mouse-rom.h
 
@@ -94,8 +94,9 @@ teensy-sdimage: teensy
 	cp $(TEENSY_BUILD)/teensy.ino.hex $(TEENSY_SDIMAGE)
 	@echo "Wrote $(TEENSY_SDIMAGE) -- copy it to the root of the Teensy SD card."
 
+# The CPU harness links the CPU alone, so it gets the no-op debugger.
 test: $(TSRC)
-	g++ $(CXXFLAGS) -DEXIT_ON_ILLEGAL -DVERBOSE_CPU_ERRORS -DTESTHARNESS $(TSRC) -o testharness
+	g++ $(filter-out -DAIIE_DEBUGGER,$(CXXFLAGS)) -DEXIT_ON_ILLEGAL -DVERBOSE_CPU_ERRORS -DTESTHARNESS $(TSRC) -o testharness
 	./testharness -f tests/6502_functional_test_verbose.bin -s 0x400 && \
 	./testharness -f tests/65C02_extended_opcodes_test.bin -s 0x400 && \
 	./testharness -f tests/65c02-all.bin -s 0x200
