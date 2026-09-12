@@ -223,9 +223,13 @@ static struct timespec runBIOS(struct timespec now)
     g_biosInterrupt = false; // that's all she wrote!
   }
 
-  // Reset timers!
+  // Reset the CPU pacer so it does not fast-forward when the BIOS
+  // exits. The cycle counter itself is NOT zeroed: the Disk II, the
+  // Mockingboard and the paddles all stamp absolute cycle numbers
+  // (drive spin-up, spin-down, flush), and zeroing it under them
+  // mid-boot made the disk deliver no bits until the count climbed
+  // back, which DOS reported as an I/O error.
   cpuClockInitialized = false;
-  g_cpu->cycles = 0;
   
   return diff;
 }
@@ -234,10 +238,12 @@ static struct timespec runCPU(struct timespec now)
 {
   static struct timespec startTime;
   static struct timespec nextInstructionTime;
+  static int64_t cycleBase = 0; // g_cpu->cycles when the pacer was (re)started
   
   if (!cpuClockInitialized) {
     do_gettime(&startTime);
     do_gettime(&nextInstructionTime);
+    cycleBase = g_cpu->cycles;
     cpuClockInitialized = true;
   }
 
@@ -256,7 +262,7 @@ static struct timespec runCPU(struct timespec now)
   }
 
   // Determine correct time for next CPU cycle
-  timespec_add_cycles(&startTime, g_cpu->cycles, &nextInstructionTime);
+  timespec_add_cycles(&startTime, g_cpu->cycles - cycleBase, &nextInstructionTime);
 
   // Check if it's time to run - and if not, return how long it will be until we need to run
   struct timespec diff = tsSubtract(nextInstructionTime, now);
@@ -278,7 +284,6 @@ static struct timespec runCPU(struct timespec now)
     (void)g_cpu->Run(24);
     if (debuggerWasActive) {
       cpuClockInitialized = false;
-      g_cpu->cycles = 0;
       debuggerWasActive = false;
     }
   }
@@ -469,9 +474,8 @@ void loop()
       g_display->redraw(); // Redraw the UI
       ((AppleDisplay*)(g_vm->vmdisplay))->modeChange(); // force a full re-draw	and blit
 
-      // The BIOS reset g_cpu->cycles to 0, and the speed may have
-      // changed (possibly across the audio-mute threshold). The
-      // speaker tracks cycle numbers, so resync it to the new clock.
+      // The speed may have changed (possibly across the audio-mute
+      // threshold), so resync the speaker to the new clock.
       g_speaker->reset();
 
       cpuClockInitialized = false; // force it to reset so it doesn't fast-forward

@@ -29,6 +29,7 @@
 BIOS bios;
 
 static struct timespec nextInstructionTime, startTime;
+static int64_t cycleBase = 0; // g_cpu->cycles when the pacer was (re)started
 
 #define NB_ENABLE 1
 #define NB_DISABLE 0
@@ -173,7 +174,7 @@ static void *cpu_thread(void *dummyptr) {
 #endif
       // calculate the real time that we should be at now, and schedule
       // that as our next instruction time
-      timespec_add_cycles(&startTime, g_cpu->cycles, &nextInstructionTime);
+      timespec_add_cycles(&startTime, g_cpu->cycles - cycleBase, &nextInstructionTime);
 
       // The paddles need to be triggered in real-time on the CPU
       // clock. That happens from the VM's CPU maintenance poller.
@@ -402,8 +403,10 @@ int main(int argc, char *argv[])
 
       g_biosInterrupt = false;
 
-      // clear the CPU next-step counters
-      g_cpu->cycles = 0;
+      // Restart the CPU pacer from here. The cycle counter itself is
+      // left alone: the Disk II and Mockingboard stamp absolute cycle
+      // numbers and zeroing it under them mid-boot caused I/O errors.
+      cycleBase = g_cpu->cycles;
       do_gettime(&startTime);
       do_gettime(&nextInstructionTime);
 
