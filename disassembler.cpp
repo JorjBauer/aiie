@@ -154,10 +154,10 @@ uint8_t Disassembler::format(uint16_t addr, const uint8_t *p, char *outp, uint16
   case A_ABX:
   case A_ABI://indirect
   case A_ABXI:
-  case A_ZIND:
       target = (*(p+2) << 8) | (*(p+1));
       break;
   case A_ZER:
+  case A_ZIND:   // (zp): a one-byte operand, not an absolute address
   case A_INX:
   case A_INY:
   case A_ZEX:
