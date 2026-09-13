@@ -125,19 +125,22 @@ void AppleUI::blit()
 
   if (redrawDriveLatches) {
     redrawDriveLatches = false;
-    // The "closed" images carry an X across the latch: no disk in the
-    // drive, or no Disk II card to put one in. The "open" ones show a
-    // loaded drive.
-    bool noCard = (g_slotDiskII == 0);
-    g_display->drawUIImage((noCard || driveEmpty[0]) ? IMG_D1CLOSED : IMG_D1OPEN);
-    g_display->drawUIImage((noCard || driveEmpty[1]) ? IMG_D2CLOSED : IMG_D2OPEN);
-    g_display->drawUIImage((g_slotHD32 == 0 || hdEmpty) ? IMG_HDEMPTY : IMG_HDLOADED);
+    // A latch is drawn only when there is a card behind it. The "closed"
+    // images are the pale, empty drive; the "open" ones the dark, loaded
+    // drive.
+    bool diskCard = (g_slotDiskII != 0);
+    bool hdCard = (g_slotHD32 != 0);
+    g_display->drawUIImage(!diskCard ? IMG_D1BLANK : driveEmpty[0] ? IMG_D1CLOSED : IMG_D1OPEN);
+    g_display->drawUIImage(!diskCard ? IMG_D2BLANK : driveEmpty[1] ? IMG_D2CLOSED : IMG_D2OPEN);
+    g_display->drawUIImage(!hdCard ? IMG_HDBLANK : hdEmpty ? IMG_HDEMPTY : IMG_HDLOADED);
     redrawDriveActivity = true; // these overlap
   }
 
   if (redrawDriveActivity) {
     redrawDriveActivity = false;
-    g_display->drawDriveActivity(driveActivity[0], driveActivity[1], hdActivity);
+    g_display->drawDriveActivity(g_slotDiskII ? (driveActivity[0] ? 1 : 0) : -1,
+				 g_slotDiskII ? (driveActivity[1] ? 1 : 0) : -1,
+				 g_slotHD32 ? (hdActivity ? 1 : 0) : -1);
   }
 
 }

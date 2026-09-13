@@ -15,7 +15,8 @@ class PhysicalDisplay {
   virtual void flush() = 0;
 
   virtual void drawUIImage(uint8_t imageIdx) = 0;
-  virtual void drawDriveActivity(bool drive0, bool drive1, bool hd) = 0;
+  // Each LED: 1 lit, 0 dark, -1 not drawn (no card behind it).
+  virtual void drawDriveActivity(int8_t drive0, int8_t drive1, int8_t hd) = 0;
   // FIXME: drawImageOfSizeAt should probably be private now
   virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint16_t sizey, uint16_t wherex, uint16_t wherey) = 0;
 

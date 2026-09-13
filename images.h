@@ -18,9 +18,14 @@
 #define LED1_X_8875 48
 #define LED2_X_8875 48
 #define LEDHD_X_8875 48
-#define LED1_Y_8875 68
-#define LED2_Y_8875 117
-#define LEDHD_Y_8875 166   // the HD latch sits under 1 and 2 at the same 49-pixel pitch
+// The latches stack down the left edge from the top of the bezel, 16 apart.
+#define LATCH_X_8875 4
+#define LATCH1_Y_8875 18
+#define LATCH2_Y_8875 34
+#define LATCHHD_Y_8875 50
+#define LED1_Y_8875 (LATCH1_Y_8875 + 1)
+#define LED2_Y_8875 (LATCH2_Y_8875 + 1)
+#define LEDHD_Y_8875 (LATCHHD_Y_8875 + 1)
 
 #define LED_HEIGHT_9341 1
 #define LED_WIDTH_9341 6
@@ -54,7 +59,10 @@ enum {
   IMG_D2CLOSED = 4,
   IMG_APPLEBATTERY = 5,
   IMG_HDLOADED = 6,   // an image is mounted on the hard drive card
-  IMG_HDEMPTY = 7     // no image, or no card
+  IMG_HDEMPTY = 7,    // no image mounted
+  IMG_D1BLANK = 8,    // no card in the machine: paint the shell over the latch
+  IMG_D2BLANK = 9,
+  IMG_HDBLANK = 10
 };
 
 // These are the DISPLAY-SPECIFIC constants that are used to retrieve

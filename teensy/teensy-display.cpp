@@ -117,28 +117,41 @@ void TeensyDisplay::drawUIImage(uint8_t imageIdx)
   case IMG_D1OPEN:
     drawImageOfSizeAt(d1OpenImage, driveWidth, driveHeight,
                       use8875 ? 4 : 55,
-                      use8875 ? 67 : 216);
+                      use8875 ? LATCH1_Y_8875 : 216);
     break;
   case IMG_D1CLOSED:
     drawImageOfSizeAt(d1ClosedImage, driveWidth, driveHeight,
                       use8875 ? 4 : 55,
-                      use8875 ? 67 : 216);
+                      use8875 ? LATCH1_Y_8875 : 216);
     break;
   case IMG_D2OPEN:
     drawImageOfSizeAt(d2OpenImage, driveWidth, driveHeight,
                       use8875 ? 4 : 189,
-                      use8875 ? 116 : 216);
+                      use8875 ? LATCH2_Y_8875 : 216);
     break;
   case IMG_D2CLOSED:
     drawImageOfSizeAt(d2ClosedImage, driveWidth, driveHeight,
                       use8875 ? 4 : 189,
-                      use8875 ? 116 : 216);
+                      use8875 ? LATCH2_Y_8875 : 216);
     break;
   case IMG_HDLOADED:
-    if (use8875) drawImageOfSizeAt(hdLoadedImage, driveWidth, driveHeight, 4, 165);
+    if (use8875) drawImageOfSizeAt(hdLoadedImage, driveWidth, driveHeight, LATCH_X_8875, LATCHHD_Y_8875);
     break;
   case IMG_HDEMPTY:
-    if (use8875) drawImageOfSizeAt(hdEmptyImage, driveWidth, driveHeight, 4, 165);
+    if (use8875) drawImageOfSizeAt(hdEmptyImage, driveWidth, driveHeight, LATCH_X_8875, LATCHHD_Y_8875);
+    break;
+  case IMG_D1BLANK:
+  case IMG_D2BLANK:
+  case IMG_HDBLANK:
+    // No card behind this latch: paint the shell back over it (8875 only;
+    // the small shell keeps its fixed latches).
+    if (use8875) {
+      uint16_t y0 = (imageIdx == IMG_D1BLANK) ? LATCH1_Y_8875 :
+	(imageIdx == IMG_D2BLANK) ? LATCH2_Y_8875 : LATCHHD_Y_8875;
+      for (uint16_t y = 0; y < driveHeight; y++)
+	for (uint16_t x = 0; x < driveWidth; x++)
+	  drawPixel(LATCH_X_8875 + x, y0 + y, 0xCE37);
+    }
     break;
   case IMG_APPLEBATTERY:
     // FIXME ***
@@ -146,7 +159,7 @@ void TeensyDisplay::drawUIImage(uint8_t imageIdx)
   }
 }
 
-void TeensyDisplay::drawDriveActivity(bool drive0, bool drive1, bool hd)
+void TeensyDisplay::drawDriveActivity(int8_t drive0, int8_t drive1, int8_t hd)
 {
   // Always repaint both: the UI only asks when a state changed or when the
   // drive-door image, which overlaps the LEDs, was just redrawn over them.
@@ -154,9 +167,12 @@ void TeensyDisplay::drawDriveActivity(bool drive0, bool drive1, bool hd)
   // with a dark light after every disk insert.
   for (int y=0; y<(use8875 ? LED_HEIGHT_8875 : LED_HEIGHT_9341); y++) {
     for (int x=0; x<(use8875 ? LED_WIDTH_8875 : LED_WIDTH_9341); x++) {
-      drawPixel(x+(use8875 ? LED1_X_8875 : LED1_X_9341), y+(use8875 ? LED1_Y_8875 : LED1_Y_9341), drive0 ? 0xFA00 : 0x58A2);
-      drawPixel(x+(use8875 ? LED2_X_8875 : LED2_X_9341), y+(use8875 ? LED2_Y_8875 : LED2_Y_9341), drive1 ? 0xFA00 : 0x58A2);
-      if (use8875) drawPixel(x+LEDHD_X_8875, y+LEDHD_Y_8875, hd ? 0xFA00 : 0x58A2);
+      if (drive0 >= 0)
+	drawPixel(x+(use8875 ? LED1_X_8875 : LED1_X_9341), y+(use8875 ? LED1_Y_8875 : LED1_Y_9341), drive0 ? 0xFA00 : 0x58A2);
+      if (drive1 >= 0)
+	drawPixel(x+(use8875 ? LED2_X_8875 : LED2_X_9341), y+(use8875 ? LED2_Y_8875 : LED2_Y_9341), drive1 ? 0xFA00 : 0x58A2);
+      if (use8875 && hd >= 0)
+	drawPixel(x+LEDHD_X_8875, y+LEDHD_Y_8875, hd ? 0xFA00 : 0x58A2);
     }
   }
   driveIndicator[0] = drive0;
