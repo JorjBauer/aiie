@@ -61,7 +61,7 @@ HD32::HD32(AppleMMU *mmu)
 {
   this->mmu = mmu;
   fd[0] = fd[1] = -1;   // so the Reset() below ejects against "no image", not garbage
-  activityUntil = 0;
+  activityUntil[0] = activityUntil[1] = 0;
   Reset();
 }
 
@@ -142,9 +142,11 @@ void HD32::Reset()
 
   cachedBlockNum = -1;
 
-  if (activityUntil) {
-    activityUntil = 0;
-    g_ui->drawOnOffUIElement(UIeHD_activity, false);
+  for (uint8_t d = 0; d < 2; d++) {
+    if (activityUntil[d]) {
+      activityUntil[d] = 0;
+      g_ui->drawOnOffUIElement(d ? UIeHD2_activity : UIeHD_activity, false);
+    }
   }
 }
 
@@ -152,18 +154,20 @@ void HD32::Reset()
 // after a quiet spell long enough to be seen.
 #define HD_ACTIVITY_CYCLES 100000   // about a tenth of a second at 1x
 
-void HD32::noteActivity()
+void HD32::noteActivity(uint8_t drive)
 {
-  if (!activityUntil)
-    g_ui->drawOnOffUIElement(UIeHD_activity, true);
-  activityUntil = g_cpu->cycles + HD_ACTIVITY_CYCLES;
+  if (!activityUntil[drive])
+    g_ui->drawOnOffUIElement(drive ? UIeHD2_activity : UIeHD_activity, true);
+  activityUntil[drive] = g_cpu->cycles + HD_ACTIVITY_CYCLES;
 }
 
 void HD32::maintenance(int64_t cycles)
 {
-  if (activityUntil && cycles > activityUntil) {
-    activityUntil = 0;
-    g_ui->drawOnOffUIElement(UIeHD_activity, false);
+  for (uint8_t d = 0; d < 2; d++) {
+    if (activityUntil[d] && cycles > activityUntil[d]) {
+      activityUntil[d] = 0;
+      g_ui->drawOnOffUIElement(d ? UIeHD2_activity : UIeHD_activity, false);
+    }
   }
 }
 
@@ -194,7 +198,7 @@ uint8_t HD32::readSwitches(uint8_t s)
       // FIXME: if diskblock[selectedDrive] >= disk image size, set/return io error
       errorState[driveSelected] = 0;
       ret = DEVICE_OK;
-      noteActivity();
+      noteActivity(driveSelected);
 
       cursor[driveSelected] = diskBlock[driveSelected] * HD32_BLOCKSIZE;
       if (!readBlockFromSelectedDrive()) {
@@ -211,7 +215,7 @@ uint8_t HD32::readSwitches(uint8_t s)
       // default case) would make a perfectly good write look like an I/O error.
       errorState[driveSelected] = 0;
       ret = DEVICE_OK;
-      noteActivity();
+      noteActivity(driveSelected);
       if (!writeBlockToSelectedDrive()){
 	ret = DEVICE_IO_ERROR;
 	errorState[driveSelected] = 1;
@@ -460,7 +464,7 @@ void HD32::insertDisk(int8_t driveNum, const char *filename)
   hdrOffset[driveNum] = (fd[driveNum] != -1) ? sniff2mgOffset(fd[driveNum]) : 0;
   errorState[driveNum] = 0;
   enabled = 1;
-  if (g_ui) g_ui->drawOnOffUIElement(UIeHD_state, fd[0] == -1 && fd[1] == -1);
+  if (g_ui) g_ui->drawOnOffUIElement(driveNum ? UIeHD2_state : UIeHD_state, false);
 }
 
 void HD32::ejectDisk(int8_t driveNum)
@@ -470,6 +474,6 @@ void HD32::ejectDisk(int8_t driveNum)
     fd[driveNum] = -1;
   }
   hdrOffset[driveNum] = 0;
-  if (g_ui) g_ui->drawOnOffUIElement(UIeHD_state, fd[0] == -1 && fd[1] == -1);
+  if (g_ui) g_ui->drawOnOffUIElement(driveNum ? UIeHD2_state : UIeHD_state, true);
 }
 

@@ -39,7 +39,7 @@ class HD32 : public Slot {
   void maintenance(int64_t cycles);
 
  protected:
-  void noteActivity();
+  void noteActivity(uint8_t drive);
  public:
 
  protected:
@@ -66,7 +66,7 @@ class HD32 : public Slot {
 
   // Activity light: lit by a block read or write, out after a short quiet
   // spell (0 means not lit).
-  int64_t activityUntil;
+  int64_t activityUntil[2];
 
   int32_t cachedBlockNum;
   uint8_t cachedBlock[512];

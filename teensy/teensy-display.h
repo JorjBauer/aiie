@@ -22,7 +22,7 @@ class TeensyDisplay : public PhysicalDisplay {
   virtual void clrScr(uint8_t coloridx);
 
   virtual void drawUIImage(uint8_t imageIdx);
-  virtual void drawDriveActivity(int8_t drive0, int8_t drive1, int8_t hd);
+  virtual void drawDriveActivity(int8_t drive0, int8_t drive1, int8_t hd, int8_t hd2);
 
   // WiFi signal indicator: the round "dot + fanning arcs" symbol on a black
   // background. `litLevels` (0-3) arcs are drawn in litColor, the rest in
@@ -57,6 +57,7 @@ private:
   uint8_t *d2ClosedImage;
   uint8_t *hdLoadedImage;
   uint8_t *hdEmptyImage;
+  uint8_t *hd1LoadedImage, *hd1EmptyImage, *hd2LoadedImage, *hd2EmptyImage;
   uint8_t *appleImage;
   uint16_t appleImageWidth, appleImageHeight;
 

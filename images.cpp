@@ -63,6 +63,26 @@ bool getImageInfoAndData(uint8_t imgnum, uint16_t *width, uint16_t *height, uint
     *height = 11;
     *dataptr = (uint8_t *)image_hd_empty;
     break;
+  case IMG_8875_HD1LOADED:
+    *width = 62;
+    *height = 11;
+    *dataptr = (uint8_t *)image_hd1_loaded;
+    break;
+  case IMG_8875_HD1EMPTY:
+    *width = 62;
+    *height = 11;
+    *dataptr = (uint8_t *)image_hd1_empty;
+    break;
+  case IMG_8875_HD2LOADED:
+    *width = 62;
+    *height = 11;
+    *dataptr = (uint8_t *)image_hd2_loaded;
+    break;
+  case IMG_8875_HD2EMPTY:
+    *width = 62;
+    *height = 11;
+    *dataptr = (uint8_t *)image_hd2_empty;
+    break;
 
   case IMG_8875_APPLEBATTERY:
     // FIXME

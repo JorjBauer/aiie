@@ -21,7 +21,7 @@ class SDLDisplay : public PhysicalDisplay {
   virtual void flush();
 
   virtual void drawUIImage(uint8_t imageIdx);
-  virtual void drawDriveActivity(int8_t drive0, int8_t drive1, int8_t hd);
+  virtual void drawDriveActivity(int8_t drive0, int8_t drive1, int8_t hd, int8_t hd2);
 
   virtual void drawImageOfSizeAt(const uint8_t *img, uint16_t sizex, uint16_t sizey, uint16_t wherex, uint16_t wherey);
 
@@ -56,6 +56,7 @@ class SDLDisplay : public PhysicalDisplay {
   uint8_t *d2ClosedImage;
   uint8_t *hdLoadedImage;
   uint8_t *hdEmptyImage;
+  uint8_t *hd1LoadedImage, *hd1EmptyImage, *hd2LoadedImage, *hd2EmptyImage;
   uint8_t *appleImage;
   uint16_t appleImageWidth, appleImageHeight;
 

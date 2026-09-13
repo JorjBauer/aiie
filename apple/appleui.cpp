@@ -11,8 +11,8 @@ AppleUI::AppleUI()
   redrawDriveActivity = true;
   driveEmpty[0] = driveEmpty[1] = true;
   driveActivity[0] = driveActivity[1] = 0;
-  hdEmpty = true;
-  hdActivity = false;
+  hdEmpty[0] = hdEmpty[1] = true;
+  hdActivity[0] = hdActivity[1] = false;
 }
 
 AppleUI::~AppleUI()
@@ -39,12 +39,12 @@ void AppleUI::drawOnOffUIElement(uint8_t element, bool state)
     driveActivity[element-UIeDisk1_activity] = state;
     redrawDriveActivity = true;
   }
-  else if (element == UIeHD_state) {
-    hdEmpty = state;
+  else if (element == UIeHD_state || element == UIeHD2_state) {
+    hdEmpty[element == UIeHD2_state] = state;
     redrawDriveLatches = true;
   }
-  else if (element == UIeHD_activity) {
-    hdActivity = state;
+  else if (element == UIeHD_activity || element == UIeHD2_activity) {
+    hdActivity[element == UIeHD2_activity] = state;
     redrawDriveActivity = true;
   }
 }
@@ -132,7 +132,13 @@ void AppleUI::blit()
     bool hdCard = (g_slotHD32 != 0);
     g_display->drawUIImage(!diskCard ? IMG_D1BLANK : driveEmpty[0] ? IMG_D1CLOSED : IMG_D1OPEN);
     g_display->drawUIImage(!diskCard ? IMG_D2BLANK : driveEmpty[1] ? IMG_D2CLOSED : IMG_D2OPEN);
-    g_display->drawUIImage(!hdCard ? IMG_HDBLANK : hdEmpty ? IMG_HDEMPTY : IMG_HDLOADED);
+    // One mounted image shows as a single "HD"; a second one turns the pair
+    // into "HD1" and "HD2".
+    bool twoHDs = hdCard && !hdEmpty[1];
+    g_display->drawUIImage(!hdCard ? IMG_HDBLANK :
+			   twoHDs ? (hdEmpty[0] ? IMG_HD1EMPTY : IMG_HD1LOADED) :
+			   (hdEmpty[0] ? IMG_HDEMPTY : IMG_HDLOADED));
+    g_display->drawUIImage(!twoHDs ? IMG_HD2BLANK : IMG_HD2LOADED);
     redrawDriveActivity = true; // these overlap
   }
 
@@ -140,7 +146,8 @@ void AppleUI::blit()
     redrawDriveActivity = false;
     g_display->drawDriveActivity(g_slotDiskII ? (driveActivity[0] ? 1 : 0) : -1,
 				 g_slotDiskII ? (driveActivity[1] ? 1 : 0) : -1,
-				 g_slotHD32 ? (hdActivity ? 1 : 0) : -1);
+				 g_slotHD32 ? (hdActivity[0] ? 1 : 0) : -1,
+				 (g_slotHD32 && !hdEmpty[1]) ? (hdActivity[1] ? 1 : 0) : -1);
   }
 
 }

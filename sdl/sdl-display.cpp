@@ -182,6 +182,7 @@ SDLDisplay::SDLDisplay()
   shellImage = NULL;
   d1OpenImage = d1ClosedImage = d2OpenImage = d2ClosedImage = NULL;
   hdLoadedImage = hdEmptyImage = NULL;
+  hd1LoadedImage = hd1EmptyImage = hd2LoadedImage = hd2EmptyImage = NULL;
   appleImage = NULL;
 
   if (use8875) {
@@ -193,6 +194,10 @@ SDLDisplay::SDLDisplay()
     getImageInfoAndData(IMG_8875_D2CLOSED, &driveWidth, &driveHeight, &d2ClosedImage);
     getImageInfoAndData(IMG_8875_HDLOADED, &driveWidth, &driveHeight, &hdLoadedImage);
     getImageInfoAndData(IMG_8875_HDEMPTY, &driveWidth, &driveHeight, &hdEmptyImage);
+    getImageInfoAndData(IMG_8875_HD1LOADED, &driveWidth, &driveHeight, &hd1LoadedImage);
+    getImageInfoAndData(IMG_8875_HD1EMPTY, &driveWidth, &driveHeight, &hd1EmptyImage);
+    getImageInfoAndData(IMG_8875_HD2LOADED, &driveWidth, &driveHeight, &hd2LoadedImage);
+    getImageInfoAndData(IMG_8875_HD2EMPTY, &driveWidth, &driveHeight, &hd2EmptyImage);
     getImageInfoAndData(IMG_8875_APPLEBATTERY, &appleImageWidth, &appleImageHeight, &appleImage);
   } else {
     videoBuffer = (uint32_t *)calloc(ILI9341_HEIGHT * ILI9341_WIDTH, sizeof(uint32_t));
@@ -272,14 +277,28 @@ void SDLDisplay::drawUIImage(uint8_t imageIdx)
   case IMG_HDEMPTY:
     if (use8875) drawImageOfSizeAt(hdEmptyImage, driveWidth, driveHeight, LATCH_X_8875, LATCHHD_Y_8875);
     break;
+  case IMG_HD1LOADED:
+    if (use8875) drawImageOfSizeAt(hd1LoadedImage, driveWidth, driveHeight, LATCH_X_8875, LATCHHD_Y_8875);
+    break;
+  case IMG_HD1EMPTY:
+    if (use8875) drawImageOfSizeAt(hd1EmptyImage, driveWidth, driveHeight, LATCH_X_8875, LATCHHD_Y_8875);
+    break;
+  case IMG_HD2LOADED:
+    if (use8875) drawImageOfSizeAt(hd2LoadedImage, driveWidth, driveHeight, LATCH_X_8875, LATCHHD2_Y_8875);
+    break;
+  case IMG_HD2EMPTY:
+    if (use8875) drawImageOfSizeAt(hd2EmptyImage, driveWidth, driveHeight, LATCH_X_8875, LATCHHD2_Y_8875);
+    break;
   case IMG_D1BLANK:
   case IMG_D2BLANK:
   case IMG_HDBLANK:
+  case IMG_HD2BLANK:
     // No card behind this latch: paint the shell back over it (8875 only;
     // the small shell keeps its fixed latches).
     if (use8875) {
       uint16_t y0 = (imageIdx == IMG_D1BLANK) ? LATCH1_Y_8875 :
-	(imageIdx == IMG_D2BLANK) ? LATCH2_Y_8875 : LATCHHD_Y_8875;
+	(imageIdx == IMG_D2BLANK) ? LATCH2_Y_8875 :
+	(imageIdx == IMG_HDBLANK) ? LATCHHD_Y_8875 : LATCHHD2_Y_8875;
       for (uint16_t y = 0; y < driveHeight; y++)
 	for (uint16_t x = 0; x < driveWidth; x++)
 	  drawPixel(LATCH_X_8875 + x, y0 + y, 0xCE37);
@@ -291,7 +310,7 @@ void SDLDisplay::drawUIImage(uint8_t imageIdx)
   }
 }
 
-void SDLDisplay::drawDriveActivity(int8_t drive0, int8_t drive1, int8_t hd)
+void SDLDisplay::drawDriveActivity(int8_t drive0, int8_t drive1, int8_t hd, int8_t hd2)
 {
   // Always repaint both: the UI only asks when a state changed or when the
   // drive-door image, which overlaps the LEDs, was just redrawn over them.
@@ -305,6 +324,8 @@ void SDLDisplay::drawDriveActivity(int8_t drive0, int8_t drive1, int8_t hd)
 	drawPixel(x+(use8875 ? LED2_X_8875 : LED2_X_9341), y+(use8875 ? LED2_Y_8875 : LED2_Y_9341), drive1 ? 0xFA00 : 0x58A2);
       if (use8875 && hd >= 0)
 	drawPixel(x+LEDHD_X_8875, y+LEDHD_Y_8875, hd ? 0xFA00 : 0x58A2);
+      if (use8875 && hd2 >= 0)
+	drawPixel(x+LEDHD_X_8875, y+LEDHD2_Y_8875, hd2 ? 0xFA00 : 0x58A2);
     }
   }
   driveIndicator[0] = drive0;

@@ -11,8 +11,10 @@ enum {
   UIeDisk1_activity  = 3,
   UIeDisk2_activity  = 4,
   UIePowerPercentage = 5,
-  UIeHD_state        = 6,   // true: no image mounted on the hard drive card
+  UIeHD_state        = 6,   // true: no image on the card's first drive
   UIeHD_activity     = 7,
+  UIeHD2_state       = 8,   // true: no image on its second drive
+  UIeHD2_activity    = 9,
 };
 
 class AppleUI : public VMui {
@@ -33,8 +35,8 @@ class AppleUI : public VMui {
   volatile bool redrawDriveLatches;
   volatile bool redrawDriveActivity;
   bool driveEmpty[2];   // the UIeDiskN_state protocol: true means NO disk in the drive
-  bool hdEmpty;
-  bool hdActivity;
+  bool hdEmpty[2];
+  bool hdActivity[2];
   bool driveActivity[2];
 };
 

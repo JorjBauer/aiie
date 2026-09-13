@@ -23,9 +23,11 @@
 #define LATCH1_Y_8875 18
 #define LATCH2_Y_8875 34
 #define LATCHHD_Y_8875 50
+#define LATCHHD2_Y_8875 66
 #define LED1_Y_8875 (LATCH1_Y_8875 + 1)
 #define LED2_Y_8875 (LATCH2_Y_8875 + 1)
 #define LEDHD_Y_8875 (LATCHHD_Y_8875 + 1)
+#define LEDHD2_Y_8875 (LATCHHD2_Y_8875 + 1)
 
 #define LED_HEIGHT_9341 1
 #define LED_WIDTH_9341 6
@@ -62,7 +64,13 @@ enum {
   IMG_HDEMPTY = 7,    // no image mounted
   IMG_D1BLANK = 8,    // no card in the machine: paint the shell over the latch
   IMG_D2BLANK = 9,
-  IMG_HDBLANK = 10
+  IMG_HDBLANK = 10,
+  // With two hard drive images mounted the card shows two latches, HD1 and HD2.
+  IMG_HD1LOADED = 11,
+  IMG_HD1EMPTY = 12,
+  IMG_HD2LOADED = 13,
+  IMG_HD2EMPTY = 14,
+  IMG_HD2BLANK = 15
 };
 
 // These are the DISPLAY-SPECIFIC constants that are used to retrieve
@@ -81,7 +89,11 @@ enum {
   IMG_9341_D2CLOSED = 8,
   IMG_9341_APPLEBATTERY = 9,
   IMG_8875_HDLOADED = 10,
-  IMG_8875_HDEMPTY = 11
+  IMG_8875_HDEMPTY = 11,
+  IMG_8875_HD1LOADED = 12,
+  IMG_8875_HD1EMPTY = 13,
+  IMG_8875_HD2LOADED = 14,
+  IMG_8875_HD2EMPTY = 15
   // (no 9341 HD latch: that shell has no room for a third drive)
 };
 
