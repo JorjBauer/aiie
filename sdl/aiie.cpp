@@ -634,6 +634,7 @@ int main(int argc, char *argv[])
   // Now that argv has been read, the debug socket can pick its port.
   // AIIE_DEBUG_PORT does the same thing for scripts that would rather
   // not rewrite a command line; the flag wins if both are given.
+#ifndef __EMSCRIPTEN__
   {
     const char *e = getenv("AIIE_DEBUG_PORT");
     if (e && debugPort == 12345) {
@@ -642,7 +643,8 @@ int main(int argc, char *argv[])
     }
     g_debugSocket.listenOn((uint16_t)debugPort);
   }
-
+#endif
+  
 #ifdef __EMSCRIPTEN__
   // Scope SDL's DOM keyboard listeners to the canvas only (default is the whole document, which
   // swallows keystrokes meant for the page's <textarea> editor).  We inject keys to the //e via
