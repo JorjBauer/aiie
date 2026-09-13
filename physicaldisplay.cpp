@@ -67,6 +67,8 @@ void PhysicalDisplay::redraw()
     if (g_vm) {
       g_ui->drawOnOffUIElement(UIeDisk1_state, ((AppleVM *)g_vm)->DiskName(0)[0] == '\0');
       g_ui->drawOnOffUIElement(UIeDisk2_state, ((AppleVM *)g_vm)->DiskName(1)[0] == '\0');
+      g_ui->drawOnOffUIElement(UIeHD_state, ((AppleVM *)g_vm)->HDName(0)[0] == '\0' &&
+			       ((AppleVM *)g_vm)->HDName(1)[0] == '\0');
     }
   }
 }

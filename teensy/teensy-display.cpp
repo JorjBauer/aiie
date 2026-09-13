@@ -31,6 +31,7 @@ TeensyDisplay::TeensyDisplay()
 
   shellImage = NULL;
   d1OpenImage = d1ClosedImage = d2OpenImage = d2ClosedImage = NULL;
+  hdLoadedImage = hdEmptyImage = NULL;
   appleImage = NULL;
   
   // FIXME abstract pin number, don't hard code it
@@ -79,6 +80,8 @@ TeensyDisplay::TeensyDisplay()
     getImageInfoAndData(IMG_8875_D1CLOSED, &driveWidth, &driveHeight, &d1ClosedImage);
     getImageInfoAndData(IMG_8875_D2OPEN, &driveWidth, &driveHeight, &d2OpenImage);
     getImageInfoAndData(IMG_8875_D2CLOSED, &driveWidth, &driveHeight, &d2ClosedImage);
+    getImageInfoAndData(IMG_8875_HDLOADED, &driveWidth, &driveHeight, &hdLoadedImage);
+    getImageInfoAndData(IMG_8875_HDEMPTY, &driveWidth, &driveHeight, &hdEmptyImage);
     getImageInfoAndData(IMG_8875_APPLEBATTERY, &appleImageWidth, &appleImageHeight, &appleImage);
     // 30MHz: solid performance, 9 FPS
     // 57.5MHz: solid performance, 14/15 FPS
@@ -131,34 +134,33 @@ void TeensyDisplay::drawUIImage(uint8_t imageIdx)
                       use8875 ? 4 : 189,
                       use8875 ? 116 : 216);
     break;
+  case IMG_HDLOADED:
+    if (use8875) drawImageOfSizeAt(hdLoadedImage, driveWidth, driveHeight, 4, 165);
+    break;
+  case IMG_HDEMPTY:
+    if (use8875) drawImageOfSizeAt(hdEmptyImage, driveWidth, driveHeight, 4, 165);
+    break;
   case IMG_APPLEBATTERY:
     // FIXME ***
     break;
   }
 }
 
-void TeensyDisplay::drawDriveActivity(bool drive0, bool drive1)
+void TeensyDisplay::drawDriveActivity(bool drive0, bool drive1, bool hd)
 {
-  // FIXME this could be much more efficient; it's doing a lot of checking use8875 in the middle of a loop
-  
-  if (drive0 != driveIndicator[0]) {
-    for (int y=0; y<(use8875 ? LED_HEIGHT_8875 : LED_HEIGHT_9341); y++) {
-      for (int x=0; x<(use8875 ? LED_WIDTH_8875 : LED_WIDTH_9341); x++) {
-        drawPixel(x+(use8875 ? LED1_X_8875 : LED1_X_9341), y+(use8875 ? LED1_Y_8875 : LED1_Y_9341), drive0 ? 0xFA00 : 0x0000);
-      }
+  // Always repaint both: the UI only asks when a state changed or when the
+  // drive-door image, which overlaps the LEDs, was just redrawn over them.
+  // Skipping an LED whose state "has not changed" left a spinning drive
+  // with a dark light after every disk insert.
+  for (int y=0; y<(use8875 ? LED_HEIGHT_8875 : LED_HEIGHT_9341); y++) {
+    for (int x=0; x<(use8875 ? LED_WIDTH_8875 : LED_WIDTH_9341); x++) {
+      drawPixel(x+(use8875 ? LED1_X_8875 : LED1_X_9341), y+(use8875 ? LED1_Y_8875 : LED1_Y_9341), drive0 ? 0xFA00 : 0x58A2);
+      drawPixel(x+(use8875 ? LED2_X_8875 : LED2_X_9341), y+(use8875 ? LED2_Y_8875 : LED2_Y_9341), drive1 ? 0xFA00 : 0x58A2);
+      if (use8875) drawPixel(x+LEDHD_X_8875, y+LEDHD_Y_8875, hd ? 0xFA00 : 0x58A2);
     }
-    driveIndicator[0] = drive0;
   }
-
-  if (drive1 != driveIndicator[1]) {
-    for (int y=0; y<(use8875 ? LED_HEIGHT_8875 : LED_HEIGHT_9341); y++) {
-      for (int x=0; x<(use8875 ? LED_WIDTH_8875 : LED_WIDTH_9341); x++) {
-        drawPixel(x+(use8875 ? LED2_X_8875 : LED2_X_9341), y+(use8875 ? LED2_Y_8875 : LED2_Y_9341), drive0 ? 0xFA00 : 0x0000);
-      }
-    }
-
-    driveIndicator[1] = drive1;
-  }
+  driveIndicator[0] = drive0;
+  driveIndicator[1] = drive1;
 }
 
 void TeensyDisplay::drawWiFiSignal(uint8_t litLevels, uint16_t litColor, uint16_t dimColor)

@@ -17,8 +17,10 @@
 #define LED_WIDTH_8875 17
 #define LED1_X_8875 48
 #define LED2_X_8875 48
+#define LEDHD_X_8875 48
 #define LED1_Y_8875 68
 #define LED2_Y_8875 117
+#define LEDHD_Y_8875 166   // the HD latch sits under 1 and 2 at the same 49-pixel pitch
 
 #define LED_HEIGHT_9341 1
 #define LED_WIDTH_9341 6
@@ -50,7 +52,9 @@ enum {
   IMG_D1CLOSED = 2,
   IMG_D2OPEN = 3,
   IMG_D2CLOSED = 4,
-  IMG_APPLEBATTERY = 5
+  IMG_APPLEBATTERY = 5,
+  IMG_HDLOADED = 6,   // an image is mounted on the hard drive card
+  IMG_HDEMPTY = 7     // no image, or no card
 };
 
 // These are the DISPLAY-SPECIFIC constants that are used to retrieve
@@ -67,7 +71,10 @@ enum {
   IMG_9341_D1CLOSED = 8,
   IMG_9341_D2OPEN = 7,   // repeat of d1; they're the same image
   IMG_9341_D2CLOSED = 8,
-  IMG_9341_APPLEBATTERY = 9
+  IMG_9341_APPLEBATTERY = 9,
+  IMG_8875_HDLOADED = 10,
+  IMG_8875_HDEMPTY = 11
+  // (no 9341 HD latch: that shell has no room for a third drive)
 };
 
 bool getImageInfoAndData(uint8_t imgnum, uint16_t *width, uint16_t *height, uint8_t **dataptr);

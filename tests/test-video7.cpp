@@ -56,7 +56,7 @@ public:
   virtual void blit() {}
   virtual void flush() {}
   virtual void drawUIImage(uint8_t) {}
-  virtual void drawDriveActivity(bool, bool) {}
+  virtual void drawDriveActivity(bool, bool, bool) {}
   virtual void drawImageOfSizeAt(const uint8_t *, uint16_t, uint16_t,
                                  uint16_t, uint16_t) {}
   virtual void drawPixel(uint16_t, uint16_t, uint16_t) {}

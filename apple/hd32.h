@@ -34,6 +34,14 @@ class HD32 : public Slot {
 
   const char *diskName(int8_t num);
 
+  // Called from the VM's CPU maintenance tick: turns the activity light
+  // off once the drive has been quiet for a moment.
+  void maintenance(int64_t cycles);
+
+ protected:
+  void noteActivity();
+ public:
+
  protected:
   uint8_t readNextByteFromSelectedDrive();
   bool readBlockFromSelectedDrive();
@@ -55,6 +63,10 @@ class HD32 : public Slot {
   int8_t fd[2];
   uint32_t cursor[2]; // seek position on the given file handle
   uint32_t hdrOffset[2]; // bytes to skip before block 0 (2IMG header; 0 = raw image)
+
+  // Activity light: lit by a block read or write, out after a short quiet
+  // spell (0 means not lit).
+  int64_t activityUntil;
 
   int32_t cachedBlockNum;
   uint8_t cachedBlock[512];

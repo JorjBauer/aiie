@@ -25,6 +25,8 @@
 #include "serialize.h"
 
 #include "globals.h"
+#include "appleui.h"
+#include "cpu.h"
 
 #include "hd32-rom.h"
 
@@ -59,6 +61,7 @@ HD32::HD32(AppleMMU *mmu)
 {
   this->mmu = mmu;
   fd[0] = fd[1] = -1;   // so the Reset() below ejects against "no image", not garbage
+  activityUntil = 0;
   Reset();
 }
 
@@ -138,6 +141,30 @@ void HD32::Reset()
   command = CMD_STATUS;
 
   cachedBlockNum = -1;
+
+  if (activityUntil) {
+    activityUntil = 0;
+    g_ui->drawOnOffUIElement(UIeHD_activity, false);
+  }
+}
+
+// A block transfer lights the activity LED; maintenance() puts it out
+// after a quiet spell long enough to be seen.
+#define HD_ACTIVITY_CYCLES 100000   // about a tenth of a second at 1x
+
+void HD32::noteActivity()
+{
+  if (!activityUntil)
+    g_ui->drawOnOffUIElement(UIeHD_activity, true);
+  activityUntil = g_cpu->cycles + HD_ACTIVITY_CYCLES;
+}
+
+void HD32::maintenance(int64_t cycles)
+{
+  if (activityUntil && cycles > activityUntil) {
+    activityUntil = 0;
+    g_ui->drawOnOffUIElement(UIeHD_activity, false);
+  }
 }
 
 uint8_t HD32::readSwitches(uint8_t s)
@@ -167,6 +194,7 @@ uint8_t HD32::readSwitches(uint8_t s)
       // FIXME: if diskblock[selectedDrive] >= disk image size, set/return io error
       errorState[driveSelected] = 0;
       ret = DEVICE_OK;
+      noteActivity();
 
       cursor[driveSelected] = diskBlock[driveSelected] * HD32_BLOCKSIZE;
       if (!readBlockFromSelectedDrive()) {
@@ -183,6 +211,7 @@ uint8_t HD32::readSwitches(uint8_t s)
       // default case) would make a perfectly good write look like an I/O error.
       errorState[driveSelected] = 0;
       ret = DEVICE_OK;
+      noteActivity();
       if (!writeBlockToSelectedDrive()){
 	ret = DEVICE_IO_ERROR;
 	errorState[driveSelected] = 1;
@@ -431,6 +460,7 @@ void HD32::insertDisk(int8_t driveNum, const char *filename)
   hdrOffset[driveNum] = (fd[driveNum] != -1) ? sniff2mgOffset(fd[driveNum]) : 0;
   errorState[driveNum] = 0;
   enabled = 1;
+  if (g_ui) g_ui->drawOnOffUIElement(UIeHD_state, fd[0] == -1 && fd[1] == -1);
 }
 
 void HD32::ejectDisk(int8_t driveNum)
@@ -440,5 +470,6 @@ void HD32::ejectDisk(int8_t driveNum)
     fd[driveNum] = -1;
   }
   hdrOffset[driveNum] = 0;
+  if (g_ui) g_ui->drawOnOffUIElement(UIeHD_state, fd[0] == -1 && fd[1] == -1);
 }
 

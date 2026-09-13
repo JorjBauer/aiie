@@ -9,8 +9,10 @@ AppleUI::AppleUI()
   redrawFrame = true;
   redrawDriveLatches = true;
   redrawDriveActivity = true;
-  driveInserted[0] = driveInserted[1] = 0;
+  driveEmpty[0] = driveEmpty[1] = true;
   driveActivity[0] = driveActivity[1] = 0;
+  hdEmpty = true;
+  hdActivity = false;
 }
 
 AppleUI::~AppleUI()
@@ -29,12 +31,20 @@ void AppleUI::drawOnOffUIElement(uint8_t element, bool state)
 {
   if (element == UIeDisk1_state ||
       element == UIeDisk2_state) {
-    driveInserted[element-UIeDisk1_state] = state;
+    driveEmpty[element-UIeDisk1_state] = state;
     redrawDriveLatches = true;
   }
   else if (element == UIeDisk1_activity ||
 	   element == UIeDisk2_activity) {
     driveActivity[element-UIeDisk1_activity] = state;
+    redrawDriveActivity = true;
+  }
+  else if (element == UIeHD_state) {
+    hdEmpty = state;
+    redrawDriveLatches = true;
+  }
+  else if (element == UIeHD_activity) {
+    hdActivity = state;
     redrawDriveActivity = true;
   }
 }
@@ -115,14 +125,19 @@ void AppleUI::blit()
 
   if (redrawDriveLatches) {
     redrawDriveLatches = false;
-    g_display->drawUIImage(driveInserted[0] ? IMG_D1CLOSED : IMG_D1OPEN);
-    g_display->drawUIImage(driveInserted[1] ? IMG_D2CLOSED : IMG_D2OPEN);
+    // The "closed" images carry an X across the latch: no disk in the
+    // drive, or no Disk II card to put one in. The "open" ones show a
+    // loaded drive.
+    bool noCard = (g_slotDiskII == 0);
+    g_display->drawUIImage((noCard || driveEmpty[0]) ? IMG_D1CLOSED : IMG_D1OPEN);
+    g_display->drawUIImage((noCard || driveEmpty[1]) ? IMG_D2CLOSED : IMG_D2OPEN);
+    g_display->drawUIImage((g_slotHD32 == 0 || hdEmpty) ? IMG_HDEMPTY : IMG_HDLOADED);
     redrawDriveActivity = true; // these overlap
   }
 
   if (redrawDriveActivity) {
     redrawDriveActivity = false;
-    g_display->drawDriveActivity(driveActivity[0], driveActivity[1]);
+    g_display->drawDriveActivity(driveActivity[0], driveActivity[1], hdActivity);
   }
 
 }

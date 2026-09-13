@@ -165,6 +165,7 @@ void AppleVM::cpuMaintenance(int64_t cycles)
 
   keyboard->maintainKeyboard(cycles);
   disk6->maintenance(cycles);
+  hd32->maintenance(cycles);
   if (mouse) mouse->maintainMouse(cycles);
   if (mockingboard) mockingboard->update(cycles);
   if (uthernet) uthernet->tick(cycles);
