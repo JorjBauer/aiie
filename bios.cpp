@@ -736,7 +736,7 @@ void BIOS::drawMain()
   else if (hdChanged)
     putCentered(HELPROW, "Hard drive changed: reboot to use it", ST_NORMAL);
   else
-    putCentered(HELPROW, A_UP A_DN " pick   " A_LT A_RT " set   Esc resumes", ST_DIM);
+    putCentered(HELPROW, A_UP A_DN " move   " A_LT A_RT " set   Esc resumes", ST_DIM);
 
   g_display->flush();
 }
@@ -880,7 +880,7 @@ void BIOS::drawCards()
   put(15, 2, "On RamWorks it is the size in MB.", ST_DIM);
   put(16, 2, "The mouse only works in slot 4.", ST_DIM);
   put(17, 2, "Slot 3 suits only the Uthernet.", ST_DIM);
-  put(19, 2, "Up/Down pick, L/R or Return set.", ST_DIM);
+  put(19, 2, "Up/Down move, L/R or Return set.", ST_DIM);
   put(20, 2, "Esc returns.", ST_DIM);
 
   if (cardsConfigChanged)
@@ -976,7 +976,7 @@ void BIOS::drawDisplay()
   put(16, 2, "The cutoff is the brightness at which", ST_DIM);
   put(17, 2, "a B&W pixel is lit; -/+ step it by 16.", ST_DIM);
 
-  put(19, 2, "Up/Down pick, L/R set. Esc returns.", ST_DIM);
+  put(19, 2, "Up/Down move, L/R set. Esc returns.", ST_DIM);
   g_display->flush();
 }
 
@@ -1063,7 +1063,7 @@ void BIOS::drawPaddles()
 
   put(12, 2, "Move the paddles or", ST_DIM);
   put(13, 2, "the mouse to test.", ST_DIM);
-  put(19, 2, "Up/Down pick, L/R flip. Esc to return.", ST_DIM);
+  put(19, 2, "Up/Down move, L/R flip. Esc to return.", ST_DIM);
 
   // Draw the target for the paddle position
   rect(PADBOX_X, PADBOX_Y, PADBOX_W, PADBOX_W, C_BLACK);
@@ -1286,7 +1286,7 @@ void BIOS::drawNetwork()
   }
 #endif
 
-  put(21, 2, "Up/Down pick, type to edit, Del erases", ST_DIM);
+  put(21, 2, "Up/Down move, type to edit, Del erases", ST_DIM);
   put(22, 2, "Esc returns.", ST_DIM);
   g_display->flush();
 }
@@ -1457,7 +1457,7 @@ void BIOS::drawAdvanced()
   put(17, 2, "A snapshot is the whole machine, saved", ST_DIM);
   put(18, 2, "to disk for restore later.", ST_DIM);
 
-  put(21, 2, "Up/Down move, Return to select, Esc back", ST_DIM);
+  put(21, 2, "Up/Down move, Return select, Esc back", ST_DIM);
   g_display->flush();
 }
 
@@ -1749,7 +1749,7 @@ void BIOS::drawBrowser()
   else
     put(20, 8, "(type to search)", ST_DIM);
 
-  put(21, 2, "Up/Down pick, L/R page, Return opens.", ST_DIM);
+  put(21, 2, "Up/Down move, L/R page, Return opens.", ST_DIM);
   put(22, 2, findText[0] ? "Esc clears the search." : "Esc returns.", ST_DIM);
   g_display->flush();
 }
