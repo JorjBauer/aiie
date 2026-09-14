@@ -970,7 +970,7 @@ void BIOS::drawDisplay()
   put(8, 2, "B&W and Mono draw one color; NTSC-like", ST_DIM);
   put(9, 2, "draws NTSC artifacts, while RGB draws", ST_DIM);
   put(10, 2, "\"perfect\" pixel colors that skip", ST_DIM);
-  put(11, 2, "rows (Apple ][ artifacts).", ST_DIM);
+  put(11, 2, "columns (Apple ][ artifacts).", ST_DIM);
   put(13, 2, "Video7 adds color attributes for", ST_DIM);
   put(14, 2, "fg/bg text like a IIgs.", ST_DIM);
   put(16, 2, "The cutoff is the brightness at which", ST_DIM);
