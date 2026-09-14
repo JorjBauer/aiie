@@ -7,8 +7,7 @@
 #include <stdint.h>
 #endif
 
-#define BIOS_MAXFILES 10 // number of files in a page of listing
-#define BIOS_MAXPATH 60  // maximum length of a single filename that we'll support
+#define BIOS_MAXPATH 128 // maximum length of a single filename that we'll support
 
 class BIOS {
  public:
@@ -24,52 +23,53 @@ class BIOS {
   void RebootAsIs();
 
  private:
-  uint16_t MainMenuHandler();
-  
-  void DrawMenuBar();
-  void DrawCurrentMenu();
-  void DrawAiieMenu();
-  void DrawVMMenu();
-  void DrawHardwareMenu();
-  void DrawCardsMenu();
-  void DrawDisksMenu();
+  uint8_t mainScreen(bool redraw, int key);
+  uint8_t cardsScreen(bool redraw, int key);
+  uint8_t displayScreen(bool redraw, int key);
+  uint8_t paddlesScreen(bool redraw, int key);
+  uint8_t networkScreen(bool redraw, int key);
+  uint8_t advancedScreen(bool redraw, int key);
+  uint8_t aboutScreen(bool redraw, int key);
+  uint8_t browseScreen(bool redraw, int key);
+  uint8_t messageScreen(bool redraw, int key);
 
-  uint16_t AiieMenuHandler(bool needsRedraw, bool performAction);
-  uint16_t VmMenuHandler(bool needsRedraw, bool performAction);
-  uint16_t HardwareMenuHandler(bool needsRedraw, bool performAction);
-  uint16_t CardsMenuHandler(bool needsRedraw, bool performAction, int8_t key);
-  uint16_t DisksMenuHandler(bool needsRedraw, bool performAction);
-  uint16_t AboutScreenHandler(bool needsRedraw, bool performAction);
-  uint16_t PaddlesScreenHandler(bool needsRedraw, bool performAction);
-  uint16_t SelectFileScreenHandler(bool needsRedraw, bool performAction);
-  uint16_t WiFiScreenHandler(bool needsRedraw, bool performAction, int8_t key);
+  void drawMain();
+  void drawCards();
+  void drawDisplay();
+  void drawPaddles();
+  void drawNetwork();
+  void drawAdvanced();
+  void drawBrowser();
 
-  uint8_t GetAction(int8_t prevAction);
-  bool isActionActive(int8_t action);
-
-  int8_t getCurrentMenuAction();
+  uint8_t mainAction(int row);
+  uint8_t leaveBIOS();
 
   void WarmReset();
   void ColdReboot();
 
-  uint16_t DrawDiskNames(uint8_t page, int8_t selection, const char *filter);
-  uint16_t GatherFilenames(uint8_t pageOffset, const char *filter);
-
+  void openBrowser(uint8_t kind, uint8_t drive);
+  void refilter();
+  void cacheDirectory();
+  void enterDirectory(const char *name);
   void stripDirectory();
 
-  uint16_t cacheAllEntries(const char *filter);
-  void sortCachedEntries();
-  void swapCacheEntries(int a, int b);
+  uint8_t notice(const char *a, const char *b, uint8_t back);
 
  private:
-  int8_t selectedFile;
-  char fileDirectory[BIOS_MAXFILES][BIOS_MAXPATH+1];
+  uint8_t screen;
+  uint8_t mainSel;
+  uint8_t sel;
+  uint8_t speedIndex;
 
-  char rootPath[255-BIOS_MAXPATH];
+  uint8_t browseKind;
+  uint8_t browseDrive;
+  uint16_t browseTop;
+  uint16_t browseSel;
+  char findText[16];
+  char rootPath[255 - BIOS_MAXPATH];
 
-  int8_t selectedMenu;
-  int8_t selectedMenuItem;
-  uint8_t currentCPUSpeedIndex;
+  const char *noticeA, *noticeB;
+  uint8_t noticeBack;
 };
 
 #endif

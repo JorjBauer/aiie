@@ -16,6 +16,8 @@ class SDLKeyboard : public PhysicalKeyboard {
   virtual bool kbhit();
   virtual int8_t read();
 
+  static void injectBiosKey(uint8_t k);
+
  private:
   void handleKeypress(SDL_KeyboardEvent *key);
 };

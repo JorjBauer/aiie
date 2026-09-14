@@ -20,6 +20,8 @@ class TeensyDisplay : public PhysicalDisplay {
   virtual void flush() { };
 
   virtual void clrScr(uint8_t coloridx);
+  virtual uint16_t width() { return use8875 ? 800 : 320; }
+  virtual uint16_t height() { return use8875 ? 480 : 240; }
 
   virtual void drawUIImage(uint8_t imageIdx);
   virtual void drawDriveActivity(int8_t drive0, int8_t drive1, int8_t hd, int8_t hd2);
@@ -46,7 +48,7 @@ private:
   // These were declared const but are populated in the constructor
   // body via getImageInfoAndData(). With strict modern compilers
   // that's UB (writing to const) and can cause the optimizer to
-  // assume they're whatever zero-init value they had — leading to
+  // assume they're whatever zero-init value they had, leading to
   // bogus zero widths and out-of-bounds buffer math at runtime.
   uint8_t *shellImage;
   uint16_t shellWidth, shellHeight;

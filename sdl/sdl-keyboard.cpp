@@ -284,8 +284,8 @@ void SDLKeyboard::maintainKeyboard()
     case SDL_WINDOWEVENT:
       // On any focus transition, drop all held keys. A key whose key-up lands in
       // another window (or is swallowed by the OS during the switch) would
-      // otherwise repeat forever; this makes returning to the emulator -- or just
-      // clicking away and back -- always start from a clean keyboard.
+      // otherwise repeat forever; this makes returning to the emulator (or just
+      // clicking away and back) always start from a clean keyboard.
       if (event.window.event == SDL_WINDOWEVENT_FOCUS_LOST ||
           event.window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {
         vmkeyboard->releaseAllKeys();
@@ -304,7 +304,7 @@ void SDLKeyboard::maintainKeyboard()
 // queue on each call and pushes any decoded keys here; read() pops one. The old
 // code pulled a single SDL event per call, so a backlog of mouse-motion or
 // key-up events sat in front of your keystrokes and the ~30Hz BIOS poll only
-// cleared one event per tick -- which is exactly why typing an SSID or password
+// cleared one event per tick, which is exactly why typing an SSID or password
 // felt halting and unnatural. Draining the queue every call means a keystroke is
 // never stuck behind unrelated events.
 #define BIOS_KEYRING 32
@@ -318,6 +318,11 @@ static void pushBiosKey(uint8_t k)
     keyRing[keyRingHead] = k;
     keyRingHead = next;
   }
+}
+
+void SDLKeyboard::injectBiosKey(uint8_t k)
+{
+  pushBiosKey(k);
 }
 
 bool SDLKeyboard::kbhit()

@@ -66,35 +66,45 @@ As of this writing, the master branch does not work for Aiie; but the branch "dm
 
 # Running (on the Teensy)
 
-The reset/menu button brings up a BIOS with five tabs: **Aiie**, **VM**, **Hardware**, **Cards**, and **Disks**. Use left/right to switch tabs and up/down to navigate within a tab.
+The reset/menu button (F10 on a keyboard) freezes the Apple //e and brings up the BIOS: one panel of settings in the style of the IIgs control panel. Up and Down pick a row, Left and Right change a value, Return opens a row that ends in "...", and Escape goes back (or, from the main list, resumes the //e).
 
-## Aiie tab
+## The main list
 
-* **About** -- version and build information.
+* **Resume**: return to the running Apple //e.
+* **Reset the //e (warm)**: equivalent to pressing Ctrl-Reset on the real hardware. Hold both joystick buttons before selecting Reset to trigger the Apple //e self-test.
+* **Reboot the //e (cold)**: reboot the emulated machine without ejecting disks.
+* **Reboot and eject disks**: full power-cycle: ejects all disks and reboots.
+* **Disk drive 1 / 2** and **Hard drive 1 / 2**: what is in each drive. Return opens a file browser; pick an image to insert it, or the "Eject" row at the top of the list to remove what is there. Type to narrow the list. Floppies: .dsk, .po, .nib and .woz (.nib images aren't heavily tested for write support). Hard drives: raw 32MB .img/.hdv files, or .2mg.
+* **Cards...**, **Display...**, **Paddles...**, **Network...**: screens of their own, below.
+* **Volume**: the speaker volume (0 to 15).
+* **CPU speed**: Half (511.5 kHz), 1x (1.023 MHz), 2x (2.046 MHz) and 4x (4.092 MHz); the desktop build goes on to 8x, 16x, 128x and 256x.
+* **Advanced...**: drop to the Apple //e monitor prompt (useful for debugging); the debug overlay, which cycles through off, FPS, memory free, paddles, PC, cycles, battery, time, disk and network; and the snapshot (see "Suspend and Restore" below). On the Teensy this is also where the firmware is updated from an AIIE.HEX on the SD card.
+* **About Aiie**: version and build information.
 
-## VM tab
+## Cards
 
-* **Resume** -- return to the running Apple //e.
-* **Reset** -- equivalent to pressing Ctrl-Reset on the real hardware. Hold both joystick buttons before selecting Reset to trigger the Apple //e self-test.
-* **Reboot** -- reboot the emulated machine without ejecting disks.
-* **Reboot and eject disks** -- full power-cycle: ejects all disks and reboots.
-* **Drop to Monitor** -- tries to get you to the Apple //e monitor prompt. Useful for debugging.
-* **Debug** -- cycles through overlay modes: off, Show FPS, Show mem free, Show paddles, Show PC, Show cycles, Show battery, Show time, Show Disk.
-* **Suspend VM** -- writes a full VM snapshot (including inserted disks) to "suspend.vm" on the MicroSD card.
-* **Restore VM** -- restores a previously suspended snapshot.
+Assigns cards to slots 1 through 7, or 0 to remove a card. Type a digit to put the highlighted card in that slot directly, or step through the slots with Left and Right. If two cards conflict (same slot), the other card is moved to the lowest free slot. The mouse only works in slot 4; slot 3 only suits the Uthernet, since the //e's own 80-column firmware lives there.
 
-## Hardware tab
+* **Disk II**: default slot 6.
+* **Parallel printer**: default slot 1.
+* **Hard disk**: default slot 7.
+* **Mouse**: off by default (slot 4 when installed).
+* **Mockingboard**: default slot 4.
+* **Uthernet II**: off by default.
+* **RamWorks**: the size of the auxiliary memory expansion, in megabytes, or "not installed".
+* **Reset to defaults**: restores the default slot assignments.
 
-* **Display** -- cycles through four video modes: RGB, NTSC-like, B&W, and Mono.
-* **Luminance +/-** -- adjusts the luminance cutoff for the display.
-* **CPU Speed** -- cycles through Half (511.5 kHz), Normal (1.023 MHz), Double (2.046 MHz), and Quad (4.092 MHz).
-* **Paddle X/Y normal/inverted** -- toggles axis inversion for each paddle axis.
-* **Configure paddles** -- enters a paddle calibration screen.
-* **Volume +/-** -- adjusts the speaker volume (0-15).
+Card changes are saved and persist across power cycles. A change cannot take effect in the running machine (the //e's boot scan has already run), so once you change a slot, Resume is disabled until you Reset or Reboot.
+
+## Display
+
+* **Display type**: cycles through four video modes: RGB, NTSC-like, B&W, and Mono.
+* **Video7 color text**: whether the machine has an RGB card with the Video7 color-text extensions (see video7.md).
+* **Luminance cutoff**: the brightness at which a B&W pixel is lit; Left/Right step it by one, - and + by sixteen.
 
 ### Display modes
 
-"Display" has four values, and they're only really implemented for text and hi-res modes (not for lo-res modes). To describe them, I have to talk about the details of the Apple II display system.
+"Display type" has four values, and they're only really implemented for text and hi-res modes (not for lo-res modes). To describe them, I have to talk about the details of the Apple II display system.
 
 In hires modes, the Apple II can only display certain colors in certain horizontal pixel columns. Because of how the composite video out works, the color "carries over" from one pixel to its neighbor; multiple pixels turned on in a row makes them all white. Which means that, if you're trying to display a picture in hires mode, you get color artifacts on the edges of white areas.
 
@@ -104,23 +114,19 @@ There are two other video modes. The "RGB" mode (the default, because it's my pr
 
 The last mode is "Monochrome" which looks like the original "Monitor II", a black-and-green display.
 
-## Cards tab
+## Paddles
 
-This tab lets you assign cards to slots 0-7 (slot 3 is reserved and cannot be used). You can type a digit 0-7 to assign a slot directly, or press Return to cycle through available slots. Setting a slot to 0 disables that card. If two cards conflict (same slot), the other card is automatically displaced.
+Flips either paddle axis, and plots the live paddle position in a target so you can check them.
 
-* **Disk II** -- default slot 6.
-* **Parallel** -- default slot 1.
-* **HD32** -- default slot 7.
-* **Mouse** -- default slot 2.
-* **Mockingboard** -- default slot 4.
-* **Reset to defaults** -- restores the default slot assignments.
+## Network
 
-Card changes are saved to EEPROM and persist across power cycles. If you change any slot assignment, the machine will cold restart when you leave the BIOS.
+The Uthernet II card's slot, the virtual subnet the NAT hands the Apple, and the inbound ports to forward to it. On the Teensy this is also where the WiFi name and password go, with a Connect row and a live link status; on the desktop the emulator rides the host's own connection, so there is nothing to join, and a port offset lets it open privileged ports without root.
 
-## Disks tab
+The Teensy uses a ESP-01 for network access. The ESP-01 is limited to 4 active connections - that's a combination of inbound and outbound. If you set 3 different ports for inbound traffic (which are necessary because the Apple might be using raw sockets on the Uthernet, thus we have no way to tell the ESP-01 about its incoming traffic without this configuration) you only have 1 socket available for outbound traffic. If you set four listening ports, you won't be able to connect any outbound sessions at all.
 
-* **Disk 1 / Disk 2** -- insert or eject floppy disk images. Supported formats: .dsk, .po, .nib, and .woz (though .nib images aren't heavily tested for write support).
-* **HD 1 / HD 2** -- insert or eject hard drive images. Hard drives are raw 32MB files whose filenames must end in .img.
+There are a couple problems with the ESP-01 as-wired in the Aiie R9 PCB. I designed the PCB many years before actually wiring up the ESP-01 so it's not surprising that I didn't quite have it right. You'll need to add a 470uF and 0.1uF capacitor (10v) right at the ESP-01's power pins; and 10uF (10v) on the 3.3v regulator output. The device does not like the ESP-01 being turned on after you've booted the Aiie - it doesn't cause damage, but will reboot the machine.
+
+I'm unlikely to build a R10 PCB unless I get specific requests for it. Networking support on an Apple //e emulator is *so* esoteric - nobody's been beating down my door asking for it. But I do have other thoughts of what I might do with the core work from this project, for a new hardware build in future...
 
 ## Suspend and Restore
 
@@ -128,7 +134,7 @@ The Teensy can be fully suspended and restored -- including what disks are inser
 
 # Building (on a Mac)
 
-While this isn't the purpose of the emulator, it is functional, and is my first test target for most of the work. With MacOS 10.11.6 and Homebrew, you can build and run it like this:
+This wasn't the initial purpose of this emulator, but I've built on to it as the first test target for most functionality over the past 9 years. The SDL build works with MacOS 10.11.6 and Homebrew or newer, and you can build and run it like this:
 
 ```
   $ make sdl
@@ -145,7 +151,7 @@ When running, F10 enters the BIOS.
 
 # Building (on Linux)
 
-I've been experimenting with Aiie running under a handmade OS on a Raspberry Pi Zero W; the hardware is decent, and cheap. I just don't want Linux in the way. So I built JOSS (see [my Hackaday page about JOSS](https://hackaday.io/project/19925-aiie-an-embedded-apple-e-emulator/log/87286-entry-18-pi-zero-w-and-joss)). 
+Years ago I experimented with Aiie running under a handmade OS on a Raspberry Pi Zero W; the hardware is decent, and cheap. I just don't want Linux in the way. So I built JOSS (see [my Hackaday page about JOSS](https://hackaday.io/project/19925-aiie-an-embedded-apple-e-emulator/log/87286-entry-18-pi-zero-w-and-joss)). 
 
 Well, performance under JOSS is poor, so I built a Linux framebuffer wrapper for Aiie so that I can do performance testing on the Zero W, directly between JOSS and Linux. 
 
@@ -154,9 +160,17 @@ $ make linuxfb
 $ ./linuxfb
 ```
 
+There's no guarantee that this will still build; I don't have that environment any longer, and haven't tried to maintain it. I will probably purge it from the master branch in the future and it can live on in the git history.
+
+# Building for the web or electron
+
+You'll find a good number of #ifdefs related to EMSCRIPTEN in the code, but no WASM build here.
+
+In 2026 I've needed a web build of this for a demonstration. Unrelated, I've been building a number of games in Electron for cross-platform support. It's not packaged here - it shares a framework with the games I've written - but the executables are [available on their own site](https://github.com/JorjBauer/aiie-electron-app/) if you want to run this as a standalone application. And stay tuned, I've got a web presence for an upcoming (fall 2026) talk.
+
 # Mockingboard
 
-The original Mockingboard is fully supported. By default it is installed in Slot 4, but this can be changed (or disabled) from the Cards tab in the BIOS. Both speaker audio and Mockingboard audio are mixed together in the output.
+The original Mockingboard ("Mockingboard A") is fully supported. By default it is installed in Slot 4, but this can be changed (or disabled) from the Cards tab in the BIOS. Both speaker audio and Mockingboard audio are mixed together in the single audio output.
 
 # VM
 
@@ -226,5 +240,3 @@ The LinuxFB build is currently unmaintained and definitely broken.
 Disk write protection isn't implemented.
 
 If you don't have an SD card inserted when you turn on Aiie, you can't insert one and use it without power cycling. (The card driver is only initialized on hardware startup.)
-
-While I do have an ESP-01 wired in to the hardware, I don't have a working driver written yet.

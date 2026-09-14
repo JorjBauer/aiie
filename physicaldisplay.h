@@ -32,6 +32,9 @@ class PhysicalDisplay {
 
   virtual void clrScr(uint8_t coloridx) = 0;
 
+  virtual uint16_t width() { return 320; }
+  virtual uint16_t height() { return 240; }
+
   // methods to draw in to the buffer - not directly to the screen.
 
   // First, methods that expect *us* to pixel-double the width...

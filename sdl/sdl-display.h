@@ -29,6 +29,8 @@ class SDLDisplay : public PhysicalDisplay {
   //  virtual void drawPixel(uint16_t x, uint16_t y, uint8_t r, uint8_t g, uint8_t b);
 
   virtual void clrScr(uint8_t coloridx);
+  virtual uint16_t width();
+  virtual uint16_t height();
 
   virtual void cachePixel(uint16_t x, uint16_t y, uint8_t color);
   virtual void cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color);
@@ -37,6 +39,8 @@ class SDLDisplay : public PhysicalDisplay {
   void windowResized(uint32_t w, uint32_t h);
   void setWindowSize(uint32_t w, uint32_t h);
   SDL_Window *getWindow() { return screen; }
+
+  bool savePng(const char *path);
 
  private:
   uint32_t *videoBuffer;

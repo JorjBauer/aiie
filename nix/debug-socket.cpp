@@ -4,6 +4,9 @@
 #include "globals.h"
 #include "cpu.h"
 #include "applemmu.h"
+#include "physicalkeyboard.h"
+#include "sdl-keyboard.h"
+#include "sdl-display.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -166,7 +169,7 @@ void DebugSocket::serve()
 	break;
 
       case 'b': case 'D': case 'T': case 'K': case '*': case 'G':
-      case 'w': case 'W':
+      case 'w': case 'W': case 'B': case 'P':
 	{
 	  if (!getline_(fd, line, sizeof(line))) goto gone;
 	  size_t len = strlen(line);
@@ -680,6 +683,66 @@ void DebugSocket::handle(char *cmd)
 	     (unsigned)queued, queued == 1 ? "" : "s",
 	     full ? " (queue full, remainder dropped)" : "",
 	     (unsigned)g_debugger.injectQueueDepth());
+      prompt();
+    }
+    break;
+
+  case 'B':
+    {
+      const char *p = args;
+      if (*p == ' ') p++;
+      bool entered = false;
+      if (!g_biosInterrupt) { g_biosInterrupt = true; entered = true; }
+      unsigned queued = 0;
+      while (*p) {
+	uint8_t c;
+	if (*p == '\\' && *(p+1)) {
+	  p++;
+	  switch (*p) {
+	  case 'r': case 'n': c = PK_RET;  break;
+	  case 't':           c = PK_TAB;  break;
+	  case 'e':           c = PK_ESC;  break;
+	  case 'U':           c = PK_UARR; break;
+	  case 'D':           c = PK_DARR; break;
+	  case 'L':           c = PK_LARR; break;
+	  case 'R':           c = PK_RARR; break;
+	  case 'd':           c = PK_DEL;  break;
+	  case '\\':          c = '\\';   break;
+	  case 'x':
+	    if (*(p+1) && *(p+2)) {
+	      c = (uint8_t)((HEXCHAR(*(p+1)) << 4) | HEXCHAR(*(p+2)));
+	      p += 2;
+	    } else {
+	      c = 'x';
+	    }
+	    break;
+	  default:            c = (uint8_t)*p; break;
+	  }
+	  p++;
+	} else {
+	  c = (uint8_t)*p++;
+	}
+	SDLKeyboard::injectBiosKey(c);
+	queued++;
+      }
+      replyf("%s; queued %u BIOS key%s\r\n",
+	     entered ? "Entering the BIOS" : "BIOS already up",
+	     queued, queued == 1 ? "" : "s");
+      prompt();
+    }
+    break;
+
+  case 'P':
+    {
+      const char *p = args;
+      while (*p == ' ') p++;
+      if (!*p) {
+	reply("P needs a path\r\n");
+      } else if (((SDLDisplay *)g_display)->savePng(p)) {
+	replyf("Wrote %s\r\n", p);
+      } else {
+	replyf("Could not write %s\r\n", p);
+      }
       prompt();
     }
     break;

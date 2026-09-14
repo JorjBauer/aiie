@@ -1,4 +1,5 @@
 #include <ctype.h> // isgraph
+#include <zlib.h>
 #include "sdl-display.h"
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -245,6 +246,68 @@ void SDLDisplay::flush()
   //  SDL_RenderPresent(renderer);
 }
 
+static void pngPut32(uint8_t *p, uint32_t v)
+{
+  p[0] = (uint8_t)(v >> 24); p[1] = (uint8_t)(v >> 16);
+  p[2] = (uint8_t)(v >> 8);  p[3] = (uint8_t)v;
+}
+
+static void pngChunk(FILE *f, const char *type, const uint8_t *data, uint32_t len)
+{
+  uint8_t h[8];
+  pngPut32(h, len); memcpy(h + 4, type, 4);
+  fwrite(h, 1, 8, f);
+  if (len) fwrite(data, 1, len, f);
+  uLong crc = crc32(crc32(0, Z_NULL, 0), (const Bytef *)type, 4);
+  if (len) crc = crc32(crc, (const Bytef *)data, len);
+  uint8_t c[4]; pngPut32(c, (uint32_t)crc);
+  fwrite(c, 1, 4, f);
+}
+
+bool SDLDisplay::savePng(const char *path)
+{
+  const uint32_t w = use8875 ? RA8875_WIDTH : ILI9341_WIDTH;
+  const uint32_t h = use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT;
+  const size_t stride = (size_t)w * 3 + 1;
+  const size_t rawLen = stride * h;
+  uint8_t *raw = (uint8_t *)malloc(rawLen);
+  if (!raw) return false;
+  for (uint32_t y = 0; y < h; y++) {
+    uint8_t *r = raw + (size_t)y * stride;
+    r[0] = 0;
+    for (uint32_t x = 0; x < w; x++) {
+      uint32_t px = videoBuffer[(size_t)y * w + x];
+      r[1 + x*3]     = (uint8_t)(px >> 16);
+      r[1 + x*3 + 1] = (uint8_t)(px >> 8);
+      r[1 + x*3 + 2] = (uint8_t)px;
+    }
+  }
+  uLongf compLen = compressBound(rawLen);
+  uint8_t *comp = (uint8_t *)malloc(compLen);
+  if (!comp) { free(raw); return false; }
+  if (compress(comp, &compLen, raw, rawLen) != Z_OK) {
+    free(raw); free(comp); return false;
+  }
+  free(raw);
+
+  FILE *f = fopen(path, "wb");
+  if (!f) { free(comp); return false; }
+  static const uint8_t sig[8] = { 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A };
+  fwrite(sig, 1, 8, f);
+  uint8_t ihdr[13];
+  pngPut32(ihdr + 0, w);
+  pngPut32(ihdr + 4, h);
+  ihdr[8] = 8;
+  ihdr[9] = 2;
+  ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0;
+  pngChunk(f, "IHDR", ihdr, 13);
+  pngChunk(f, "IDAT", comp, (uint32_t)compLen);
+  pngChunk(f, "IEND", NULL, 0);
+  fclose(f);
+  free(comp);
+  return true;
+}
+
 void SDLDisplay::drawUIImage(uint8_t imageIdx)
 {
   switch (imageIdx) {
@@ -392,6 +455,16 @@ void SDLDisplay::drawPixel(uint16_t x, uint16_t y, uint16_t color)
   }
 
   videoBuffer[y*(use8875 ? RA8875_WIDTH : ILI9341_WIDTH) + x] = color16To32(color);
+}
+
+uint16_t SDLDisplay::width()
+{
+  return use8875 ? RA8875_WIDTH : ILI9341_WIDTH;
+}
+
+uint16_t SDLDisplay::height()
+{
+  return use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT;
 }
 
 void SDLDisplay::clrScr(uint8_t coloridx)
