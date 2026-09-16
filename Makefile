@@ -49,7 +49,7 @@ TEENSY_SDIMAGE ?= AIIE.HEX
 # board in bootloader mode (you may need to press the button on the Teensy).
 PORT          ?=
 
-.PHONY: test-video7 test-vsplit test-floatingbus roms clean teensy teensy-libs teensy-upload teensy-install teensy-clean teensy-sdimage
+.PHONY: test-video7 test-vsplit test-floatingbus test-monovideo roms clean teensy teensy-libs teensy-upload teensy-install teensy-clean teensy-sdimage
 
 all:
 	@echo You want \'make sdl\', \'make linuxfb\', or \'make teensy\'.
@@ -164,6 +164,19 @@ FLOATBUSTEST_FLAGS = $(VIDEO7TEST_FLAGS)
 test-floatingbus: roms $(FLOATBUSTEST_SRCS)
 	g++ $(FLOATBUSTEST_FLAGS) $(FLOATBUSTEST_SRCS) -o tests/test-floatingbus
 	./tests/test-floatingbus
+
+# The two monochrome display types must emit nothing but white and black
+# from the graphics renderers, at full width: see tests/test-monovideo.cpp.
+MONOVIDEOTEST_SRCS = tests/test-monovideo.cpp \
+                     apple/appledisplay.cpp apple/applemmu.cpp \
+                     apple/noslotclock.cpp nix/nix-clock.cpp \
+                     cpu.cpp vmram.cpp lcg.cpp LRingBuffer.cpp \
+                     nix/nix-filemanager.cpp physicaldisplay.cpp
+MONOVIDEOTEST_FLAGS = $(VIDEO7TEST_FLAGS)
+
+test-monovideo: roms $(MONOVIDEOTEST_SRCS)
+	g++ $(MONOVIDEOTEST_FLAGS) $(MONOVIDEOTEST_SRCS) -o tests/test-monovideo
+	./tests/test-monovideo
 
 roms: apple2e.rom disk.rom parallel.rom HDDRVR.BIN mouse.rom
 	./util/genrom.pl apple2e.rom disk.rom parallel.rom HDDRVR.BIN mouse.rom

@@ -230,12 +230,13 @@ inline void AppleDisplay::Draw14DoubleHiresPixelsAt(uint16_t addr)
 	drawApplePixel(color, col+xoff, row);
 	drawApplePixel(color, col+xoff+1,row);
       } else {
-	// Perfect color, B&W, monochrome. Draw an exact version of the pixels, and let 
-	// the physical display figure out if they need to be reduced to B&W or not
-	// (for the most part - the m_blackAndWhite piece here allows full-res displays
-	// to give the crispest resolution.)
+	// Perfect color, B&W, monochrome. Draw an exact version of the pixels.
+	// On the two monochrome displays every lit pixel is white (the physical
+	// display turns white into green for m_monochrome), which is what gives
+	// a full-resolution display its crispest picture: a monochrome monitor
+	// never saw the color fringes, and neither should a mono setting here.
 
-	if (g_displayType == m_blackAndWhite) { color = c_white; } 
+	if (g_displayType == m_blackAndWhite || g_displayType == m_monochrome) { color = c_white; } 
 
 	cachePixelClipped((col*2)+(xoff*2), row, 
 			      ((bitTrain & 0x01) ? color : c_black));

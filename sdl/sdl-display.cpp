@@ -478,30 +478,46 @@ void SDLDisplay::clrScr(uint8_t coloridx)
   }
 }
 
+// What the monitor makes of a color the machine asked for. The color
+// renderers emit the Apple's palette; the two monochrome display types
+// are a property of the monitor, so they are applied here, once, for
+// every pixel that reaches the screen (the bezel and its lamps are drawn
+// by another path and stay as they are). Mono is a green screen, as in
+// the framebuffer display: luminance into the green channel. B&W is
+// white or black at the luminance cutoff.
+static inline uint32_t monitorColor(uint32_t packedColor)
+{
+  if (g_displayType != m_monochrome && g_displayType != m_blackAndWhite)
+    return packedColor;
+  uint32_t luminance = luminanceFromRGB(unpackRed(packedColor),
+                                        unpackGreen(packedColor),
+                                        unpackBlue(packedColor));
+  if (g_displayType == m_monochrome)
+    return (luminance & 0xFF) << 8;
+  return (luminance >= g_luminanceCutoff) ? 0xFFFFFF : 0x000000;
+}
+
 void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 {
   if (use8875) {
+    uint32_t packed = monitorColor(packColor32(loresPixelColors[color]));
     for (int yoff=0; yoff<2; yoff++) {
       videoBuffer[((y*2)+SCREENINSET_8875_Y+yoff)*RA8875_WIDTH +
-                  x+SCREENINSET_8875_X] = packColor32(loresPixelColors[color]);
+                  x+SCREENINSET_8875_X] = packed;
     }
   } else {
     if (x&1) {
+      // The half-width display blends each pair of Apple pixels into one
+      // of its own. The pair was stored unconverted (see below) so the
+      // blend is of the machine's colors; the monitor is applied to the
+      // result.
       uint32_t origColor =videoBuffer[(y+SCREENINSET_9341_Y)*ILI9341_WIDTH+(x>>1)+SCREENINSET_9341_X];
       uint32_t blendedColor = blendColors(origColor,
                                           packColor32(loresPixelColors[color]));
-      if (g_displayType == m_blackAndWhite) {
-        uint32_t luminance = luminanceFromRGB((blendedColor & 0xFF0000)>>16,
-                                              (blendedColor & 0x00FF00)>> 8,
-                                              (blendedColor & 0x0000FF));
-        cacheDoubleWidePixel(x>>1,y,(uint32_t)((luminance >= g_luminanceCutoff) ? 0xFFFFFF : 0x000000));
-      } else {
-        cacheDoubleWidePixel(x>>1, y, blendedColor);
-      }
-      
+      cacheDoubleWidePixel(x>>1, y, monitorColor(blendedColor));
     } else {
-      // All of the even pixels get drawn...
-      cacheDoubleWidePixel(x>>1, y, color);
+      // The even pixel is parked unconverted, for the blend above to use.
+      videoBuffer[(y+SCREENINSET_9341_Y)*ILI9341_WIDTH + (x>>1) + SCREENINSET_9341_X] = packColor32(loresPixelColors[color]);
     }
   }
 }
@@ -509,16 +525,7 @@ void SDLDisplay::cachePixel(uint16_t x, uint16_t y, uint8_t color)
 // "DoubleWide" means "please double the X because I'm in low-res width mode"
 void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint8_t color)
 {
-  if (use8875) {
-    for (int yoff=0; yoff<2; yoff++) {
-      for (int xoff=0; xoff<2; xoff++) {
-        videoBuffer[((y*2)+SCREENINSET_8875_Y+yoff)*RA8875_WIDTH +
-                    (x*2)+SCREENINSET_8875_X+xoff] = packColor32(loresPixelColors[color]);
-      }
-    }
-  } else {
-    videoBuffer[(y+SCREENINSET_9341_Y)*ILI9341_WIDTH + (x) + SCREENINSET_9341_X] = packColor32(loresPixelColors[color]);
-  }
+  cacheDoubleWidePixel(x, y, monitorColor(packColor32(loresPixelColors[color])));
 }
 
 void SDLDisplay::cacheDoubleWidePixel(uint16_t x, uint16_t y, uint32_t packedColor)
