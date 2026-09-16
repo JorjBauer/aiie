@@ -7,6 +7,7 @@
 #include "physicalkeyboard.h"
 #include "sdl-keyboard.h"
 #include "sdl-display.h"
+#include "sdl-mouse.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -169,7 +170,7 @@ void DebugSocket::serve()
 	break;
 
       case 'b': case 'D': case 'T': case 'K': case '*': case 'G':
-      case 'w': case 'W': case 'B': case 'P':
+      case 'w': case 'W': case 'B': case 'P': case 'M':
 	{
 	  if (!getline_(fd, line, sizeof(line))) goto gone;
 	  size_t len = strlen(line);
@@ -614,18 +615,30 @@ void DebugSocket::handle(char *cmd)
     }
     break;
 
-  case 'D': // dump memory: "D <addr> <len>"
-    if (getTwoAddresses(args, &val, &val2)) {
-      replyf("Memory dump at 0x%X, length 0x%X:\r\n", val, val2);
-      for (uint32_t i = val; i < val + val2; i += 16) {
-	replyf("$%.4X  ", i);
-	for (uint8_t j = 0; j < 16 && (i+j) < (val+val2); j++) {
-	  replyf("%.2X ", g_debugger.peek((uint16_t)(i+j), cpuBank));
+  case 'D': // dump memory: "D <addr> <len>", what the CPU sees; "D main
+            // <addr> <len>" and "D aux <addr> <len>" read one bank regardless
+            // of the switches (the stock aux bank, language card bank 1)
+    {
+      static const DebugBank mainBank = { DBG_BANK_MAIN, 0, 1 };
+      static const DebugBank auxBank  = { DBG_BANK_AUX,  0, 1 };
+      const DebugBank *bank = &cpuBank;
+      const char *p = args;
+      while (*p == ' ') p++;
+      if (!strncmp(p, "aux", 3))       { bank = &auxBank;  p += 3; }
+      else if (!strncmp(p, "main", 4)) { bank = &mainBank; p += 4; }
+      if (getTwoAddresses(p, &val, &val2)) {
+	replyf("Memory dump at 0x%X, length 0x%X%s:\r\n", val, val2,
+	       bank == &auxBank ? " (aux)" : bank == &mainBank ? " (main)" : "");
+	for (uint32_t i = val; i < val + val2; i += 16) {
+	  replyf("$%.4X  ", i);
+	  for (uint8_t j = 0; j < 16 && (i+j) < (val+val2); j++) {
+	    replyf("%.2X ", g_debugger.peek((uint16_t)(i+j), *bank));
+	  }
+	  reply("\r\n");
 	}
-	reply("\r\n");
+      } else {
+	reply("Syntax error\12\15");
       }
-    } else {
-      reply("Syntax error\12\15");
     }
     prompt();
     break;
@@ -742,6 +755,41 @@ void DebugSocket::handle(char *cmd)
 	replyf("Wrote %s\r\n", p);
       } else {
 	replyf("Could not write %s\r\n", p);
+      }
+      prompt();
+    }
+    break;
+
+  case 'M': // the emulated mouse, for driving a mouse-only program from a
+            // script. "M <x> <y>" puts the pointer at a position in the mouse
+            // card's clamp space (whatever the program set up); "M +dx +dy"
+            // moves it by that much, the way the host mouse does, which is
+            // what a program reading the mouse in delta mode (GEOS parks it
+            // mid-range every frame) needs. "M d" and "M u" press and
+            // release the button; either form may end with d or u.
+    {
+      const char *p = args;
+      while (*p == ' ') p++;
+      char *end;
+      bool relative = (*p == '+' || *p == '-');
+      long x = strtol(p, &end, 10);
+      if (end != p) {
+	p = end;
+	long y = strtol(p, &end, 10);
+	if (end == p) { reply("M needs x and y\r\n"); prompt(); break; }
+	p = end;
+	if (relative) {
+	  ((SDLMouse *)g_mouse)->gotMouseEvent(0, (int32_t)x, (int32_t)y);
+	  replyf("Pointer moved by %ld,%ld\r\n", x, y);
+	} else {
+	  g_mouse->setPosition((uint16_t)x, (uint16_t)y);
+	  replyf("Pointer at %ld,%ld\r\n", x, y);
+	}
+      }
+      while (*p == ' ') p++;
+      if (*p == 'd' || *p == 'u') {
+	((SDLMouse *)g_mouse)->mouseButtonEvent(*p == 'd');
+	replyf("Button %s\r\n", *p == 'd' ? "down" : "up");
       }
       prompt();
     }
