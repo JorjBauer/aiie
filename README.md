@@ -30,7 +30,9 @@ The MD5 sums of those files are:
 * 2020aa1413ff77fe29353f3ee72dc295 disk.rom
 * 5902996f16dc78fc013f6e1db14805b3 parallel.rom
   (this is the "parallel mode" ROM, not the "Centronics mode" ROM,
-   and is availble on the Asimov mirror.)
+   and is availble on the Apple II Documentation Project - try here:
+   https://mirrors.apple2.org.za/Apple%20II%20Documentation%20Project/Interface%20Cards/Parallel/Apple%20II%20Parallel%20Interface%20Card/ROM%20Images/
+   )
 * e91f379957d87aa0af0c7255f6ee6ba0 HDDRVR.BIN (from 2016) although 
   e0a40e9166af27b16f60beb83c9233f0 (from 2021) seems to be fine.
 
