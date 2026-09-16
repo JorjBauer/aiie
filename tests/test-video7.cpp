@@ -39,6 +39,7 @@
 // called), but the linker still wants the symbol; pulling in applevm.cpp
 // would drag the disk stack, the mouse and the network in with it.
 const char *AppleVM::DiskName(uint8_t) { return ""; }
+const char *AppleVM::HDName(uint8_t) { return ""; }
 
 // ---------------------------------------------------------------------
 // THE RECORDING DISPLAY. AppleDisplay draws 40-column text through

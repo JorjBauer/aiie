@@ -63,12 +63,16 @@ class HD32 : public Slot {
   int8_t fd[2];
   uint32_t cursor[2]; // seek position on the given file handle
   uint32_t hdrOffset[2]; // bytes to skip before block 0 (2IMG header; 0 = raw image)
+  uint16_t blockCount[2]; // image size in 512-byte blocks (0 = nothing mounted)
 
   // Activity light: lit by a block read or write, out after a short quiet
   // spell (0 means not lit).
   int64_t activityUntil[2];
 
-  int32_t cachedBlockNum;
+  // One block of read cache. Keyed on the drive as well as the block number:
+  // both drives have a block 5, and a swapped image has a new block 0.
+  int32_t cachedBlockNum;   // -1 = nothing cached
+  int8_t cachedBlockDrive;
   uint8_t cachedBlock[512];
 };
 

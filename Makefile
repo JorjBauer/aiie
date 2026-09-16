@@ -49,7 +49,7 @@ TEENSY_SDIMAGE ?= AIIE.HEX
 # board in bootloader mode (you may need to press the button on the Teensy).
 PORT          ?=
 
-.PHONY: test-video7 test-vsplit test-floatingbus test-monovideo roms clean teensy teensy-libs teensy-upload teensy-install teensy-clean teensy-sdimage
+.PHONY: test-video7 test-vsplit test-floatingbus test-hd32rom test-mouserom test-parallelrom test-monovideo roms firmware clean teensy teensy-libs teensy-upload teensy-install teensy-clean teensy-sdimage
 
 all:
 	@echo You want \'make sdl\', \'make linuxfb\', or \'make teensy\'.
@@ -165,6 +165,48 @@ test-floatingbus: roms $(FLOATBUSTEST_SRCS)
 	g++ $(FLOATBUSTEST_FLAGS) $(FLOATBUSTEST_SRCS) -o tests/test-floatingbus
 	./tests/test-floatingbus
 
+# The hard-disk card's slot ROM, entered by the real CPU at each of its
+# entry points against images whose every block is known: see
+# tests/test-hd32rom.cpp.
+HD32ROMTEST_SRCS = tests/test-hd32rom.cpp \
+                   apple/appledisplay.cpp apple/applemmu.cpp apple/hd32.cpp \
+                   apple/noslotclock.cpp nix/nix-clock.cpp \
+                   cpu.cpp vmram.cpp lcg.cpp LRingBuffer.cpp \
+                   nix/nix-filemanager.cpp physicaldisplay.cpp
+HD32ROMTEST_FLAGS = $(VIDEO7TEST_FLAGS)
+
+test-hd32rom: roms $(HD32ROMTEST_SRCS)
+	g++ $(HD32ROMTEST_FLAGS) $(HD32ROMTEST_SRCS) -o tests/test-hd32rom
+	./tests/test-hd32rom
+
+# The mouse card's slot ROM, called through its entry table and its two
+# hooks by the real CPU, in several slots: see tests/test-mouserom.cpp.
+MOUSEROMTEST_SRCS = tests/test-mouserom.cpp \
+                    apple/appledisplay.cpp apple/applemmu.cpp apple/mouse.cpp \
+                    apple/noslotclock.cpp nix/nix-clock.cpp \
+                    cpu.cpp vmram.cpp lcg.cpp LRingBuffer.cpp \
+                    nix/nix-filemanager.cpp physicaldisplay.cpp
+MOUSEROMTEST_FLAGS = $(VIDEO7TEST_FLAGS)
+
+test-mouserom: roms $(MOUSEROMTEST_SRCS)
+	g++ $(MOUSEROMTEST_FLAGS) $(MOUSEROMTEST_SRCS) -o tests/test-mouserom
+	./tests/test-mouserom
+
+# The parallel printer card's slot ROM: PR#n, the Control-I commands, the
+# Pascal entries, driven by the real CPU in several slots: see
+# tests/test-parallelrom.cpp.
+PARROMTEST_SRCS = tests/test-parallelrom.cpp \
+                  apple/appledisplay.cpp apple/applemmu.cpp \
+                  apple/parallelcard.cpp apple/fx80.cpp \
+                  apple/noslotclock.cpp nix/nix-clock.cpp \
+                  cpu.cpp vmram.cpp lcg.cpp LRingBuffer.cpp \
+                  nix/nix-filemanager.cpp physicaldisplay.cpp
+PARROMTEST_FLAGS = $(VIDEO7TEST_FLAGS)
+
+test-parallelrom: roms $(PARROMTEST_SRCS)
+	g++ $(PARROMTEST_FLAGS) $(PARROMTEST_SRCS) -o tests/test-parallelrom
+	./tests/test-parallelrom
+
 # The two monochrome display types must emit nothing but white and black
 # from the graphics renderers, at full width: see tests/test-monovideo.cpp.
 MONOVIDEOTEST_SRCS = tests/test-monovideo.cpp \
@@ -178,8 +220,22 @@ test-monovideo: roms $(MONOVIDEOTEST_SRCS)
 	g++ $(MONOVIDEOTEST_FLAGS) $(MONOVIDEOTEST_SRCS) -o tests/test-monovideo
 	./tests/test-monovideo
 
-roms: apple2e.rom disk.rom parallel.rom HDDRVR.BIN mouse.rom
-	./util/genrom.pl apple2e.rom disk.rom parallel.rom HDDRVR.BIN mouse.rom
+# hd32.rom, mouse.rom and parallel.rom are the card ROMs assembled from
+# apple/hd32rom.s, apple/mouserom.s and apple/parallelrom.s. The assembled
+# images are bundled in the tree, so no build needs an assembler;
+# "make firmware" rebuilds them after a source change.
+roms: apple2e.rom disk.rom parallel.rom hd32.rom mouse.rom
+	./util/genrom.pl apple2e.rom disk.rom parallel.rom hd32.rom mouse.rom
+
+# Reassemble the bundled card ROMs. Needs ca65 and ld65 (the cc65 suite).
+# Deliberately not a prerequisite of anything else.
+firmware:
+	ca65 --cpu 65C02 -l apple/hd32rom.lst -o apple/hd32rom.o apple/hd32rom.s
+	ld65 -C apple/hd32rom.cfg -o hd32.rom apple/hd32rom.o
+	ca65 --cpu 65C02 -l apple/mouserom.lst -o apple/mouserom.o apple/mouserom.s
+	ld65 -C apple/mouserom.cfg -o mouse.rom apple/mouserom.o
+	ca65 --cpu 65C02 -l apple/parallelrom.lst -o apple/parallelrom.o apple/parallelrom.s
+	ld65 -C apple/parallelrom.cfg -o parallel.rom apple/parallelrom.o
 
 apple/applemmu-rom.h: roms
 
@@ -190,7 +246,7 @@ apple/parallel-rom.h: roms
 apple/mouse-rom.h: roms
 
 clean:
-	rm -f *.o *~ */*.o */*~ testharness.basic testharness.verbose testharness.extended testharness apple/diskii-rom.h apple/applemmu-rom.h apple/parallel-rom.h aiie-sdl *.d */*.d
+	rm -f *.o *~ */*.o */*~ testharness.basic testharness.verbose testharness.extended testharness apple/diskii-rom.h apple/applemmu-rom.h apple/parallel-rom.h apple/hd32-rom.h apple/hd32rom.o apple/hd32rom.lst apple/mouse-rom.h apple/mouserom.o apple/mouserom.lst apple/parallelrom.o apple/parallelrom.lst aiie-sdl *.d */*.d
 	rm -rf $(TEENSY_BUILD)
 
 # Automatic dependency handling

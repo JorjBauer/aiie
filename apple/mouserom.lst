@@ -1,151 +1,231 @@
 ca65 V2.18 - N/A
-Main file   : mouserom.asm
-Current file: mouserom.asm
+Main file   : apple/mouserom.s
+Current file: apple/mouserom.s
 
-000000r 1               	.ORG	$C400
-00C400  1               Entry:
-00C400  1  2C 58 FF     	BIT	$FF58		; well-known RTS location - where RTS is $60
-00C403  1  70 1B        	BVS	PREntry		; always branches (used to relocatably branch)
+000000r 1               ; mouserom.s: the slot ROM for the mouse card, 65C02 only.
+000000r 1               ;
+000000r 1               ; Assemble with ca65 (see the mouse.rom rule in the Makefile):
+000000r 1               ;     ca65 --cpu 65C02 -l apple/mouserom.lst -o apple/mouserom.o apple/mouserom.s
+000000r 1               ;     ld65 -C apple/mouserom.cfg -o mouse.rom apple/mouserom.o
+000000r 1               ;
+000000r 1               ; WHAT THE ROM HAS TO PROVIDE
+000000r 1               ;
+000000r 1               ; Software finds a mouse card by its ID bytes and calls its routines through
+000000r 1               ; a table of offsets, so these positions are fixed (n = slot number):
+000000r 1               ;
+000000r 1               ;   $Cn00  the output hook. PR#n points CSW here; every character printed
+000000r 1               ;          arrives in A. IN#n also calls here first, because IN#n points KSW
+000000r 1               ;          at $Cn00 too: the ROM notices that, moves KSW to $Cn05, and
+000000r 1               ;          answers the input request.
+000000r 1               ;   $Cn05  the input hook proper, once installed. Returns a line describing
+000000r 1               ;          the mouse ("x,y,button" and a return) in the input buffer at
+000000r 1               ;          $0200, which is how Applesoft programs read the mouse.
+000000r 1               ;   $Cn05 = $38, $Cn07 = $18, $Cn0B = $01, $Cn0C = $20, $CnFB = $D6
+000000r 1               ;          the ID bytes. Two of them are the SEC and the BCC operand of
+000000r 1               ;          the input entry, so that entry's shape is fixed as well.
+000000r 1               ;   $Cn12..$Cn19  the low bytes of SETMOUSE, SERVEMOUSE, READMOUSE,
+000000r 1               ;          CLEARMOUSE, POSMOUSE, CLAMPMOUSE, HOMEMOUSE and INITMOUSE. A
+000000r 1               ;          caller loads X with $Cn and Y with $n0 and JSRs to $Cn00 plus
+000000r 1               ;          the byte. Each returns with C set on an error, and (SERVEMOUSE)
+000000r 1               ;          C set when the interrupt was not the mouse's.
+000000r 1               ;   $CnFF  the firmware version.
+000000r 1               ;
+000000r 1               ; Results travel through the slot's screen holes: X in $0478+n (low) and
+000000r 1               ; $0578+n (high), Y in $04F8+n and $05F8+n, the status byte in $0778+n and
+000000r 1               ; the mode in $07F8+n. CLAMPMOUSE takes its bounds from the slot-0 holes
+000000r 1               ; $0478, $04F8, $0578 and $05F8, as the protocol says.
+000000r 1               ;
+000000r 1               ; THE CARD
+000000r 1               ;
+000000r 1               ; The card does all the work. Each routine here stores to one register at
+000000r 1               ; $C080 + slot*16 + k and the card carries out the call, reading and
+000000r 1               ; writing the screen holes itself. Register 1 fills the input buffer for
+000000r 1               ; the input hook; register 0 notes the output mode.
+000000r 1               ;
+000000r 1               ; SLOT INDEPENDENCE
+000000r 1               ;
+000000r 1               ; The API routines are told the slot by their caller (X = $Cn, Y = $n0),
+000000r 1               ; with one exception: SERVEMOUSE is called from interrupt handlers that
+000000r 1               ; do not know the slot (A2osX does a bare JSR to it, because the //c's
+000000r 1               ; built-in mouse needs nothing), so it must find its own registers. The
+000000r 1               ; two hooks are not told the slot either. The ROM has no way to learn its
+000000r 1               ; own address without an absolute reference, so the emulator fills in
+000000r 1               ; four immediates when it loads the ROM (Mouse::loadROM): the hooks' at
+000000r 1               ; $Cn23 and $Cn25, SERVEMOUSE's at $Cn65 and $Cn67. Nothing else in the
+000000r 1               ; image depends on the slot.
+000000r 1               
+000000r 1                       .setcpu "65C02"
+000000r 1                       .org    $C400
+00C400  1               
+00C400  1               ; card registers, indexed by Y = slot*16
+00C400  1               MR_OUTPUT     = $C080   ; the output hook: A = the character
+00C400  1               MR_INPUT      = $C081   ; the input hook: fill the buffer
+00C400  1               MR_HOMEMOUSE  = $C088
+00C400  1               MR_POSMOUSE   = $C089
+00C400  1               MR_CLEARMOUSE = $C08A
+00C400  1               MR_READMOUSE  = $C08B
+00C400  1               MR_INITMOUSE  = $C08C
+00C400  1               MR_CLAMPMOUSE = $C08D   ; A = 0 for X, 1 for Y
+00C400  1               MR_SERVEMOUSE = $C08E
+00C400  1               MR_SETMOUSE   = $C08F   ; A = the mode
+00C400  1               
+00C400  1               ; screen holes, indexed by X = $Cn
+00C400  1               LENHOLE    = $0638      ; $06F8+n: the length of the line in the input buffer
+00C400  1               STATHOLE   = $06B8      ; $0778+n: the interrupts the card just served
+00C400  1               
+00C400  1               KSWL    = $38           ; the input hook vector
+00C400  1               KSWH    = $39
+00C400  1               INBUF   = $0200
+00C400  1               
+00C400  1               rom:
+00C400  1               
+00C400  1               ; ---- $Cn00: the output hook --------------------------------------------
+00C400  1               
+00C400  1  18                   clc
+00C401  1  90 1D                bcc     common          ; C clear: output
+00C403  1  EA EA                .res    2, $EA
 00C405  1               
-00C405  1               	.ORG	$C405
-00C405  1               INEntry:
-00C405  1  38           	SEC
-00C406  1  90 18        	BCC	PREntry		; never happens, but has a magic ID byte @ C407 == 18
-00C408  1  B8           	CLV
-00C409  1  50 15        	BVC	PREntry		; always branches
+00C405  1               ; ---- $Cn05: the input hook. Its first two bytes are ID bytes. ----------
+00C405  1               
+00C405  1               inentry:
+00C405  1  38                   sec                     ; $38
+00C406  1  90 18                bcc     common          ; never taken; its operand is the ID byte $18
+00C408  1  B0 16                bcs     common          ; C set: input
+00C40A  1  00                   .byte   $00
 00C40B  1               
-00C40B  1               	;; lookup table
-00C40B  1               	.ORG	$C40B
-00C40B  1  01           	.byte	$01		; magic identifier
-00C40C  1  20           	.byte	$20		; magic identifier
-00C40D  1  68           	.byte	.LOBYTE(ExitWithError)
-00C40E  1  68           	.byte	.LOBYTE(ExitWithError)
-00C40F  1  68           	.byte	.LOBYTE(ExitWithError)
-00C410  1  68           	.byte	.LOBYTE(ExitWithError)
-00C411  1  00           	.byte	$00
-00C412  1  60           	.byte	.LOBYTE(SetMouse)
-00C413  1  6A           	.byte	.LOBYTE(ServeMouse)
-00C414  1  7B           	.byte	.LOBYTE(ReadMouse)
-00C415  1  80           	.byte	.LOBYTE(ClearMouse)
-00C416  1  85           	.byte	.LOBYTE(PosMouse)
-00C417  1  8A           	.byte	.LOBYTE(ClampMouse)
-00C418  1  93           	.byte	.LOBYTE(HomeMouse)
-00C419  1  98           	.byte	.LOBYTE(InitMouse)
-00C41A  1  68           	.byte	.LOBYTE(ExitWithError)
-00C41B  1  68           	.byte	.LOBYTE(ExitWithError)
-00C41C  1  68           	.byte	.LOBYTE(ExitWithError)
-00C41D  1  68           	.byte	.LOBYTE(ExitWithError)
-00C41E  1  68           	.byte	.LOBYTE(ExitWithError)
-00C41F  1  68           	.byte	.LOBYTE(ExitWithError)
+00C40B  1               ; ---- $Cn0B: the ID bytes and the entry table ----------------------------
+00C40B  1               
+00C40B  1  01 20                .byte   $01, $20
+00C40D  1  9B 9B 9B 9B          .byte   <err, <err, <err, <err
+00C411  1  00                   .byte   $00
+00C412  1  4D                   .byte   <setmouse       ; $Cn12
+00C413  1  60                   .byte   <servemouse     ; $Cn13
+00C414  1  7A                   .byte   <readmouse      ; $Cn14
+00C415  1  7F                   .byte   <clearmouse     ; $Cn15
+00C416  1  84                   .byte   <posmouse       ; $Cn16
+00C417  1  89                   .byte   <clampmouse     ; $Cn17
+00C418  1  91                   .byte   <homemouse      ; $Cn18
+00C419  1  96                   .byte   <initmouse      ; $Cn19
+00C41A  1  9B 9B 9B 9B          .byte   <err, <err, <err, <err, <err, <err
+00C41E  1  9B 9B        
 00C420  1               
-00C420  1               	.ORG	$C420
-00C420  1               PREntry:
-00C420  1  48           	PHA			; save Y, X, A, S on the stack
-00C421  1  98           	TYA
-00C422  1  48           	PHA
-00C423  1  8A           	TXA
-00C424  1  48           	PHA
-00C425  1  08           	PHP
-00C426  1  78           	SEI			; turn off interrupts while we find our address via the stack
-00C427  1  20 58 FF     	JSR	$FF58		; well-known RTS
-00C42A  1  BA           	TSX			; grab stack pointer
-00C42B  1  BD 00 01     	LDA	$0100,X		; inspect the stack frame
-00C42E  1  AA           	TAX			; now A and X hold the high byte of the return address to *us*
-00C42F  1  0A           	ASL			; A <<= 4
-00C430  1  0A           	ASL
-00C431  1  0A           	ASL
-00C432  1  0A           	ASL
-00C433  1  A8           	TAY			; so Y = $n0, while X = $Cn for whatever slot we're in
-00C434  1  28           	PLP			; pull Status off the stack
-00C435  1  50 0F        	BVC	lastChance
-00C437  1  A5 38        	LDA	$38		; We're being invoked in an IN# context, not a PR# context.
-00C439  1  D0 0D        	BNE	PopAndReturn	; if $38/$39 don't point to us, then exit
-00C43B  1  8A           	TXA
-00C43C  1  45 39        	EOR	$39		; is $39 == $Cn?
-00C43E  1  D0 08        	BNE	PopAndReturn
-00C440  1               InstallInHandler:
-00C440  1  A9 05        	LDA	#$05		; Update IN handler to point to $Cn05 instead of $Cn00, so we know we've
-00C442  1  85 38        	STA	$38		;initialized it
-00C444  1  D0 0B        	BNE	INHandler
-00C446  1               lastChance:
-00C446  1  B0 09        	BCS	INHandler
-00C448  1               PopAndReturn:
-00C448  1  68           	PLA
-00C449  1  AA           	TAX
-00C44A  1  68           	PLA
-00C44B  1  EA           	NOP
-00C44C  1  68           	PLA
-00C44D  1  99 80 C0     	STA	$c080,Y		; call soft-switch #0 for our slot to set mouse state
-00C450  1  60           	RTS
-00C451  1               INHandler:
-00C451  1  99 81 C0     	STA	$c081,Y		; call soft-switch #1 for our slot to fill the keyboard buffer w/ mouse info
-00C454  1  68           	PLA
-00C455  1  BD 38 06     	LDA	$0638,X		; pull the string length from this magic screen hole (X == $Cn)
-00C458  1  AA           	TAX			;   which we'll return to the caller in X
-00C459  1  68           	PLA			; restore Y
-00C45A  1  A8           	TAY
-00C45B  1  68           	PLA			; restore A
-00C45C  1  BD 00 02     	LDA	$200,X		; Grab the last character entered in to the buffer by the magic switch call
-00C45F  1  60           	RTS
-00C460  1               
-00C460  1               SetMouse:
-00C460  1  C9 10        	CMP	#$10		; values >= $10 are invalid
-00C462  1  B0 04        	BCS	ExitWithError
-00C464  1  8D CF C0     	STA	$C0CF		; soft switch 0x0F, hard-coded slot 4 for now
-00C467  1  60           	RTS
-00C468  1               
-00C468  1               ExitWithError:
-00C468  1  38           	SEC			; the spec says carry is set on errors
-00C469  1  60           	RTS
-00C46A  1               
-00C46A  1               ServeMouse:
-00C46A  1  48           	PHA
-00C46B  1  78           	SEI			; disable interrupts while we find out about interrupts
-00C46C  1  8D CE C0     	STA	$C0CE		; soft switch 0x0E, hard-coded slot 4 for now
-00C46F  1  A2 04        	LDX	#$04
-00C471  1  BD B8 06     	LDA	$6B8,X		; check what interrupts we serviced
-00C474  1  29 0E        	AND	#$0E
-00C476  1  D0 01        	BNE	_sm1		; if we serviced any, leave carry clear
-00C478  1  38           	SEC			; ... but set carry if we serviced none
-00C479  1               _sm1:
-00C479  1  68           	PLA
-00C47A  1  60           	RTS
-00C47B  1               
-00C47B  1               ReadMouse:
-00C47B  1  8D CB C0     	STA	$C0CB		; soft switch 0x0B, hard-coded slot 4 for now
-00C47E  1  18           	CLC
-00C47F  1  60           	RTS
-00C480  1               
-00C480  1               ClearMouse:
-00C480  1  8D CA C0     	STA	$C0CA		; soft switch 0x0A, hard-coded slot 4 for now
-00C483  1  18           	CLC
-00C484  1  60           	RTS
-00C485  1               
-00C485  1               PosMouse:
-00C485  1  8D C9 C0     	STA	$C0C9		; soft switch 0x09, hard-coded slot 4 for now
-00C488  1  18           	CLC
-00C489  1  60           	RTS
-00C48A  1               
-00C48A  1               ClampMouse:
-00C48A  1  C9 02        	CMP	#$02
-00C48C  1  B0 DA        	BCS	ExitWithError
-00C48E  1  8D CD C0     	STA	$C0CD		; soft switch 0x0D, hard-coded slot 4 for now
-00C491  1  18           	CLC
-00C492  1  60           	RTS
-00C493  1               
-00C493  1               HomeMouse:
-00C493  1  8D C8 C0     	STA	$C0C8		; soft switch 0x08, hard-coded slot 4 for now
-00C496  1  18           	CLC
-00C497  1  60           	RTS
-00C498  1               
-00C498  1               InitMouse:
-00C498  1  8D CC C0     	STA	$C0CC		; soft switch 0x0C, hard-coded slot 4 for now
-00C49B  1  18           	CLC
-00C49C  1  60           	RTS
+00C420  1               ; ---- $Cn20: the two hooks ------------------------------------------------
+00C420  1               
+00C420  1               common:
+00C420  1  5A                   phy
+00C421  1  DA                   phx
+00C422  1  48                   pha
+00C423  1  A2 C4        slotx:  ldx     #$C4            ; $Cn23: X = $Cn, filled in by Mouse::loadROM
+00C425  1  A0 40        sloty:  ldy     #$40            ; $Cn25: Y = $n0, likewise
+00C427  1  B0 16                bcs     input           ; entered at $Cn05
+00C429  1  A5 38                lda     KSWL            ; entered at $Cn00. Did IN#n just point KSW here?
+00C42B  1  D0 0B                bne     output
+00C42D  1  8A                   txa
+00C42E  1  45 39                eor     KSWH
+00C430  1  D0 06                bne     output
+00C432  1  A9 05                lda     #<inentry       ; then hook it to $Cn05 for good
+00C434  1  85 38                sta     KSWL
+00C436  1  80 07                bra     input           ; and answer this first request
+00C438  1               output:
+00C438  1  68                   pla
+00C439  1  99 80 C0             sta     MR_OUTPUT,y     ; PR#n: the card notes the mode
+00C43C  1  FA                   plx
+00C43D  1  7A                   ply
+00C43E  1  60                   rts
+00C43F  1               input:
+00C43F  1  99 81 C0             sta     MR_INPUT,y      ; the card writes the line into the buffer
+00C442  1  BD 38 06             lda     LENHOLE,x       ; and its length into the slot's screen hole
+00C445  1  FA                   plx                     ; the saved A and X are not wanted back
+00C446  1  FA                   plx
+00C447  1  7A                   ply
+00C448  1  AA                   tax                     ; X = the length
+00C449  1  BD 00 02             lda     INBUF,x         ; A = the last character
+00C44C  1  60                   rts
+00C44D  1               
+00C44D  1               ; ---- the API. In: X = $Cn, Y = $n0. Out: C set on an error. -------------
+00C44D  1               
+00C44D  1               setmouse:
+00C44D  1  C9 10                cmp     #$10            ; modes $10 and up do not exist
+00C44F  1  B0 4A                bcs     err
+00C451  1  99 8F C0             sta     MR_SETMOUSE,y
+00C454  1  60                   rts                     ; C clear from the compare
+00C455  1               
+00C455  1               ; ---- $Cn60: SERVEMOUSE, which cannot trust X and Y (see the header) ----
+00C455  1               
+00C455  1  xx xx xx xx          .res    rom+$60-*
+00C459  1  xx xx xx xx  
+00C45D  1  xx xx xx     
+00C460  1               servemouse:
+00C460  1  DA                   phx
+00C461  1  5A                   phy
+00C462  1  48                   pha
+00C463  1  08                   php
+00C464  1  78                   sei
+00C465  1  A2 C4        servex: ldx     #$C4            ; $Cn65: X = $Cn, filled in by Mouse::loadROM
+00C467  1  A0 40        servey: ldy     #$40            ; $Cn67: Y = $n0, likewise
+00C469  1  99 8E C0             sta     MR_SERVEMOUSE,y
+00C46C  1  BD B8 06             lda     STATHOLE,x
+00C46F  1  28                   plp
+00C470  1  29 0E                and     #$0E            ; VBL, button or movement served?
+00C472  1  18                   clc
+00C473  1  D0 01                bne     :+
+00C475  1  38                   sec                     ; none: not our interrupt
+00C476  1  68           :       pla
+00C477  1  7A                   ply
+00C478  1  FA                   plx
+00C479  1  60                   rts
+00C47A  1               
+00C47A  1               readmouse:
+00C47A  1  99 8B C0             sta     MR_READMOUSE,y
+00C47D  1  18                   clc
+00C47E  1  60                   rts
+00C47F  1               
+00C47F  1               clearmouse:
+00C47F  1  99 8A C0             sta     MR_CLEARMOUSE,y
+00C482  1  18                   clc
+00C483  1  60                   rts
+00C484  1               
+00C484  1               posmouse:
+00C484  1  99 89 C0             sta     MR_POSMOUSE,y
+00C487  1  18                   clc
+00C488  1  60                   rts
+00C489  1               
+00C489  1               clampmouse:
+00C489  1  C9 02                cmp     #2              ; 0 = X, 1 = Y
+00C48B  1  B0 0E                bcs     err
+00C48D  1  99 8D C0             sta     MR_CLAMPMOUSE,y
+00C490  1  60                   rts                     ; C clear from the compare
+00C491  1               
+00C491  1               homemouse:
+00C491  1  99 88 C0             sta     MR_HOMEMOUSE,y
+00C494  1  18                   clc
+00C495  1  60                   rts
+00C496  1               
+00C496  1               initmouse:
+00C496  1  99 8C C0             sta     MR_INITMOUSE,y
+00C499  1  18                   clc
+00C49A  1  60                   rts
+00C49B  1               
+00C49B  1               err:
+00C49B  1  38                   sec
+00C49C  1  60                   rts
 00C49D  1               
-00C49D  1               	.ORG	$C4FB
-00C4FB  1  D6           	.byte	$D6		; magic identifier
-00C4FC  1               	.ORG 	$C4FF
-00C4FF  1  01           	.byte	$01		; version
+00C49D  1               ; ---- $CnFB: the ID byte, $CnFF: the version ------------------------------
+00C49D  1               
+00C49D  1  xx xx xx xx          .res    rom+$FB-*
+00C4A1  1  xx xx xx xx  
+00C4A5  1  xx xx xx xx  
+00C4FB  1  D6                   .byte   $D6
+00C4FC  1  xx xx xx             .res    3
+00C4FF  1  01                   .byte   $01
 00C500  1               
+00C500  1               ; The offsets are a contract with every mouse-aware program and with
+00C500  1               ; Mouse::loadROM; refuse to assemble if anything moved.
+00C500  1                       .assert inentry = rom+$05, error, "input hook must be at $Cn05"
+00C500  1                       .assert common  = rom+$20, error, "common entry must be at $Cn20 (the ID byte $18 is its branch operand)"
+00C500  1                       .assert slotx   = rom+$23, error, "the ldx slot byte must be at $Cn24"
+00C500  1                       .assert sloty   = rom+$25, error, "the ldy slot byte must be at $Cn26"
+00C500  1                       .assert servex  = rom+$65, error, "SERVEMOUSE's ldx must be at $Cn65"
+00C500  1                       .assert servey  = rom+$67, error, "SERVEMOUSE's ldy must be at $Cn67"
+00C500  1                       .assert *       = rom+$100, error, "ROM must be exactly 256 bytes"
 00C500  1               

@@ -2,8 +2,6 @@ __MACOSX
 .DS_Store
 apple2e.rom
 disk.rom
-parallel.rom
-HDDRVR.BIN
 *~
 *.o
 apple/applemmu-rom.h
@@ -19,12 +17,5 @@ AIIE.HEX
 teensy/build
 esp8266/build
 tests/test-diskii
-
-# host tools built by the Makefile
 testharness
-
-# KiCad writes these while a project is open
 *.lck
-
-# personal Claude Code settings; the notes alongside them are tracked
-.claude/settings.local.json

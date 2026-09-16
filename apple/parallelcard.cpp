@@ -1,8 +1,18 @@
 #include "parallelcard.h"
 #include <string.h>
 
+// The slot ROM, assembled from apple/parallelrom.s into parallel.rom and
+// packaged here by util/genrom.pl. The image is the same for every slot;
+// loadROM fills in the two bytes that depend on which slot the card is in.
 #include "parallel-rom.h"
 #include "fx80.h"
+#include "globals.h"
+
+// The two immediates in the ROM's output hook that hold the slot: "ldx #$Cn"
+// at $Cn06 and "ldy #$n0" at $Cn08. The source pins them with .assert, and
+// loadROM checks the opcodes before touching anything.
+#define PARROM_LDX_SLOT 0x06
+#define PARROM_LDY_SLOT 0x08
 
 #ifdef TEENSYDUINO
 #include "teensy-println.h"
@@ -56,4 +66,17 @@ void ParallelCard::loadROM(uint8_t *toWhere)
   printf("loading parallel slot rom\n");
   memcpy(toWhere, romData, 256);
 #endif
+
+  // The output hook is entered without X or Y set, and the ROM has no other
+  // way to learn its slot: fill it in.
+  if (toWhere[PARROM_LDX_SLOT] != 0xA2 || toWhere[PARROM_LDY_SLOT] != 0xA0) {
+#ifdef TEENSYDUINO
+    println("Parallel ROM layout mismatch; not patching the slot");
+#else
+    fprintf(stderr, "Parallel ROM layout mismatch; not patching the slot\n");
+#endif
+    return;
+  }
+  toWhere[PARROM_LDX_SLOT + 1] = 0xC0 + g_slotParallel;
+  toWhere[PARROM_LDY_SLOT + 1] = g_slotParallel << 4;
 }

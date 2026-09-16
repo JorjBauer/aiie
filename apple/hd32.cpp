@@ -50,6 +50,17 @@
 #define HD32_LBBLOCKNUM 0x6
 #define HD32_HBBLOCKNUM 0x7
 #define HD32_NEXTBYTE 0x8
+#define HD32_NBLOCKS_LO 0x9 // read-only: image size in blocks, for STATUS
+#define HD32_NBLOCKS_HI 0xA
+
+// The slot ROM (apple/hd32rom.s) makes no reference to its own address, so
+// one image serves any slot, but two things in it depend on how the machine
+// is configured and the ROM has no way to learn them: which slot it is in
+// (its registers are at $C080 + slot*16) and where the floppy controller is
+// (the boot fallback). loadROM fills both in. The source pins these offsets
+// with .assert, and loadROM checks the opcodes before touching anything.
+#define HD32ROM_LDX_SLOT   0x0E // ldx #slot*16: the immediate is the next byte
+#define HD32ROM_JMP_FLOPPY 0x40 // jmp $Cs00: the target is the next two bytes
 
 // Commands
 #define CMD_STATUS 0x0
@@ -141,6 +152,7 @@ void HD32::Reset()
   command = CMD_STATUS;
 
   cachedBlockNum = -1;
+  cachedBlockDrive = -1;
 
   for (uint8_t d = 0; d < 2; d++) {
     if (activityUntil[d]) {
@@ -233,6 +245,17 @@ uint8_t HD32::readSwitches(uint8_t s)
 
     }
 
+#ifndef TEENSYDUINO
+    // AIIE_HD_TRACE in the environment logs every command the card runs,
+    // for finding out what a program asked for when it reports a disk error.
+    {
+      static int trace = -1;
+      if (trace < 0) trace = getenv("AIIE_HD_TRACE") ? 1 : 0;
+      if (trace)
+	fprintf(stderr, "hd32: cmd %d unit $%02X block %u buf $%04X -> $%02X\n",
+		command, unitSelected, diskBlock[driveSelected], memBlock[driveSelected], ret);
+    }
+#endif
     break;
 
   case HD32_STATUS:
@@ -263,6 +286,13 @@ uint8_t HD32::readSwitches(uint8_t s)
 
   case HD32_NEXTBYTE:
     ret = readNextByteFromSelectedDrive();
+    break;
+
+  case HD32_NBLOCKS_LO:
+    ret = blockCount[driveSelected] & 0xFF;
+    break;
+  case HD32_NBLOCKS_HI:
+    ret = blockCount[driveSelected] >> 8;
     break;
   }
 
@@ -310,15 +340,27 @@ void HD32::loadROM(uint8_t *toWhere)
   memcpy(toWhere, romData, 256);
 #endif
 
-  // The ROM has a hardcoded JMP $C600 at offset $5C as a fallback when
-  // the HD can't boot (fall back to Disk II). Patch the target to
-  // point to wherever the Disk II actually is, or loop forever if
-  // there is no Disk II.
+  if (toWhere[HD32ROM_LDX_SLOT] != 0xA2 || toWhere[HD32ROM_JMP_FLOPPY] != 0x4C) {
+    // The image and this loader disagree about the layout. Leave the ROM
+    // alone rather than patch the wrong bytes.
+#ifdef TEENSYDUINO
+    println("HD32 ROM layout mismatch; not patching the slot");
+#else
+    fprintf(stderr, "HD32 ROM layout mismatch; not patching the slot\n");
+#endif
+    return;
+  }
+
+  toWhere[HD32ROM_LDX_SLOT + 1] = g_slotHD32 << 4;
+
   if (g_slotDiskII) {
-    toWhere[0x5E] = 0xC0 + g_slotDiskII;
+    toWhere[HD32ROM_JMP_FLOPPY + 1] = 0x00;
+    toWhere[HD32ROM_JMP_FLOPPY + 2] = 0xC0 + g_slotDiskII;
   } else {
-    toWhere[0x5D] = 0x5C;
-    toWhere[0x5E] = 0xC0 + g_slotHD32;
+    // No floppy to fall back to: sit on the JMP instead of running off
+    // into whatever follows the ROM. The BIOS is still reachable.
+    toWhere[HD32ROM_JMP_FLOPPY + 1] = HD32ROM_JMP_FLOPPY;
+    toWhere[HD32ROM_JMP_FLOPPY + 2] = 0xC0 + g_slotHD32;
   }
 }
 
@@ -331,7 +373,7 @@ uint8_t HD32::readNextByteFromSelectedDrive()
   }
 
   int32_t blockToRead = cursor[driveSelected] >> 9; // 512-byte block number
-  if (blockToRead != cachedBlockNum) {
+  if (blockToRead != cachedBlockNum || driveSelected != cachedBlockDrive) {
     int32_t fileOff = blockToRead*512 + (int32_t)hdrOffset[driveSelected];
     if (g_filemanager->lseek(fd[driveSelected], fileOff, SEEK_SET) != fileOff) {
       goto err;
@@ -341,7 +383,7 @@ uint8_t HD32::readNextByteFromSelectedDrive()
       goto err;
     }
     cachedBlockNum = blockToRead;
-
+    cachedBlockDrive = driveSelected;
   }
 
   ret = cachedBlock[cursor[driveSelected] & 0x1FF];
@@ -363,7 +405,7 @@ bool HD32::readBlockFromSelectedDrive()
 
   cursor[driveSelected] = diskBlock[driveSelected] * HD32_BLOCKSIZE;
   int32_t blockToRead = cursor[driveSelected] >> 9; // 512-byte block number
-  if (blockToRead != cachedBlockNum) {
+  if (blockToRead != cachedBlockNum || driveSelected != cachedBlockDrive) {
     int32_t fileOff = blockToRead*512 + (int32_t)hdrOffset[driveSelected];
     if (g_filemanager->lseek(fd[driveSelected], fileOff, SEEK_SET) != fileOff) {
       goto err;
@@ -373,6 +415,7 @@ bool HD32::readBlockFromSelectedDrive()
       goto err;
     }
     cachedBlockNum = blockToRead;
+    cachedBlockDrive = driveSelected;
   }
   
   for (uint16_t i=0; i<HD32_BLOCKSIZE; i++) {
@@ -459,9 +502,21 @@ static uint32_t sniff2mgOffset(int8_t fd)
 
 void HD32::insertDisk(int8_t driveNum, const char *filename)
 {
-  ejectDisk(driveNum);
+  ejectDisk(driveNum);   // also drops any cached block of the old image
   fd[driveNum] = g_filemanager->openFile(filename);
   hdrOffset[driveNum] = (fd[driveNum] != -1) ? sniff2mgOffset(fd[driveNum]) : 0;
+  // The ROM's STATUS call reports the volume size from the card, so measure
+  // the image once here. ProDOS counts blocks in 16 bits, so a 32MB image
+  // (65536 blocks) is reported as 65535, the largest ProDOS volume.
+  blockCount[driveNum] = 0;
+  if (fd[driveNum] != -1) {
+    g_filemanager->seekToEnd(fd[driveNum]);
+    uint32_t size = g_filemanager->getSeekPosition(fd[driveNum]);
+    if (size > hdrOffset[driveNum]) {
+      uint32_t blocks = (size - hdrOffset[driveNum]) / HD32_BLOCKSIZE;
+      blockCount[driveNum] = (blocks > 0xFFFF) ? 0xFFFF : blocks;
+    }
+  }
   errorState[driveNum] = 0;
   enabled = 1;
   if (g_ui) g_ui->drawOnOffUIElement(driveNum ? UIeHD2_state : UIeHD_state, false);
@@ -474,6 +529,8 @@ void HD32::ejectDisk(int8_t driveNum)
     fd[driveNum] = -1;
   }
   hdrOffset[driveNum] = 0;
+  blockCount[driveNum] = 0;
+  if (cachedBlockDrive == driveNum) cachedBlockNum = -1;
   if (g_ui) g_ui->drawOnOffUIElement(driveNum ? UIeHD2_state : UIeHD_state, true);
 }
 

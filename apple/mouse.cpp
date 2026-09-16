@@ -2,10 +2,22 @@
 #include <string.h>
 #include "globals.h"
 
-// This ROM is part of the Aiie source code, but it was compiled and
-// bundled as a binary. If you want to see what it's doing, take a
-// look at mouserom.asm.
+// The slot ROM, assembled from apple/mouserom.s into mouse.rom and packaged
+// here by util/genrom.pl. The image is the same for every slot; loadROM
+// fills in the two bytes that depend on which slot the card is in.
 #include "mouse-rom.h"
+
+// The immediates in the ROM that hold the slot: "ldx #$Cn" / "ldy #$n0"
+// pairs in the hook code ($Cn23/$Cn25) and in SERVEMOUSE ($Cn65/$Cn67),
+// which interrupt handlers call without setting X and Y. The source pins
+// them with .assert, and loadROM checks the opcodes before touching anything.
+static const uint8_t mouseRomLdx[] = { 0x23, 0x65 };
+static const uint8_t mouseRomLdy[] = { 0x25, 0x67 };
+
+// The card's screen holes: $0478+n, $04F8+n and so on for slot n. The
+// clamp bounds live in the slot-0 holes ($0478, $04F8, $0578, $05F8), as the
+// protocol says, so those stay unindexed below.
+#define HOLE(base) ((base) + g_slotMouse)
 
 enum {
   SW_W_INITPR     = 0x00,
@@ -92,12 +104,11 @@ void Mouse::performHack()
     g_vm->getMMU()->write(0x200 + i, buf[i] | 0x80);
   }
 
-  // Put the string length in 0x638+$c0+n == $6FC for slot #4.
-  // The caller will pick that up and return it as the length of the buffer,
-  // which that caller will interpret as the next byte it has to display to
-  // the screen in the GETLN call; and since it's a return, it will display
-  // *nothing* and start parsing the string immediately.
-  g_vm->getMMU()->write(0x6fc, strlen(buf)-1);
+  // Put the string length in the slot's $06F8+n screen hole. The ROM's
+  // input hook picks that up and returns it as the length of the buffer,
+  // which GETLN interprets as the next byte it has to display; since that
+  // byte is the return, it displays *nothing* and parses the line at once.
+  g_vm->getMMU()->write(HOLE(0x6F8), strlen(buf)-1);
 }
 
 uint8_t Mouse::readSwitches(uint8_t s)
@@ -116,7 +127,7 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
   case SW_W_INITPR:
     v &= 0x01;
     //printf("Simple init: value is 0x%X\n", v);
-    g_vm->getMMU()->write(0x7f8 + 4, v);
+    g_vm->getMMU()->write(HOLE(0x7F8), v);
     break;
     
   case SW_W_HANDLEIN:
@@ -129,15 +140,15 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
 			  );
     break;
   case SW_R_POSMOUSE:
-    g_mouse->setPosition( (g_vm->getMMU()->read(0x578+4) << 8) | g_vm->getMMU()->read(0x478+4),
-			  (g_vm->getMMU()->read(0x5F8+4) << 8) | g_vm->getMMU()->read(0x4F8+4)
+    g_mouse->setPosition( (g_vm->getMMU()->read(HOLE(0x578)) << 8) | g_vm->getMMU()->read(HOLE(0x478)),
+			  (g_vm->getMMU()->read(HOLE(0x5F8)) << 8) | g_vm->getMMU()->read(HOLE(0x4F8))
 			  );
     break;
   case SW_R_CLEARMOUSE:
-    g_vm->getMMU()->write(0x578+4, 0);
-    g_vm->getMMU()->write(0x478+4, 0);
-    g_vm->getMMU()->write(0x5F8+4, 0);
-    g_vm->getMMU()->write(0x4F8+4, 0);
+    g_vm->getMMU()->write(HOLE(0x578), 0);
+    g_vm->getMMU()->write(HOLE(0x478), 0);
+    g_vm->getMMU()->write(HOLE(0x5F8), 0);
+    g_vm->getMMU()->write(HOLE(0x4F8), 0);
     g_mouse->setPosition(0,0);
     break;
   case SW_R_READMOUSE:
@@ -159,11 +170,11 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
       }
       
       MMU *m = g_vm->getMMU();
-      m->write(0x578+4, (xpos >> 8) & 0xFF); // high X
-      m->write(0x478+4, xpos & 0xFF); // low X
-      m->write(0x5F8+4, (ypos >> 8) & 0xFF); // high Y
-      m->write(0x4F8+4, ypos); // low Y
-      m->write(0x778+4, newStatus);
+      m->write(HOLE(0x578), (xpos >> 8) & 0xFF); // high X
+      m->write(HOLE(0x478), xpos & 0xFF); // low X
+      m->write(HOLE(0x5F8), (ypos >> 8) & 0xFF); // high Y
+      m->write(HOLE(0x4F8), ypos); // low Y
+      m->write(HOLE(0x778), newStatus);
 
       // ReadMouse is what clears the pending interrupt-reason bits (VBL / move /
       // button) on the real card -- ServeMouse only lowers the IRQ line. Do the
@@ -182,9 +193,9 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
     break;
   case SW_R_SERVEMOUSE:
     // Publish the serviced-interrupt bits in the slot's status screen hole
-    // ($0778+slot); ServeMouse in the ROM reads them back from there. (An older
-    // build also wrote them to $06B8+slot, which for slot 4 is $06BC -- visible
-    // text memory at screen center -- painting a stray inverse 'H' every VBL.)
+    // ($0778+slot); SERVEMOUSE in the ROM reads them back from there. (An older
+    // build also wrote them to $06B8+slot, which for slot 4 is $06BC, visible
+    // text memory at screen center, painting a stray inverse 'H' every VBL.)
     //
     // Deassert the IRQ line, but DO NOT clear the interrupt-reason bits here: on
     // the real card ServeMouse only lowers IRQ; ReadMouse is what clears the
@@ -192,7 +203,7 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
     // a prior one is still being serviced, the follow-up ServeMouse reports a
     // real interrupt where the hardware would report a "spurious" one (reason 0)
     // -- and A2OSX is written expecting that spurious case.
-    g_vm->getMMU()->write(0x778+4, interruptsTriggered);
+    g_vm->getMMU()->write(HOLE(0x778), interruptsTriggered);
     g_cpu->deassertIrq();
     break;
   case SW_W_CLAMPMOUSE:
@@ -217,7 +228,7 @@ void Mouse::writeSwitches(uint8_t s, uint8_t v)
     break;
   case SW_W_SETMOUSE:
     status = v;
-    g_vm->getMMU()->write(0x7f8 + 4, v);
+    g_vm->getMMU()->write(HOLE(0x7F8), v);
     break;
   default:
     printf("mouse: unknown switch write 0x%X = 0x%2X\n", s, v);
@@ -236,6 +247,23 @@ void Mouse::loadROM(uint8_t *toWhere)
   printf("loading Mouse rom\n");
   memcpy(toWhere, romData, 256);
 #endif
+
+  // The hooks and SERVEMOUSE are entered without X or Y set, and the ROM
+  // has no other way to learn its slot: fill it in.
+  for (size_t i = 0; i < sizeof(mouseRomLdx); i++) {
+    if (toWhere[mouseRomLdx[i]] != 0xA2 || toWhere[mouseRomLdy[i]] != 0xA0) {
+#ifdef TEENSYDUINO
+      Serial.println("Mouse ROM layout mismatch; not patching the slot");
+#else
+      fprintf(stderr, "Mouse ROM layout mismatch; not patching the slot\n");
+#endif
+      return;
+    }
+  }
+  for (size_t i = 0; i < sizeof(mouseRomLdx); i++) {
+    toWhere[mouseRomLdx[i] + 1] = 0xC0 + g_slotMouse;
+    toWhere[mouseRomLdy[i] + 1] = g_slotMouse << 4;
+  }
 }
 
 bool Mouse::hasExtendedRom()

@@ -51,6 +51,7 @@
 
 // see the same note in test-video7.cpp
 const char *AppleVM::DiskName(uint8_t) { return ""; }
+const char *AppleVM::HDName(uint8_t) { return ""; }
 
 class NullDisplay : public PhysicalDisplay {
 public:

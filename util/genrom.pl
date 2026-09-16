@@ -5,14 +5,14 @@ use warnings;
 
 my $romfile = shift || die "Must provide the path to an Apple //e ROM image";
 my $diskrom = shift || die "Must also provide the path to an Apple //e Disk II ROM image";
-my $parallelrom = shift || die "Must also provide the path to an Apple // parallel card ROM image";
-my $hdrom = shift || die "Must also provide the path to the AppleWin HDDRVR.BIN";
+my $parallelrom = shift || die "Must also provide the path to parallel.rom (assembled from apple/parallelrom.s)";
+my $hdrom = shift || die "Must also provide the path to hd32.rom (assembled from apple/hd32rom.s)";
 my $mouserom = shift || die "Also need the path to a mouse.rom image";
     
 validate($romfile, 32768, "an Apple //e ROM image");
 validate($diskrom, 256, "a DiskII ROM image");
-validate($parallelrom, 256, "a parallel card ROM image");
-validate($hdrom, 256, "HDDRVR.BIN from AppleWin");
+validate($parallelrom, 256, "parallel.rom, assembled from apple/parallelrom.s");
+validate($hdrom, 256, "hd32.rom, assembled from apple/hd32rom.s");
 validate($mouserom, 256, "mouse.rom, compiled as part of Aiie");
 
 dumpRom($romfile, "apple/applemmu-rom.h", "romData", 32768);

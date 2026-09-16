@@ -52,6 +52,7 @@
 // see the same note in test-video7.cpp: the linker wants this symbol and
 // pulling applevm.cpp in would drag the whole disk stack along with it.
 const char *AppleVM::DiskName(uint8_t) { return ""; }
+const char *AppleVM::HDName(uint8_t) { return ""; }
 
 // ---------------------------------------------------------------------
 // THE RECORDING DISPLAY, 560 pixels wide because hires uses the full

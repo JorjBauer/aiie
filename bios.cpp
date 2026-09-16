@@ -390,12 +390,6 @@ static void resolveSlotConflict(uint8_t *changedVar)
   for (int i = 0; i < NCARDS; i++) {
     uint8_t *other = cards[i].slot;
     if (other == changedVar || *other != newSlot) continue;
-    // The mouse only works in slot 4; if something takes slot 4, disable the
-    // mouse rather than relocate it to a slot where its ROM won't work.
-    if (other == &g_slotMouse) {
-      *other = 0;
-      continue;
-    }
     // Find an available slot for the displaced card
     static const uint8_t validSlots[] = { 1, 2, 4, 5, 6, 7 };
     bool found = false;
@@ -421,10 +415,10 @@ static void resolveSlotConflict(uint8_t *changedVar)
 static bool placeCard(int card, uint8_t slot)
 {
   uint8_t *var = cards[card].slot;
-  // The mouse card only works in slot 4 (its firmware ROM is slot-4-only),
-  // so restrict it to slot 4 or 0 (disabled). Others take any selectable slot.
-  bool ok = (card == CARD_MOUSE) ? (slot == 0 || slot == 4) : isSelectableSlot(slot);
-  if (!ok) return false;
+  if (!isSelectableSlot(slot)) return false;
+  // The mouse has a boot ROM, so in slot 3 it would sit behind the internal
+  // 80-column firmware and never be found. Any other slot works.
+  if (card == CARD_MOUSE && slot == 3) return false;
   *var = slot;
   if (slot != 0) resolveSlotConflict(var); // move any card already there
   cardsConfigChanged = !slotsMatchSaved();
@@ -441,16 +435,13 @@ static void stepCard(int card, int dir)
     cardsConfigChanged = !slotsMatchSaved();
     return;
   }
-  if (card == CARD_MOUSE) {
-    // The mouse only works in slot 4 (slot-4-only ROM); toggle 4 <-> off.
-    placeCard(card, g_slotMouse == 4 ? 0 : 4);
-    return;
-  }
   uint8_t cur = *cards[card].slot;
   int idx = 0;
   for (int i = 0; i < NSLOTCHOICES; i++)
     if (kSelectableSlots[i] == cur) { idx = i; break; }
   idx = (idx + dir + NSLOTCHOICES) % NSLOTCHOICES;
+  if (card == CARD_MOUSE && kSelectableSlots[idx] == 3)   // step past slot 3
+    idx = (idx + dir + NSLOTCHOICES) % NSLOTCHOICES;
   placeCard(card, kSelectableSlots[idx]);
 }
 
@@ -472,7 +463,7 @@ static void defaultCards()
   g_slotDiskII = 6;
   g_slotParallel = 1;
   g_slotHD32 = 7;
-  g_slotMouse = 0;   // mouse works only in slot 4; off by default
+  g_slotMouse = 0;   // off by default
   g_slotMockingboard = 4;
   g_slotUthernet = 0;
   g_ramworksSize = 0;
@@ -878,8 +869,8 @@ void BIOS::drawCards()
 
   put(14, 2, "A digit is the slot; 0 removes it.", ST_DIM);
   put(15, 2, "On RamWorks it is the size in MB.", ST_DIM);
-  put(16, 2, "The mouse only works in slot 4.", ST_DIM);
-  put(17, 2, "Slot 3 suits only the Uthernet.", ST_DIM);
+  put(16, 2, "Slot 3 suits only the Uthernet.", ST_DIM);
+  put(17, 2, "The mouse takes any other slot.", ST_DIM);
   put(19, 2, "Up/Down move, L/R or Return set.", ST_DIM);
   put(20, 2, "Esc returns.", ST_DIM);
 
