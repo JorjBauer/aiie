@@ -298,6 +298,7 @@ static struct timespec runCPU(struct timespec now)
     
     printf("Sending reset\n");
     g_cpu->Reset();
+    g_vm->busReset();
     
     send_rst = 0;
   }

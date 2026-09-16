@@ -437,6 +437,79 @@ static void testWriteSectorHeaderRoundTrip(const char *diskPath) {
 // ---------------------------------------------------------------------
 // Driver
 // ---------------------------------------------------------------------
+// ---------------------------------------------------------------------
+// The RESET line. A warm reset clears the controller's motor and
+// drive-select latches, so a running drive spins down (through the usual
+// second) and the host hears a motor-off; the disk stays in.
+// ---------------------------------------------------------------------
+static int s_events[2][8];
+static void countEvent(uint8_t drive, DiskII::DriveEvent e) { s_events[drive & 1][(int)e]++; }
+
+static void testBusResetStopsTheMotor(const char *diskPath) {
+  TEST("bus reset stops a running drive");
+  memset(s_events, 0, sizeof(s_events));
+  DiskII::eventListener = countEvent;
+  DiskII d(NULL);
+  d.insertDisk(0, diskPath, false);
+
+  cpuRead(d, 0x0A);   // drive 1
+  cpuRead(d, 0x09);   // motor on
+  CHECK(s_events[0][DiskII::DRIVE_MOTOR_ON] == 1, "motor on not reported (%d)", s_events[0][DiskII::DRIVE_MOTOR_ON]);
+
+  d.busReset();
+  d.maintenance(g_cpu->cycles);
+  CHECK(s_events[0][DiskII::DRIVE_MOTOR_OFF] == 0, "spun down at once; a motor-off takes its second");
+  g_cpu->cycles += 1023000 + 1;
+  d.maintenance(g_cpu->cycles);
+  CHECK(s_events[0][DiskII::DRIVE_MOTOR_OFF] == 1, "motor off not reported after the spin-down (%d)", s_events[0][DiskII::DRIVE_MOTOR_OFF]);
+
+  // A second reset with the drive stopped is silent.
+  d.busReset();
+  g_cpu->cycles += 1023000 + 1;
+  d.maintenance(g_cpu->cycles);
+  CHECK(s_events[0][DiskII::DRIVE_MOTOR_OFF] == 1, "a stopped drive reported a motor-off");
+
+  // Drive 2 running: the reset selects drive 1 and stops drive 2.
+  cpuRead(d, 0x0B);   // drive 2
+  cpuRead(d, 0x09);   // motor on
+  CHECK(d.selectedDrive() == 1, "drive 2 not selected");
+  CHECK(s_events[1][DiskII::DRIVE_MOTOR_ON] == 1, "drive 2 motor on not reported");
+  d.busReset();
+  CHECK(d.selectedDrive() == 0, "reset left drive %d selected", d.selectedDrive() + 1);
+  g_cpu->cycles += 1023000 + 1;
+  d.maintenance(g_cpu->cycles);
+  CHECK(s_events[1][DiskII::DRIVE_MOTOR_OFF] == 1, "drive 2 motor off not reported (%d)", s_events[1][DiskII::DRIVE_MOTOR_OFF]);
+  CHECK(s_events[0][DiskII::DRIVE_MOTOR_ON] == 1, "the reset started drive 1");
+
+  // Switching drives while the motor runs moves the motor: the drive
+  // switched away from stops at once and the other starts, and both are
+  // reported.
+  memset(s_events, 0, sizeof(s_events));
+  cpuRead(d, 0x09);   // motor on, drive 1
+  cpuRead(d, 0x0B);   // now drive 2
+  CHECK(s_events[0][DiskII::DRIVE_MOTOR_OFF] == 1, "drive 1 stop on select not reported");
+  CHECK(s_events[1][DiskII::DRIVE_MOTOR_ON] == 1, "drive 2 start on select not reported");
+  cpuRead(d, 0x08);   // motor off
+  g_cpu->cycles += 1023000 + 1;
+  d.maintenance(g_cpu->cycles);
+
+  // The CPU's reset restarts its clock. A spin-down that was under way
+  // then takes its second from the new clock, not until the new clock
+  // reaches the old deadline.
+  memset(s_events, 0, sizeof(s_events));
+  cpuRead(d, 0x0A);   // drive 1
+  cpuRead(d, 0x09);   // motor on
+  g_cpu->cycles += 5 * 1023000;
+  d.maintenance(g_cpu->cycles);
+  d.busReset();
+  g_cpu->cycles = 6;  // Cpu::Reset
+  d.maintenance(g_cpu->cycles);
+  g_cpu->cycles += 1023000 + 1;
+  d.maintenance(g_cpu->cycles);
+  CHECK(s_events[0][DiskII::DRIVE_MOTOR_OFF] == 1, "motor off not reported within a second of the restarted clock (%d)", s_events[0][DiskII::DRIVE_MOTOR_OFF]);
+  DiskII::eventListener = NULL;
+}
+
 int main(int argc, char *argv[]) {
   // Allow selecting which disk images to use via argv for flexibility;
   // default to Miner for the real-world read tests and a scratch DSK
@@ -454,6 +527,7 @@ int main(int argc, char *argv[]) {
 
   testWriteThenReadFF(scratchPath);
   testWriteSectorHeaderRoundTrip(scratchPath);
+  testBusResetStopsTheMotor(scratchPath);
 
   unlink(scratchPath);
 

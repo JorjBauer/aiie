@@ -191,6 +191,17 @@ void AppleVM::Reset()
   keyboard->maintainKeyboard(0);
 }
 
+// A warm reset: the RESET line reaches every card, and each clears what
+// its hardware clears (the Disk II its motor and drive select). Nothing
+// is ejected.
+void AppleVM::busReset()
+{
+  for (int i = 1; i <= 7; i++) {
+    Slot *card = ((AppleMMU *)mmu)->slots[i];
+    if (card) card->busReset();
+  }
+}
+
 void AppleVM::Monitor()
 {
   g_cpu->pc = 0xff69; // "call -151"                                                                             

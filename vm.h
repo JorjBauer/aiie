@@ -24,6 +24,8 @@ class VM {
   virtual VMKeyboard *getKeyboard() = 0;
 
   virtual void Reset() = 0;
+  // The RESET line: what a warm reset clears, with the media kept in.
+  virtual void busReset() {};
 
   virtual void triggerPaddleInCycles(uint8_t paddleNum, uint16_t cycleCount) = 0;
 

@@ -18,6 +18,13 @@ class Slot {
 
   virtual void Reset() = 0; // for use at cold-boot
 
+  // The bus's RESET line: a warm reset (Ctrl-Reset, or the host's
+  // "Reset"). The card keeps its media and memory and clears only what
+  // the line clears in hardware, such as the Disk II's motor and
+  // drive-select latches. Called after the CPU's Reset(), which restarts
+  // the cycle clock. Reset() is the cold boot.
+  virtual void busReset() {};
+
   virtual uint8_t readSwitches(uint8_t s) = 0;
   virtual void writeSwitches(uint8_t s, uint8_t v) = 0;
 

@@ -23,6 +23,7 @@ class AppleVM : public VM {
   void cpuMaintenance(int64_t cycles);
 
   virtual void Reset();
+  virtual void busReset();
   void Monitor();
 
   virtual void triggerPaddleInCycles(uint8_t paddleNum,uint16_t cycleCount);

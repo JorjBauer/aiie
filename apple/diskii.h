@@ -26,6 +26,7 @@ class DiskII : public Slot {
   virtual bool Deserialize(int8_t fd);
 
   virtual void Reset(); // used by BIOS cold-boot
+  virtual void busReset(); // the RESET line: motor off, drive 1, media kept
   virtual uint8_t readSwitches(uint8_t s);
   virtual void writeSwitches(uint8_t s, uint8_t v);
   virtual void loadROM(uint8_t *toWhere);
@@ -97,6 +98,11 @@ private:
   volatile int8_t selectedDisk;
 
   volatile int64_t flushAt[2];
+
+  // The clock maintenance() last saw. A CPU reset restarts the clock, and
+  // a deadline set before it (a spin-down, a flush) is re-armed from the
+  // new clock rather than waited out from the old one.
+  int64_t lastMaintenanceCycle;
 };
 
 #endif

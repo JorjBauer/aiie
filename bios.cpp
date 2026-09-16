@@ -1890,6 +1890,7 @@ uint8_t BIOS::messageScreen(bool redraw, int key)
 void BIOS::WarmReset()
 {
   g_cpu->Reset();
+  g_vm->busReset();
 }
 
 void BIOS::RebootAsIs()

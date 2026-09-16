@@ -56,6 +56,7 @@ DiskII::DiskII(AppleMMU *mmu)
   disk[0] = disk[1] = NULL;
   diskIsSpinningUntil[0] = diskIsSpinningUntil[1] = -1;
   flushAt[0] = flushAt[1] = 0;
+  lastMaintenanceCycle = 0;
   selectedDisk = 0;
 }
 
@@ -198,6 +199,23 @@ void DiskII::Reset()
 
   ejectDisk(0);
   ejectDisk(1);
+}
+
+// The RESET line clears the controller's latches: the motor, the drive
+// select, Q6 and Q7. The motor stops the way a motor-off stops it,
+// through the spin-down second (on the restarted clock: see
+// maintenance), and the media stays in. Without this a warm reset left a
+// running drive running: the boot scan with no disk in drive 1 spins it
+// forever, and a hard drive image booted with a reset after that ran
+// beside a drive that never stopped. The phases are the head's physical
+// rest position in this model (see setPhase), so they are left alone:
+// the head does not move on a reset.
+void DiskII::busReset()
+{
+  driveOff();
+  select(0);
+  writeMode = false;
+  q6 = false;
 }
 
 void DiskII::driveOff()
@@ -718,8 +736,12 @@ void DiskII::select(int8_t which)
       // FIXME: consume any disk bits that need to be consumed, and
       // spin it down
       g_ui->drawOnOffUIElement(UIeDisk1_activity + selectedDisk, false);
+      if (eventListener) eventListener(selectedDisk, DRIVE_MOTOR_OFF);
 
-      // Spin up the other one though
+      // Spin up the other one though. From a full stop that is a motor
+      // start; from its spin-down second it never stopped.
+      if (diskIsSpinningUntil[which] == NOTSPINNING && eventListener)
+        eventListener(which, DRIVE_MOTOR_ON);
       diskIsSpinningUntil[which] = SPINFOREVER;
       g_ui->drawOnOffUIElement(UIeDisk1_activity + which, true);
     }
@@ -823,6 +845,22 @@ void DiskII::loadROM(uint8_t *toWhere)
 
 void DiskII::maintenance(int64_t cycle)
 {
+  // The clock went backwards: a CPU reset (or the BIOS) restarted it. A
+  // deadline set on the old clock would otherwise be reached only after
+  // the new clock had caught up to it, seconds or hours later, with the
+  // drive "running" until then. Each one becomes its full delay from now.
+  if (cycle < lastMaintenanceCycle) {
+    for (int i=0; i<2; i++) {
+      if (diskIsSpinningUntil[i] != SPINFOREVER && diskIsSpinningUntil[i] != NOTSPINNING)
+        diskIsSpinningUntil[i] = cycle + SPINDOWNDELAY;
+      if (flushAt[i]) {
+        flushAt[i] = cycle + FLUSHDELAY;
+        if (flushAt[i] == 0) flushAt[i] = 1;
+      }
+    }
+  }
+  lastMaintenanceCycle = cycle;
+
   // Handle spin-down for the drive. Drives stay on for a second after
   // the stop was noticed.
   for (int i=0; i<2; i++) {
