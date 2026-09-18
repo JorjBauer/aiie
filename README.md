@@ -8,6 +8,10 @@ The name comes from a game I used to play on the Apple //e back around 1986 - Al
 
 When characters in the game did damage to each other, they exclaimed something like "HAH! JUST A SCRATCH!" or "AAARGH!" or "OH MA, I THINK ITS MY TIME" [sic]. One of these exclamations was "AIIYEEEEE!!"
 
+## Desktop version
+
+As of 2026, there's a full desktop build of Aiie - but it's not here. Take a look [https://whimology.com/aiie/](on whimology.com) for the full releases.
+
 ## Build log:
 
   [https://hackaday.io/project/19925-aiie-an-embedded-apple-e-emulator](https://hackaday.io/project/19925-aiie-an-embedded-apple-e-emulator)
