@@ -6,6 +6,8 @@
 #include "globals.h"
 #include "sdl-display.h"
 
+void writePrefs(); // sdl/aiie.cpp: the G key saves the paper choice at once
+
 #ifdef __EMSCRIPTEN__
 // Emscripten's SDL2 implements SDL_PollEvent as SDL_WaitEventTimeout(e,0), and
 // SDL_WaitEventTimeout is a null stub in the wasm build. Pump + peep directly.
@@ -67,6 +69,13 @@ void SDLKeyboard::handleKeypress(SDL_KeyboardEvent *key)
         switch (key->keysym.sym) {
         case 's': case 'S': pr->savePng(); break;
         case 'c': case 'C': pr->clear();             printf("Cleared printer roll\n");             break;
+        case 'g': case 'G':
+          // Paper stock: plain white or greenbar fanfold. Saved with the
+          // other preferences right away, like a BIOS setting would be.
+          pr->setGreenbar(!pr->greenbarEnabled());
+          printf("Printer paper: %s\n", pr->greenbarEnabled() ? "greenbar" : "plain");
+          writePrefs();
+          break;
         case SDLK_UP:       pr->scrollByRows(-40);            break;
         case SDLK_DOWN:     pr->scrollByRows(40);             break;
         case SDLK_PAGEUP:   pr->scrollByRows(-(HEIGHT - 80)); break;

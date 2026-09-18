@@ -12,13 +12,19 @@
 
 #define HEIGHT 800        // window height == the viewport into the paper roll
 #define NATIVEWIDTH 960   // FIXME: printer can change density...
-#define WIDTH 960
+#define WIDTH 960         // the printable area: 8" at 120 dpi
+// Fanfold paper: a 1/2" sprocket strip (60 px at 120 dpi) down each side of the
+// printable area, so the greenbar view is WIDTH + 2*MARGIN wide.
+#define MARGIN 60
+#define VIEWMAX (WIDTH + 2 * MARGIN)
 
 // The printer output is a continuously growing "paper roll": each page is
 // appended below the previous one instead of overwriting it. The window is a
 // viewport that follows the newest output as printing continues; the mouse wheel
 // and arrows scroll back through earlier pages, S saves the roll to per-page PNGs
-// (then clears it for the next job), and C clears without saving.
+// (then clears it for the next job), and C clears without saving. G toggles the
+// paper between plain white and greenbar fanfold with sprocket strips; that
+// setting is kept in the preferences.
 class SDLPrinter : public PhysicalPrinter {
  public:
   SDLPrinter();
@@ -40,9 +46,16 @@ class SDLPrinter : public PhysicalPrinter {
   void raiseWindow();                       // bring the printer window to the front
   void focusWindow();                       // raise it AND take keyboard focus (on click)
 
+  // Greenbar fanfold paper (green/white bars, sprocket holes down both sides)
+  // instead of plain white. The window widens by the two sprocket strips.
+  void setGreenbar(bool on);
+  bool greenbarEnabled() { return greenbar; }
+
  private:
   void ensureRows(uint32_t need);           // grow the roll to hold at least `need` rows
   void writePngPage(const char *path, uint32_t startRow, uint32_t nrows); // one page image
+  uint32_t viewWidth() { return greenbar ? VIEWMAX : WIDTH; }
+  void renderRow(uint32_t row, uint32_t *dst); // one roll row as viewWidth() ARGB pixels
 
   bool isDirty;
   bool halted;            // roll full: VM paused, waiting for save/clear
@@ -55,9 +68,10 @@ class SDLPrinter : public PhysicalPrinter {
   uint32_t allocRows;     // rows currently allocated in _bitmap
   uint32_t scrollY;       // top row of the visible viewport
   bool follow;            // auto-scroll to keep the newest output in view
+  bool greenbar;          // fanfold greenbar paper instead of plain white
 
   uint8_t  *_bitmap;      // WIDTH * allocRows, grows with the roll
-  uint32_t *_viewPixels;  // WIDTH * HEIGHT ARGB, the viewport uploaded to the texture
+  uint32_t *_viewPixels;  // VIEWMAX * HEIGHT ARGB, the viewport uploaded to the texture
 
   SDL_Window   *window;
   SDL_Renderer *renderer;

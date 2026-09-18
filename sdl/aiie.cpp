@@ -543,6 +543,7 @@ int main(int argc, char *argv[])
    *   -p <port>       debug socket port (default 12345; 0 disables it)
    *   -t <title>      window title (default "Aiie!"), to tell instances apart
    *   --video7        turn the BIOS Video7 color-text setting on
+   *   --greenbar      print on greenbar fanfold paper (G in the printer window toggles it)
    *   --prefs <file>  read and write settings here instead of ~/.aiie
    *   <image>         positional floppy disk image (drive 1, then drive 2)
    * The images are stashed here and actually inserted once the VM exists. */
@@ -562,6 +563,8 @@ int main(int argc, char *argv[])
   // Applied after readPrefs() so the flag wins, and it is the same
   // setting the BIOS toggles, so quitting saves it like any other.
   bool forceVideo7 = false;
+  // Greenbar printer paper, likewise overriding the saved setting.
+  bool forceGreenbar = false;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "-9")) {
       use8875 = false;
@@ -596,6 +599,9 @@ int main(int argc, char *argv[])
     else if (!strcmp(argv[i], "--video7")) {
       forceVideo7 = true;
     }
+    else if (!strcmp(argv[i], "--greenbar")) {
+      forceGreenbar = true;
+    }
     else if (!strcmp(argv[i], "--prefs")) {
       // Set before anything constructs a NixPrefs. Quitting always
       // writes preferences, so pointing a scratch instance at its own
@@ -620,7 +626,7 @@ int main(int argc, char *argv[])
     }
     else if (argv[i][0] == '-') {
       fprintf(stderr, "Unknown option '%s'\n", argv[i]);
-      fprintf(stderr, "Usage: %s [-8|-9] [-hd <image>] [-hd <image>] [-nohd] [--cycle-beacon] [-p <port>] [-t <title>] [--video7] [--prefs <file>] [floppy1] [floppy2]\n", argv[0]);
+      fprintf(stderr, "Usage: %s [-8|-9] [-hd <image>] [-hd <image>] [-nohd] [--cycle-beacon] [-p <port>] [-t <title>] [--video7] [--greenbar] [--prefs <file>] [floppy1] [floppy2]\n", argv[0]);
       exit(1);
     }
     else if (numFloppy < 2) {
@@ -719,6 +725,9 @@ int main(int argc, char *argv[])
       if (p.version >= 13) {
         g_video7 = p.video7 ? true : false;
       }
+      if (p.version >= 14) {
+        ((SDLPrinter *)g_printer)->setGreenbar(p.greenbar ? true : false);
+      }
     }
   }
 
@@ -759,6 +768,8 @@ int main(int argc, char *argv[])
   // readPrefs() because that is what loads it.
   if (forceVideo7)
     g_video7 = true;
+  if (forceGreenbar)
+    ((SDLPrinter *)g_printer)->setGreenbar(true);
   /* -nohd disconnects any hard drives that prefs restored (e.g. from an earlier
    * -hd run), for a clean floppy-only boot. */
   if (noHd) {
@@ -857,6 +868,9 @@ void readPrefs()
     if (p.version >= 13) {
       g_video7 = p.video7 ? true : false;
     }
+    if (p.version >= 14) {
+      ((SDLPrinter *)g_printer)->setGreenbar(p.greenbar ? true : false);
+    }
     if (p.disk1[0]) {
       ((AppleVM *)g_vm)->insertDisk(0, p.disk1);
       strcpy(disk1name, p.disk1);
@@ -915,6 +929,7 @@ void writePrefs()
 
   p.ramworksSize = g_ramworksSize;
   p.video7 = g_video7 ? 1 : 0;
+  p.greenbar = ((SDLPrinter *)g_printer)->greenbarEnabled() ? 1 : 0;
 
   strcpy(p.disk1, ((AppleVM *)g_vm)->DiskName(0));
   strcpy(p.disk2, ((AppleVM *)g_vm)->DiskName(1));

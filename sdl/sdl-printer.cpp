@@ -5,7 +5,7 @@
 #include <zlib.h>   // deflate + crc32 for the PNG writer
 #include "font.h"   // asciiToAppleGlyph() for the "roll full" prompt text
 
-#define WINDOWNAME "printer  [wheel/arrows scroll · S save · C clear]"
+#define WINDOWNAME "printer  [wheel/arrows scroll · S save · C clear · G greenbar]"
 
 // How much the roll grows each time it runs out of room: two pages, so a long
 // print job reallocates rarely.
@@ -21,7 +21,7 @@
 
 // Stamp one glyph from the built-in 8x8 font into the ARGB viewport at (px,py),
 // magnified by `scale`. Used only to draw the halt prompt over the printout.
-static void stampChar(uint32_t *buf, int px, int py, char c, uint32_t color, int scale)
+static void stampChar(uint32_t *buf, uint32_t vw, int px, int py, char c, uint32_t color, int scale)
 {
   const unsigned char *g = asciiToAppleGlyph((unsigned char)c);
   for (int row = 0; row < 8; row++) {
@@ -32,17 +32,75 @@ static void stampChar(uint32_t *buf, int px, int py, char c, uint32_t color, int
       for (int sy = 0; sy < scale; sy++)
         for (int sx = 0; sx < scale; sx++) {
           int X = px + col * scale + sx, Y = py + row * scale + sy;
-          if (X >= 0 && X < WIDTH && Y >= 0 && Y < HEIGHT)
-            buf[(size_t)Y * WIDTH + X] = color;
+          if (X >= 0 && X < (int)vw && Y >= 0 && Y < HEIGHT)
+            buf[(size_t)Y * vw + X] = color;
         }
     }
   }
 }
 
-static void stampText(uint32_t *buf, int px, int py, const char *s, uint32_t color, int scale)
+static void stampText(uint32_t *buf, uint32_t vw, int px, int py, const char *s, uint32_t color, int scale)
 {
   for (int x = px; *s; s++, x += 8 * scale)
-    stampChar(buf, x, py, *s, color, scale);
+    stampChar(buf, vw, x, py, *s, color, scale);
+}
+
+// --- fanfold greenbar paper ------------------------------------------------
+// Geometry in printer dots: 120 dpi across, 72 dpi down (216/3, see fx80.cpp).
+// The bars are 1/2" tall and the sprocket holes are on 1/2" centers, so a hole
+// sits beside the middle of every bar. A hole is 5/32" across.
+#define BAR_ROWS   36                 // 1/2" at 72 dpi
+// A text line at 6 lpi is 12 rows: 9 of dots, then a 3-row gap (rows 9..11).
+// Bars start at the page top, so an edge every 36 rows would sit exactly on
+// the top of every third line; pulling the bars up 2 rows puts each edge on
+// the middle row of a gap instead, floating between lines.
+#define BAR_OFFSET 2
+#define HOLE_RX    9                  // half of 5/32" at 120 dpi
+#define HOLE_RY    6                  // half of 5/32" at 72 dpi
+#define PAPER_WHITE 0xFFFCFCF8u       // plain paper, very slightly warm
+#define PAPER_GREEN 0xFFCFE8CFu       // the green bar
+#define PAPER_RULE  0xFFA8D0A8u       // the darker rule along a bar's edges
+#define PERF_COLOR  0xFFB8BCB4u       // perforation dashes
+#define HOLE_COLOR  0xFF6E7278u       // whatever is behind the paper
+#define HOLE_RIM    0xFFB0B4B8u       // the punched edge of a hole
+
+// Paint one viewport row of greenbar stock (no ink yet), vw pixels wide.
+static void paintGreenbarRow(uint32_t *dst, uint32_t vw, uint32_t row)
+{
+  uint32_t pr = row % HEIGHT;                 // row within its page
+  uint32_t br = pr + BAR_OFFSET;              // row within the shifted bars
+  uint32_t inBar = br % BAR_ROWS;
+  bool green = ((br / BAR_ROWS) & 1) == 0;    // first bar on a page is green
+  uint32_t paper = green ? PAPER_GREEN : PAPER_WHITE;
+  if (green && (inBar == 0 || inBar == BAR_ROWS - 1))
+    paper = PAPER_RULE;                       // a rule top and bottom of each bar
+
+  for (uint32_t x = 0; x < vw; x++)
+    dst[x] = (x < MARGIN || x >= vw - MARGIN) ? PAPER_WHITE : paper;
+
+  // Vertical perforations between the strips and the page: dashed.
+  if ((pr & 4) == 0) {
+    dst[MARGIN - 1] = PERF_COLOR;
+    dst[vw - MARGIN] = PERF_COLOR;
+  }
+  // Horizontal perforation along the fold at the top of every page.
+  if (pr == 0)
+    for (uint32_t x = 0; x < vw; x++)
+      if ((x & 4) == 0) dst[x] = PERF_COLOR;
+
+  // Sprocket holes, centered in each strip beside the middle of the bar.
+  int dy = (int)inBar - BAR_ROWS / 2;
+  if (dy >= -HOLE_RY && dy <= HOLE_RY) {
+    for (int dx = -HOLE_RX; dx <= HOLE_RX; dx++) {
+      // ellipse test in dot space, since the dots are not square
+      int d = dx * dx * HOLE_RY * HOLE_RY + dy * dy * HOLE_RX * HOLE_RX;
+      int r = HOLE_RX * HOLE_RX * HOLE_RY * HOLE_RY;
+      if (d > r) continue;
+      uint32_t c = (d > (r * 3) / 4) ? HOLE_RIM : HOLE_COLOR;
+      dst[MARGIN / 2 + dx] = c;
+      dst[vw - MARGIN / 2 + dx] = c;
+    }
+  }
 }
 
 SDLPrinter::SDLPrinter()
@@ -58,9 +116,10 @@ SDLPrinter::SDLPrinter()
   allocRows = 0;
   scrollY = 0;
   follow = true;
+  greenbar = false;
 
   _bitmap = NULL;
-  _viewPixels = (uint32_t *)malloc((size_t)WIDTH * HEIGHT * sizeof(uint32_t));
+  _viewPixels = (uint32_t *)malloc((size_t)VIEWMAX * HEIGHT * sizeof(uint32_t));
 
   window = NULL;
   renderer = NULL;
@@ -101,6 +160,46 @@ void SDLPrinter::ensureRows(uint32_t need)
   allocRows = newRows;
 }
 
+// Compose one roll row for display or saving: the paper stock, then the ink
+// on top. Plain paper is white edge to edge; greenbar adds the sprocket strips
+// on either side of the printable area.
+void SDLPrinter::renderRow(uint32_t row, uint32_t *dst)
+{
+  uint32_t vw = viewWidth();
+  uint32_t x0 = greenbar ? MARGIN : 0;
+  if (greenbar)
+    paintGreenbarRow(dst, vw, row);
+  else
+    for (uint32_t x = 0; x < vw; x++)
+      dst[x] = 0xFFFFFFFFu;
+
+  if (row < contentRows && _bitmap) {
+    const uint8_t *b = &_bitmap[(size_t)row * WIDTH];
+    for (uint32_t x = 0; x < WIDTH; x++)
+      if (b[x]) dst[x0 + x] = 0xFF000000u;
+  }
+}
+
+// Switch paper stock. The window and texture are sized to the stock, so both
+// are rebuilt when the width changes. Only an existing window is marked for
+// redraw: the window is created by the first print job, and prefs set the
+// paper at startup, which must not open it on its own.
+void SDLPrinter::setGreenbar(bool on)
+{
+  SDL_LockMutex(printerMutex);
+  if (on != greenbar) {
+    greenbar = on;
+    if (window) {
+      if (texture) SDL_DestroyTexture(texture);
+      texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
+                                  SDL_TEXTUREACCESS_STREAMING, (int)viewWidth(), HEIGHT);
+      SDL_SetWindowSize(window, (int)viewWidth(), HEIGHT);
+      isDirty = true;
+    }
+  }
+  SDL_UnlockMutex(printerMutex);
+}
+
 void SDLPrinter::update()
 {
   if (!isDirty)
@@ -115,47 +214,38 @@ void SDLPrinter::update()
   if (!window) {
     window = SDL_CreateWindow(WINDOWNAME,
                               SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
-                              WIDTH, HEIGHT, SDL_WINDOW_SHOWN);
+                              (int)viewWidth(), HEIGHT, SDL_WINDOW_SHOWN);
     renderer = SDL_CreateRenderer(window, -1, 0);
     texture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_ARGB8888,
-                                SDL_TEXTUREACCESS_STREAMING, WIDTH, HEIGHT);
+                                SDL_TEXTUREACCESS_STREAMING, (int)viewWidth(), HEIGHT);
   }
+  const uint32_t vw = viewWidth();
 
   // Keep the newest output in view unless the user has scrolled back.
   uint32_t maxScroll = (contentRows > HEIGHT) ? (contentRows - HEIGHT) : 0;
   if (follow)              scrollY = maxScroll;
   else if (scrollY > maxScroll) scrollY = maxScroll;
 
-  // Build the viewport: black where a dot was printed, white paper elsewhere
+  // Build the viewport: black where a dot was printed, paper elsewhere
   // (including any blank roll below the last line printed).
-  for (uint32_t y = 0; y < HEIGHT; y++) {
-    uint32_t src = scrollY + y;
-    uint32_t *dst = &_viewPixels[(size_t)y * WIDTH];
-    if (src < contentRows && _bitmap) {
-      const uint8_t *b = &_bitmap[(size_t)src * WIDTH];
-      for (uint32_t x = 0; x < WIDTH; x++)
-        dst[x] = b[x] ? 0xFF000000u : 0xFFFFFFFFu;
-    } else {
-      for (uint32_t x = 0; x < WIDTH; x++)
-        dst[x] = 0xFFFFFFFFu;
-    }
-  }
+  for (uint32_t y = 0; y < HEIGHT; y++)
+    renderRow(scrollY + y, &_viewPixels[(size_t)y * vw]);
 
   // Scrollbar + page indicator, so a multi-page roll is obviously navigable and
   // page 1 doesn't just look "cleared" when the view follows to the newest page.
   uint32_t totalPages = (contentRows + HEIGHT - 1) / HEIGHT;
   if (totalPages < 1) totalPages = 1;
   if (contentRows > HEIGHT) {
-    const int bxL = WIDTH - 11, bxR = WIDTH - 3;
+    const int bxL = (int)vw - 11, bxR = (int)vw - 3;
     for (int y = 0; y < HEIGHT; y++)
       for (int x = bxL; x < bxR; x++)
-        _viewPixels[(size_t)y * WIDTH + x] = 0xFFD7DBE1u; // track
+        _viewPixels[(size_t)y * vw + x] = 0xFFD7DBE1u; // track
     int thumbH = (int)((uint64_t)HEIGHT * HEIGHT / contentRows);
     if (thumbH < 28) thumbH = 28;
     int thumbY = (int)((uint64_t)scrollY * (HEIGHT - thumbH) / (contentRows - HEIGHT));
     for (int y = thumbY; y < thumbY + thumbH && y < HEIGHT; y++)
       for (int x = bxL; x < bxR; x++)
-        _viewPixels[(size_t)y * WIDTH + x] = 0xFF8A909Cu; // thumb
+        _viewPixels[(size_t)y * vw + x] = 0xFF8A909Cu; // thumb
   }
   {
     uint32_t curPage = (scrollY + HEIGHT / 2) / HEIGHT + 1;
@@ -164,9 +254,9 @@ void SDLPrinter::update()
     snprintf(lbl, sizeof(lbl), "PAGE %u/%u", (unsigned)curPage, (unsigned)totalPages);
     int lw = (int)strlen(lbl) * 8 + 10;
     for (int y = 4; y < 20; y++)
-      for (int x = 4; x < 4 + lw && x < WIDTH; x++)
-        _viewPixels[(size_t)y * WIDTH + x] = 0xFF20252Fu; // label background
-    stampText(_viewPixels, 9, 6, lbl, 0xFFEDEFF2u, 1);
+      for (int x = 4; x < 4 + lw && x < (int)vw; x++)
+        _viewPixels[(size_t)y * vw + x] = 0xFF20252Fu; // label background
+    stampText(_viewPixels, vw, 9, 6, lbl, 0xFFEDEFF2u, 1);
   }
 
   // Roll is full: draw the "save & clear" prompt over the printout. The VM is
@@ -174,43 +264,43 @@ void SDLPrinter::update()
   // regardless of window focus while halted).
   if (halted) {
     if (!haltShown) { raiseWindow(); haltShown = true; }
-    const int bw = 720, bh = 152, bx = (WIDTH - bw) / 2, by = (HEIGHT - bh) / 2;
+    const int bw = 720, bh = 152, bx = ((int)vw - bw) / 2, by = (HEIGHT - bh) / 2;
     const uint32_t fill = 0xFF181C24u, edge = 0xFFE0A020u, white = 0xFFFFFFFFu, amber = 0xFFE8B04Au;
     for (int y = by - 3; y < by + bh + 3; y++)
       for (int x = bx - 3; x < bx + bw + 3; x++) {
-        if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) continue;
+        if (x < 0 || x >= (int)vw || y < 0 || y >= HEIGHT) continue;
         bool border = (y < by || y >= by + bh || x < bx || x >= bx + bw);
-        _viewPixels[(size_t)y * WIDTH + x] = border ? edge : fill;
+        _viewPixels[(size_t)y * vw + x] = border ? edge : fill;
       }
     char t[48];
     snprintf(t, sizeof(t), "PRINTER FULL  %d PAGES", MAX_PAGES);
-    stampText(_viewPixels, bx + 28, by + 22,  t, white, 2);
-    stampText(_viewPixels, bx + 28, by + 56,  "VM PAUSED", amber, 2);
-    stampText(_viewPixels, bx + 28, by + 92,  "S   SAVE PAGES AS PNG", white, 2);
-    stampText(_viewPixels, bx + 28, by + 120, "C   CLEAR AND RESUME", white, 2);
+    stampText(_viewPixels, vw, bx + 28, by + 22,  t, white, 2);
+    stampText(_viewPixels, vw, bx + 28, by + 56,  "VM PAUSED", amber, 2);
+    stampText(_viewPixels, vw, bx + 28, by + 92,  "S   SAVE PAGES AS PNG", white, 2);
+    stampText(_viewPixels, vw, bx + 28, by + 120, "C   CLEAR AND RESUME", white, 2);
   }
 
   // Brief "saved" confirmation over the (now cleared) roll. Kept alive by forcing
   // isDirty so update() keeps running until the frame counter expires.
   if (saveToastFrames > 0) {
-    const int bw = 560, bh = 104, bx = (WIDTH - bw) / 2, by = (HEIGHT - bh) / 2;
+    const int bw = 560, bh = 104, bx = ((int)vw - bw) / 2, by = (HEIGHT - bh) / 2;
     const uint32_t fill = 0xFF15221Au, edge = 0xFF37B26Fu, white = 0xFFFFFFFFu, green = 0xFF6FD89Bu;
     for (int y = by - 3; y < by + bh + 3; y++)
       for (int x = bx - 3; x < bx + bw + 3; x++) {
-        if (x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) continue;
+        if (x < 0 || x >= (int)vw || y < 0 || y >= HEIGHT) continue;
         bool border = (y < by || y >= by + bh || x < bx || x >= bx + bw);
-        _viewPixels[(size_t)y * WIDTH + x] = border ? edge : fill;
+        _viewPixels[(size_t)y * vw + x] = border ? edge : fill;
       }
     char hd[48];
     snprintf(hd, sizeof(hd), "SAVED %u PAGE%s",
              (unsigned)saveToastPages, saveToastPages == 1 ? "" : "S");
-    stampText(_viewPixels, bx + 26, by + 26, hd, green, 2);
-    stampText(_viewPixels, bx + 26, by + 66, saveToastMsg, white, 1);
+    stampText(_viewPixels, vw, bx + 26, by + 26, hd, green, 2);
+    stampText(_viewPixels, vw, bx + 26, by + 66, saveToastMsg, white, 1);
     saveToastFrames--;
     isDirty = true;   // keep redrawing until the confirmation expires
   }
 
-  SDL_UpdateTexture(texture, NULL, _viewPixels, WIDTH * (int)sizeof(uint32_t));
+  SDL_UpdateTexture(texture, NULL, _viewPixels, (int)vw * (int)sizeof(uint32_t));
 
   SDL_UnlockMutex(printerMutex);
 
@@ -340,26 +430,39 @@ static void pngChunk(FILE *f, const char *type, const uint8_t *data, uint32_t le
   fwrite(c, 1, 4, f);
 }
 
-// Write one page image: `nrows` rows of the roll starting at `startRow`, as an
-// 8-bit grayscale PNG. Rows past the printed content (the tail of the last page)
-// are white paper, so every page comes out a full, uniform sheet.
+// Write one page image: `nrows` rows of the roll starting at `startRow`. Plain
+// paper is an 8-bit grayscale PNG; greenbar is 8-bit RGB with the sprocket
+// strips included, so the file looks like the window. Rows past the printed
+// content (the tail of the last page) are blank paper, so every page comes out
+// a full, uniform sheet.
 void SDLPrinter::writePngPage(const char *path, uint32_t startRow, uint32_t nrows)
 {
-  const size_t stride = (size_t)WIDTH + 1;   // filter byte + row
+  const uint32_t vw = viewWidth();
+  const int bpp = greenbar ? 3 : 1;
+  const size_t stride = (size_t)vw * bpp + 1;   // filter byte + row
   const size_t rawLen = stride * nrows;
   uint8_t *raw = (uint8_t *)malloc(rawLen);
-  if (!raw) { printf("PNG: out of memory\n"); return; }
+  uint32_t *line = (uint32_t *)malloc((size_t)vw * sizeof(uint32_t));
+  if (!raw || !line) { free(raw); free(line); printf("PNG: out of memory\n"); return; }
 
   SDL_LockMutex(printerMutex);
   for (uint32_t y = 0; y < nrows; y++) {
     uint8_t *r = raw + (size_t)y * stride;
     r[0] = 0; // filter: none
-    uint32_t src = startRow + y;
-    const uint8_t *b = (src < contentRows && _bitmap) ? &_bitmap[(size_t)src * WIDTH] : NULL;
-    for (uint32_t x = 0; x < WIDTH; x++)
-      r[1 + x] = (b && b[x]) ? 0x00 : 0xFF;   // black dot vs white paper
+    renderRow(startRow + y, line);
+    if (greenbar) {
+      for (uint32_t x = 0; x < vw; x++) {
+        r[1 + x * 3] = (uint8_t)(line[x] >> 16);
+        r[2 + x * 3] = (uint8_t)(line[x] >> 8);
+        r[3 + x * 3] = (uint8_t)line[x];
+      }
+    } else {
+      for (uint32_t x = 0; x < vw; x++)
+        r[1 + x] = (uint8_t)line[x];   // black dot (0x00) vs white paper (0xFF)
+    }
   }
   SDL_UnlockMutex(printerMutex);   // the rest touches only our private copy
+  free(line);
 
   uLongf compLen = compressBound(rawLen);
   uint8_t *comp = (uint8_t *)malloc(compLen);
@@ -374,10 +477,10 @@ void SDLPrinter::writePngPage(const char *path, uint32_t startRow, uint32_t nrow
   static const uint8_t sig[8] = { 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A };
   fwrite(sig, 1, 8, f);
   uint8_t ihdr[13];
-  pngPut32(ihdr + 0, WIDTH);
+  pngPut32(ihdr + 0, vw);
   pngPut32(ihdr + 4, nrows);
   ihdr[8] = 8;  // bit depth
-  ihdr[9] = 0;  // color type: grayscale
+  ihdr[9] = greenbar ? 2 : 0;  // color type: RGB for greenbar, grayscale for plain
   ihdr[10] = 0; ihdr[11] = 0; ihdr[12] = 0; // deflate / filter / no interlace
   pngChunk(f, "IHDR", ihdr, 13);
   pngChunk(f, "IDAT", comp, (uint32_t)compLen);

@@ -170,6 +170,10 @@ static int resizeEventWatch(void *userdata, SDL_Event *event)
   if (event->type == SDL_WINDOWEVENT &&
       event->window.event == SDL_WINDOWEVENT_SIZE_CHANGED) {
     SDLDisplay *d = (SDLDisplay *)userdata;
+    // Only our own window: the printer window resizes too (its paper stock
+    // changes its width), and its size must not be applied to the emulator.
+    if (event->window.windowID != SDL_GetWindowID(d->getWindow()))
+      return 0;
     d->windowResized(event->window.data1, event->window.data2);
     d->blit();
   }

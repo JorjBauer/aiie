@@ -20,9 +20,12 @@
 ;                  character from now on, so ^I itself can reach the printer
 ;
 ; The width is where the card ends a line itself, for programs that never
-; send a return; the line feed after a return is what actually advances
-; the paper, since the FX-80 treats a return as return-only. Defaults:
-; echo on, 40 columns, line feed on.
+; send a return, and it applies only while the echo is off (the nH..nN
+; modes): with the echo on the Apple card sends whatever it is given and
+; leaves the line to the screen and the printer, so an 80-column listing
+; comes out 80 columns wide. The line feed after a return is what actually
+; advances the paper, since the FX-80 treats a return as return-only.
+; Defaults: echo on, 40 columns, line feed on.
 ;
 ; Applesoft moves the cursor without printing: a comma in PRINT and HTAB
 ; set CH ($24), and TAB( prints "target minus CH" spaces. So the ROM keeps
@@ -146,9 +149,10 @@ classify:
         bcc     done            ; other control characters take no column
         inc     COL,x
         bit     FLAGS,x
-        bmi     counted         ; echo on: COUT1 moved the cursor
-        inc     CH              ; echo off: move it ourselves
-counted:
+        bmi     done            ; echo on: COUT1 moved the cursor, and the
+                                ; screen owns the line (the Apple card never
+                                ; ends one itself while it is echoing)
+        inc     CH              ; echo off: move the cursor ourselves
         lda     COL,x
         cmp     LEN,x
         bcc     done

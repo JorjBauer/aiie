@@ -346,6 +346,15 @@ static void runSuite()
   expectByte("column 2", COL, 2);
   print(0x09); print('I');
 
+  // ---- with the echo on the width does not apply: the Apple card sends
+  // a long line through untouched (an 80-column listing stays 80 wide)
+  homeCursor();
+  card->clear();
+  char sixty[61]; memset(sixty, 'x', 60); sixty[60] = 0;
+  prints(sixty);
+  char want60[64]; memset(want60, 0xF8, 60); want60[60] = 0;
+  expectBytes("echo on: 60 characters, no line ending", want60);
+
   // ---- CSW not ours: $Cn00 still resets but leaves CSW alone
   mmu->write(0x36, 0x1B); mmu->write(0x37, 0xFD);
   homeCursor();
