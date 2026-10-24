@@ -8,6 +8,8 @@ apple/applemmu-rom.h
 apple/diskii-rom.h
 apple/parallel-rom.h
 apple/hd32-rom.h
+apple/mouse-rom.h
+apple/*.lst
 aiie-sdl
 mockingboard-d.rom
 *.d

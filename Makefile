@@ -1,23 +1,21 @@
 LDFLAGS=-L/usr/local/lib -L/opt/homebrew/lib
 
-# The disk image code is the wozzle library, a git submodule. wozcore.mk
-# tells us its files and include path.
-ifeq ($(wildcard wozzle/wozcore.mk),)
-$(error The wozzle submodule is missing; run 'git submodule update --init')
-endif
-include wozzle/wozcore.mk
+# The machine's source lists live in aiie.mk, so other projects that
+# build Aiie can share them. It's found next to this Makefile, which lets
+# "make -f path/to/aiie/Makefile print-..." work from anywhere.
+include $(dir $(lastword $(MAKEFILE_LIST)))aiie.mk
 
 SDLLIBS=-lSDL2 -lpthread -lz
 FBLIBS=-lpthread
 
-CFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -O2 -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE -DAIIE_DEBUGGER $(WOZCORE_CFLAGS)
-CXXFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -O2 -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE -DAIIE_DEBUGGER $(WOZCORE_CFLAGS)
+CFLAGS=-Wall -I/usr/include/SDL2 -I .. $(AIIE_CFLAGS) -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -O2 -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE -DAIIE_DEBUGGER
+CXXFLAGS=-Wall -I/usr/include/SDL2 -I .. $(AIIE_CFLAGS) -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -O2 -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE -DAIIE_DEBUGGER
 
 TSRC=cpu.cpp util/testharness.cpp
 
-COMMONSRCS=cpu.cpp apple/appledisplay.cpp apple/applekeyboard.cpp apple/applemmu.cpp apple/applevm.cpp apple/diskii.cpp LRingBuffer.cpp globals.cpp apple/parallelcard.cpp apple/fx80.cpp lcg.cpp apple/hd32.cpp images.cpp apple/appleui.cpp vmram.cpp bios.cpp apple/noslotclock.cpp apple/woz-serializer.cpp apple/wozhost-aiie.cpp $(WOZCORE_SRCS) apple/mouse.c physicaldisplay.cpp wsola-speaker.cpp apple/mockingboard.cpp apple/uthernet2.cpp apple/usernet.cpp debugger.cpp disassembler.cpp
+COMMONSRCS=$(AIIE_CORE_SRCS)
 
-COMMONOBJS=cpu.o apple/appledisplay.o apple/applekeyboard.o apple/applemmu.o apple/applevm.o apple/diskii.o LRingBuffer.o globals.o apple/parallelcard.o apple/fx80.o lcg.o apple/hd32.o images.o apple/appleui.o vmram.o bios.o apple/noslotclock.o apple/woz-serializer.o apple/wozhost-aiie.o $(WOZCORE_OBJS) apple/mouse.o physicaldisplay.o wsola-speaker.o apple/mockingboard.o apple/uthernet2.o apple/usernet.o debugger.o disassembler.o
+COMMONOBJS=$(AIIE_CORE_OBJS)
 
 FBSRCS=linuxfb/linux-speaker.cpp linuxfb/fb-display.cpp linuxfb/linux-keyboard.cpp linuxfb/fb-paddles.cpp nix/nix-filemanager.cpp linuxfb/aiie.cpp linuxfb/linux-printer.cpp nix/nix-clock.cpp nix/nix-prefs.cpp
 
@@ -28,6 +26,11 @@ SDLSRCS=sdl/sdl-speaker.cpp sdl/sdl-display.cpp sdl/sdl-keyboard.cpp sdl/sdl-pad
 SDLOBJS=sdl/sdl-speaker.o sdl/sdl-display.o sdl/sdl-keyboard.o sdl/sdl-paddles.o nix/nix-filemanager.o sdl/aiie.o sdl/sdl-printer.o nix/nix-clock.o nix/nix-prefs.o nix/debug-socket.o sdl/sdl-mouse.o sdl/sdl-uthernet2.o sdl/usernet-bsd.o
 
 ROMS=apple/applemmu-rom.h apple/diskii-rom.h apple/parallel-rom.h apple/hd32-rom.h apple/mouse-rom.h
+
+# Some objects include the generated ROM headers, so every object waits
+# for them. Without this a parallel build of a fresh tree compiles those
+# files before the headers exist.
+$(COMMONOBJS) $(SDLOBJS) $(FBOBJS): | roms
 
 # ---- Teensy 4.1 firmware build (via arduino-cli) ----
 # The 'teensy' subdirectory is an Arduino sketch: teensy.ino plus symlinks to
@@ -60,6 +63,11 @@ PORT          ?=
 
 all:
 	@echo You want \'make sdl\', \'make linuxfb\', or \'make teensy\'.
+
+# "make -s print-AIIE_CORE_SRCS" prints one variable, for build scripts
+# that can't include aiie.mk themselves
+print-%:
+	@echo $($*)
 
 sdl: roms $(COMMONOBJS) $(SDLOBJS)
 	g++ $(LDFLAGS) $(SDLLIBS) -o aiie-sdl $(COMMONOBJS) $(SDLOBJS)
@@ -109,13 +117,12 @@ test: $(TSRC)
 	./testharness -f tests/65c02-all.bin -s 0x200
 
 # Characterize DiskII's LSS read path and exercise the write path by
-# round-tripping bytes through the LSS. It doesn't install Aiie's wozzle
-# hooks, so the library uses POSIX file I/O directly instead of the
-# filemanager.
+# round-tripping bytes through the LSS. It has no file manager, so
+# WozSerializer leaves the wozzle library on POSIX file I/O.
 DISKIITEST_SRCS = tests/test-diskii.cpp \
-                  apple/diskii.cpp apple/woz-serializer.cpp $(WOZCORE_SRCS) \
+                  $(AIIE_DISK_SRCS) \
                   LRingBuffer.cpp vmram.cpp cpu.cpp lcg.cpp
-DISKIITEST_FLAGS = -Wall -g -I .. -I . -I apple -I nix -I sdl $(WOZCORE_CFLAGS) \
+DISKIITEST_FLAGS = -Wall -g -I .. $(AIIE_CFLAGS) \
                    -DSUPPRESSREALTIME -DSTATICALLOC
 
 test-diskii: roms $(DISKIITEST_SRCS) tests/test-diskii.cpp
@@ -131,7 +138,7 @@ VIDEO7TEST_SRCS = tests/test-video7.cpp \
                   apple/noslotclock.cpp nix/nix-clock.cpp \
                   cpu.cpp vmram.cpp lcg.cpp LRingBuffer.cpp \
                   nix/nix-filemanager.cpp physicaldisplay.cpp
-VIDEO7TEST_FLAGS = -Wall -g -I .. -I . -I apple -I nix -I sdl $(WOZCORE_CFLAGS) \
+VIDEO7TEST_FLAGS = -Wall -g -I .. $(AIIE_CFLAGS) \
                    -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE
 
 test-video7: roms $(VIDEO7TEST_SRCS)

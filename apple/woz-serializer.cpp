@@ -1,5 +1,6 @@
 #include "woz-serializer.h"
 #include "globals.h"
+#include "wozhost-aiie.h"
 
 #include "serialize.h"
 
@@ -11,6 +12,12 @@
 
 WozSerializer::WozSerializer() : Woz(false)
 {
+  // Our fd has to be a file manager fd (see diskName and flush), so the
+  // library must be using the file manager's hooks. Installing them here
+  // means a platform can't forget to. A program with no file manager
+  // (tests/test-diskii) keeps the library's POSIX defaults.
+  if (g_filemanager)
+    installWozHost();
 }
 
 WozSerializer::~WozSerializer()
