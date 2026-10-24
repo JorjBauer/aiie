@@ -40,6 +40,7 @@
 #define BATTERYSELECT 21 // digital select that turns on the power reading ckt
 
 #include "globals.h"
+#include "wozhost-aiie.h"
 #include "teensy-fwversion.h"
 
 // Firmware version, embedded so the SD self-update can find it in a raw image.
@@ -329,6 +330,7 @@ void setup()
   println(" fm");
   // First create the filemanager - the interface to the host file system.
   g_filemanager = new TeensyFileManager();
+  installWozHost();
 
   // Persist any crash report from the previous run to the SD card so it can be
   // read after the fact (no usable serial console on this device at boot), then

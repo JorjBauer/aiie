@@ -1,16 +1,23 @@
 LDFLAGS=-L/usr/local/lib -L/opt/homebrew/lib
 
+# The disk image code is the wozzle library, a git submodule. wozcore.mk
+# tells us its files and include path.
+ifeq ($(wildcard wozzle/wozcore.mk),)
+$(error The wozzle submodule is missing; run 'git submodule update --init')
+endif
+include wozzle/wozcore.mk
+
 SDLLIBS=-lSDL2 -lpthread -lz
 FBLIBS=-lpthread
 
-CFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -O2 -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE -DAIIE_DEBUGGER
-CXXFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -O2 -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE -DAIIE_DEBUGGER
+CFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -O2 -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE -DAIIE_DEBUGGER $(WOZCORE_CFLAGS)
+CXXFLAGS=-Wall -I/usr/include/SDL2 -I .. -I . -I apple -I nix -I sdl -I/usr/local/include/SDL2 -I/opt/homebrew/include/SDL2 -g -O2 -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE -DAIIE_DEBUGGER $(WOZCORE_CFLAGS)
 
 TSRC=cpu.cpp util/testharness.cpp
 
-COMMONSRCS=cpu.cpp apple/appledisplay.cpp apple/applekeyboard.cpp apple/applemmu.cpp apple/applevm.cpp apple/diskii.cpp apple/nibutil.cpp LRingBuffer.cpp globals.cpp apple/parallelcard.cpp apple/fx80.cpp lcg.cpp apple/hd32.cpp images.cpp apple/appleui.cpp vmram.cpp bios.cpp apple/noslotclock.cpp apple/woz.cpp apple/crc32.c apple/woz-serializer.cpp apple/mouse.c physicaldisplay.cpp wsola-speaker.cpp apple/mockingboard.cpp apple/uthernet2.cpp apple/usernet.cpp debugger.cpp disassembler.cpp
+COMMONSRCS=cpu.cpp apple/appledisplay.cpp apple/applekeyboard.cpp apple/applemmu.cpp apple/applevm.cpp apple/diskii.cpp LRingBuffer.cpp globals.cpp apple/parallelcard.cpp apple/fx80.cpp lcg.cpp apple/hd32.cpp images.cpp apple/appleui.cpp vmram.cpp bios.cpp apple/noslotclock.cpp apple/woz-serializer.cpp apple/wozhost-aiie.cpp $(WOZCORE_SRCS) apple/mouse.c physicaldisplay.cpp wsola-speaker.cpp apple/mockingboard.cpp apple/uthernet2.cpp apple/usernet.cpp debugger.cpp disassembler.cpp
 
-COMMONOBJS=cpu.o apple/appledisplay.o apple/applekeyboard.o apple/applemmu.o apple/applevm.o apple/diskii.o apple/nibutil.o LRingBuffer.o globals.o apple/parallelcard.o apple/fx80.o lcg.o apple/hd32.o images.o apple/appleui.o vmram.o bios.o apple/noslotclock.o apple/woz.o apple/crc32.o apple/woz-serializer.o apple/mouse.o physicaldisplay.o wsola-speaker.o apple/mockingboard.o apple/uthernet2.o apple/usernet.o debugger.o disassembler.o
+COMMONOBJS=cpu.o apple/appledisplay.o apple/applekeyboard.o apple/applemmu.o apple/applevm.o apple/diskii.o LRingBuffer.o globals.o apple/parallelcard.o apple/fx80.o lcg.o apple/hd32.o images.o apple/appleui.o vmram.o bios.o apple/noslotclock.o apple/woz-serializer.o apple/wozhost-aiie.o $(WOZCORE_OBJS) apple/mouse.o physicaldisplay.o wsola-speaker.o apple/mockingboard.o apple/uthernet2.o apple/usernet.o debugger.o disassembler.o
 
 FBSRCS=linuxfb/linux-speaker.cpp linuxfb/fb-display.cpp linuxfb/linux-keyboard.cpp linuxfb/fb-paddles.cpp nix/nix-filemanager.cpp linuxfb/aiie.cpp linuxfb/linux-printer.cpp nix/nix-clock.cpp nix/nix-prefs.cpp
 
@@ -68,7 +75,7 @@ TEENSY_EXTRA := $(if $(TEENSY_EXTRA_FLAGS),--build-property compiler.cpp.extra_f
 # Compile the Teensy firmware. ROM headers (built by 'roms') are symlinked
 # into the sketch folder, so they must exist before arduino-cli runs.
 teensy: roms
-	$(ARDUINO_CLI) compile --fqbn $(TEENSY_FQBN) --output-dir $(TEENSY_BUILD) $(TEENSY_EXTRA) $(TEENSY_SKETCH)
+	$(ARDUINO_CLI) compile --fqbn $(TEENSY_FQBN) --library $(CURDIR)/wozzle --output-dir $(TEENSY_BUILD) $(TEENSY_EXTRA) $(TEENSY_SKETCH)
 
 # One-time helper to install the libraries the sketch depends on.
 teensy-libs:
@@ -82,7 +89,7 @@ teensy-libs:
 # If the board isn't auto-detected, pass PORT=/dev/cu.usbmodemNNNN.
 # teensy-install is an alias for teensy-upload.
 teensy-upload teensy-install: roms
-	$(ARDUINO_CLI) compile --fqbn $(TEENSY_FQBN) -u $(if $(PORT),-p $(PORT),) $(TEENSY_EXTRA) $(TEENSY_SKETCH)
+	$(ARDUINO_CLI) compile --fqbn $(TEENSY_FQBN) --library $(CURDIR)/wozzle -u $(if $(PORT),-p $(PORT),) $(TEENSY_EXTRA) $(TEENSY_SKETCH)
 
 teensy-clean:
 	rm -rf $(TEENSY_BUILD)
@@ -102,13 +109,13 @@ test: $(TSRC)
 	./testharness -f tests/65c02-all.bin -s 0x200
 
 # Characterize DiskII's LSS read path and exercise the write path by
-# round-tripping bytes through the LSS. Build with AIIE off so woz.cpp
-# uses POSIX file I/O directly instead of the filemanager wrapper.
+# round-tripping bytes through the LSS. It doesn't install Aiie's wozzle
+# hooks, so the library uses POSIX file I/O directly instead of the
+# filemanager.
 DISKIITEST_SRCS = tests/test-diskii.cpp \
-                  apple/diskii.cpp apple/woz.cpp apple/woz-serializer.cpp \
-                  apple/nibutil.cpp apple/crc32.c \
+                  apple/diskii.cpp apple/woz-serializer.cpp $(WOZCORE_SRCS) \
                   LRingBuffer.cpp vmram.cpp cpu.cpp lcg.cpp
-DISKIITEST_FLAGS = -Wall -g -I .. -I . -I apple -I nix -I sdl \
+DISKIITEST_FLAGS = -Wall -g -I .. -I . -I apple -I nix -I sdl $(WOZCORE_CFLAGS) \
                    -DSUPPRESSREALTIME -DSTATICALLOC
 
 test-diskii: roms $(DISKIITEST_SRCS) tests/test-diskii.cpp
@@ -124,7 +131,7 @@ VIDEO7TEST_SRCS = tests/test-video7.cpp \
                   apple/noslotclock.cpp nix/nix-clock.cpp \
                   cpu.cpp vmram.cpp lcg.cpp LRingBuffer.cpp \
                   nix/nix-filemanager.cpp physicaldisplay.cpp
-VIDEO7TEST_FLAGS = -Wall -g -I .. -I . -I apple -I nix -I sdl \
+VIDEO7TEST_FLAGS = -Wall -g -I .. -I . -I apple -I nix -I sdl $(WOZCORE_CFLAGS) \
                    -DSUPPRESSREALTIME -DSTATICALLOC -DAIIE
 
 test-video7: roms $(VIDEO7TEST_SRCS)
@@ -246,7 +253,7 @@ apple/parallel-rom.h: roms
 apple/mouse-rom.h: roms
 
 clean:
-	rm -f *.o *~ */*.o */*~ testharness.basic testharness.verbose testharness.extended testharness apple/diskii-rom.h apple/applemmu-rom.h apple/parallel-rom.h apple/hd32-rom.h apple/hd32rom.o apple/hd32rom.lst apple/mouse-rom.h apple/mouserom.o apple/mouserom.lst apple/parallelrom.o apple/parallelrom.lst aiie-sdl *.d */*.d
+	rm -f *.o *~ */*.o */*~ testharness.basic testharness.verbose testharness.extended testharness apple/diskii-rom.h apple/applemmu-rom.h apple/parallel-rom.h apple/hd32-rom.h apple/hd32rom.o apple/hd32rom.lst apple/mouse-rom.h apple/mouserom.o apple/mouserom.lst apple/parallelrom.o apple/parallelrom.lst aiie-sdl *.d */*.d $(WOZCORE_OBJS) wozzle/src/*.d
 	rm -rf $(TEENSY_BUILD)
 
 # Automatic dependency handling
@@ -254,6 +261,7 @@ clean:
 -include apple/*.d
 -include nix/*.d
 -include sdl/*.d
+-include wozzle/src/*.d
 
 %.o: %.cpp
 	g++ $(CXXFLAGS) -MMD -MP -c $< -o $@

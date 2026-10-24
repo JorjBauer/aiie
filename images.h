@@ -12,6 +12,14 @@
 #define SCREENINSET_9341_X (18)
 #define SCREENINSET_9341_Y (13)
 
+// The video area the insets point at: the //e's 560x192 at each panel's
+// scale (the 8875 doubles the lines, the 9341 halves the columns). This is
+// the screen without the bezel around it.
+#define SCREENWIDTH_8875  (560)
+#define SCREENHEIGHT_8875 (384)
+#define SCREENWIDTH_9341  (280)
+#define SCREENHEIGHT_9341 (192)
+
 // drive activity LED positions
 #define LED_HEIGHT_8875 9
 #define LED_WIDTH_8875 17

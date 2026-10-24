@@ -29,6 +29,7 @@
 #endif
 
 #include "globals.h"
+#include "wozhost-aiie.h"
 
 #include "timeutil.h"
 
@@ -44,7 +45,7 @@ BIOS bios;
 // which Emscripten MEMFS rejects; sequential writes (below) are fine, so we dump bits + bitCounts.
 #include "nibutil.h"
 namespace { struct WozBits : public Woz {
-  WozBits() : Woz(false, 0) {}
+  WozBits() : Woz(false) {}
   // Reads a .po, nibblizes all 35 tracks, and writes them sequentially to `out` as
   // 35 records of [uint32 bitCount][NIBTRACKSIZE bytes].
   int dump(const char *in, const char *out) {
@@ -672,6 +673,7 @@ int main(int argc, char *argv[])
 
   // create the filemanager - the interface to the host file system.
   g_filemanager = new NixFileManager();
+  installWozHost();
 
   g_display = new SDLDisplay();
   if (windowTitle)

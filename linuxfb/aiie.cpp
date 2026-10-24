@@ -18,6 +18,7 @@
 #include "nix-prefs.h"
 
 #include "globals.h"
+#include "wozhost-aiie.h"
 
 #include "timeutil.h"
 
@@ -329,6 +330,7 @@ int main(int argc, char *argv[])
 
   // create the filemanager - the interface to the host file system.
   g_filemanager = new NixFileManager();
+  installWozHost();
 
   g_display = new FBDisplay();
   //  g_displayType = m_blackAndWhite;

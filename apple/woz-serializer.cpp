@@ -9,7 +9,7 @@
 
 #define WOZMAGIC 0xAA
 
-WozSerializer::WozSerializer() : Woz(false,0)
+WozSerializer::WozSerializer() : Woz(false)
 {
 }
 

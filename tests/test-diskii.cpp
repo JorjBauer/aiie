@@ -20,8 +20,8 @@
 #include "globals.h"
 #include "apple/appleui.h"
 #include "apple/diskii.h"
-#include "apple/woz.h"
-#include "apple/nibutil.h"
+#include "woz.h"
+#include "nibutil.h"
 
 // ---------------------------------------------------------------------
 // Stubs for the globals DiskII reads (g_cpu->cycles, g_ui->drawOnOff...)

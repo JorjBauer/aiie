@@ -40,7 +40,8 @@ class SDLDisplay : public PhysicalDisplay {
   void setWindowSize(uint32_t w, uint32_t h);
   SDL_Window *getWindow() { return screen; }
 
-  bool savePng(const char *path);
+  // screenOnly: just the video area, without the bezel and drive lamps
+  bool savePng(const char *path, bool screenOnly = false);
 
  private:
   uint32_t *videoBuffer;

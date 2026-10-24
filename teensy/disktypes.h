@@ -1,1 +1,0 @@
-../apple/disktypes.h

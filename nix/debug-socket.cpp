@@ -140,7 +140,7 @@ void DebugSocket::serve()
       if (b < 0) break;
       switch (b) {
       case 'c': case 's': case 'S': case 'h': case 'y':
-      case 'q': case 'p':
+      case 'q': case 'p': case '?':
 	{
 	  char one[2] = { (char)b, 0 };
 	  push(one, 1);
@@ -745,13 +745,20 @@ void DebugSocket::handle(char *cmd)
     }
     break;
 
-  case 'P':
+  case 'P': // screen shot. "P <path>" is the whole panel; "P screen <path>"
+            // is the video area alone, without the bezel and drive lamps
     {
       const char *p = args;
       while (*p == ' ') p++;
+      bool screenOnly = false;
+      if (!strncmp(p, "screen", 6) && (p[6] == ' ' || p[6] == '\t')) {
+	screenOnly = true;
+	p += 6;
+	while (*p == ' ' || *p == '\t') p++;
+      }
       if (!*p) {
 	reply("P needs a path\r\n");
-      } else if (((SDLDisplay *)g_display)->savePng(p)) {
+      } else if (((SDLDisplay *)g_display)->savePng(p, screenOnly)) {
 	replyf("Wrote %s\r\n", p);
       } else {
 	replyf("Could not write %s\r\n", p);
@@ -819,6 +826,34 @@ void DebugSocket::handle(char *cmd)
     } else {
       reply("sscanf failed, skipping\012\015");
     }
+    prompt();
+    break;
+
+  case '?': // the command list
+    reply(
+      "Commands (addresses are hex and want the $: b $0867)\r\n"
+      "  ?                      this list\r\n"
+      "  p                      pause the machine; the register line follows\r\n"
+      "  c                      continue, until a breakpoint or watchpoint if any are set\r\n"
+      "  s                      step one instruction (shows the one about to run)\r\n"
+      "  S                      step out: run until the current subroutine returns\r\n"
+      "  b $addr                set a breakpoint; b alone clears them all\r\n"
+      "  w $from [$to] [r|w|rw] set a watchpoint (rw is the default); w alone lists them\r\n"
+      "  W                      clear all watchpoints\r\n"
+      "  h                      trace: first use turns it on, later uses list the history\r\n"
+      "  d [$addr]              disassemble from PC, or from an address\r\n"
+      "  D [main|aux] $addr $len dump memory as the CPU sees it, or one bank regardless\r\n"
+      "  * $addr                read one byte\r\n"
+      "  L $addr                load memory: hex bytes on the lines that follow, blank line ends\r\n"
+      "  G $addr                set PC\r\n"
+      "  y                      cycle count and 1x-equivalent time\r\n"
+      "  T [$base]              text screen dump; T alone detects the mode, T $base forces 40 columns\r\n"
+      "  K text                 type keystrokes into the //e (\\r \\t \\e \\0 \\\\ \\xHH)\r\n"
+      "  B [text]               enter the BIOS, then type into it (\\r \\t \\e \\d \\U \\D \\L \\R \\xHH)\r\n"
+      "  P [screen] path        write a PNG of the panel; 'screen' crops to the video area\r\n"
+      "  M x y | M +dx +dy      move the emulated mouse (absolute | relative); M d / M u press and release\r\n"
+      "  q                      detach; a paused machine resumes\r\n"
+      "  Q [y]                  quit the emulator; Q alone asks first\r\n");
     prompt();
     break;
 

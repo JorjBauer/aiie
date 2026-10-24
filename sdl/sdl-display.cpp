@@ -268,10 +268,17 @@ static void pngChunk(FILE *f, const char *type, const uint8_t *data, uint32_t le
   fwrite(c, 1, 4, f);
 }
 
-bool SDLDisplay::savePng(const char *path)
+bool SDLDisplay::savePng(const char *path, bool screenOnly)
 {
-  const uint32_t w = use8875 ? RA8875_WIDTH : ILI9341_WIDTH;
-  const uint32_t h = use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT;
+  // The whole panel, or just the video area inside the bezel. Either way the
+  // source is videoBuffer, whose row stride is the panel width.
+  const uint32_t pitch = use8875 ? RA8875_WIDTH : ILI9341_WIDTH;
+  const uint32_t x0 = screenOnly ? (use8875 ? SCREENINSET_8875_X : SCREENINSET_9341_X) : 0;
+  const uint32_t y0 = screenOnly ? (use8875 ? SCREENINSET_8875_Y : SCREENINSET_9341_Y) : 0;
+  const uint32_t w = screenOnly ? (use8875 ? SCREENWIDTH_8875 : SCREENWIDTH_9341)
+                                : pitch;
+  const uint32_t h = screenOnly ? (use8875 ? SCREENHEIGHT_8875 : SCREENHEIGHT_9341)
+                                : (use8875 ? RA8875_HEIGHT : ILI9341_HEIGHT);
   const size_t stride = (size_t)w * 3 + 1;
   const size_t rawLen = stride * h;
   uint8_t *raw = (uint8_t *)malloc(rawLen);
@@ -280,7 +287,7 @@ bool SDLDisplay::savePng(const char *path)
     uint8_t *r = raw + (size_t)y * stride;
     r[0] = 0;
     for (uint32_t x = 0; x < w; x++) {
-      uint32_t px = videoBuffer[(size_t)y * w + x];
+      uint32_t px = videoBuffer[(size_t)(y + y0) * pitch + (x + x0)];
       r[1 + x*3]     = (uint8_t)(px >> 16);
       r[1 + x*3 + 1] = (uint8_t)(px >> 8);
       r[1 + x*3 + 2] = (uint8_t)px;

@@ -1,0 +1,3 @@
+[submodule "wozzle"]
+	path = wozzle
+	url = https://github.com/JorjBauer/wozzle.git
