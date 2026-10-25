@@ -101,6 +101,11 @@ bool WozSerializer::flush()
 
   bool ret = true;
 
+  // The DSK and NIB writers start wherever the fd is, and ours is wherever
+  // the last track load left it. The image's data starts dataOffset in
+  // (past a .2mg's header; 0 otherwise). The WOZ writer seeks for itself.
+  g_filemanager->lseek(fd, dataOffset, SEEK_SET);
+
   switch (imageType) {
   case T_WOZ:
     ret = writeWozFile(fd, imageType);

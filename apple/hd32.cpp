@@ -37,7 +37,7 @@
 #define DEVICE_OK 0x00
 #define DEVICE_UNKNOWN_ERROR 0x28
 #define DEVICE_IO_ERROR 0x27
-#define DEVICE_WRITE_PROTECTED 0x28
+#define DEVICE_WRITE_PROTECTED 0x2B
 #define DEVICE_OFF_LINE 0x2F
 
 // Switches...
@@ -207,28 +207,32 @@ uint8_t HD32::readSwitches(uint8_t s)
       break;
 
     case CMD_READ:
-      // FIXME: if diskblock[selectedDrive] >= disk image size, set/return io error
+      // FIXME: a raw image's blocks past its end fail in the read itself
       errorState[driveSelected] = 0;
       ret = DEVICE_OK;
       noteActivity(driveSelected);
 
       cursor[driveSelected] = diskBlock[driveSelected] * HD32_BLOCKSIZE;
-      if (!readBlockFromSelectedDrive()) {
+      if (pastEnd() || !readBlockFromSelectedDrive()) {
 	ret = DEVICE_IO_ERROR;
 	errorState[driveSelected] = 1;
       }
       break;
       
     case CMD_WRITE:
-      // FIXME: if diskblock[selectedDrive] >= disk image size, set/return io error
       // Clear any stale error first (as CMD_READ/CMD_STATUS do): the driver ROM
       // reports success/failure from errorState via HD32_STATUS, so a leftover 1
       // from an earlier call (e.g. an unhandled SmartPort command hitting the
       // default case) would make a perfectly good write look like an I/O error.
       errorState[driveSelected] = 0;
       ret = DEVICE_OK;
+      if (fd[driveSelected] != -1 && locked[driveSelected]) {
+	ret = DEVICE_WRITE_PROTECTED;
+	errorState[driveSelected] = 1;
+	break;
+      }
       noteActivity(driveSelected);
-      if (!writeBlockToSelectedDrive()){
+      if (pastEnd() || !writeBlockToSelectedDrive()){
 	ret = DEVICE_IO_ERROR;
 	errorState[driveSelected] = 1;
       }
@@ -469,27 +473,47 @@ const char *HD32::diskName(int8_t num)
 // A 2IMG (.2mg) file wraps the raw disk data in a header (usually 64 bytes).
 // Sniff it so block 0 lands on the real data instead of the header. The layout
 // is little-endian: "2IMG" magic, then at byte 8 the header length (u16), at
-// byte 12 the image format (u32: 0=DOS order, 1=ProDOS order, 2=nibble), and at
-// byte 24 the data offset (u32). HD32 is a ProDOS block device, so only the
-// ProDOS-order layout is meaningful; a DOS-order or nibble image is flagged but
-// still mounted at its data offset (it simply will not mount cleanly in ProDOS).
-// Returns the byte offset to block 0 (0 when this is not a 2IMG image).
-static uint32_t sniff2mgOffset(int8_t fd)
+// byte 12 the image format (u32: 0=DOS order, 1=ProDOS order, 2=nibble), at
+// byte 16 the flags (u32; bit 31 = locked), at byte 20 the ProDOS block count
+// (u32), at byte 24 the data offset (u32), and at byte 28 the data length
+// (u32). A comment and creator data may follow the data. HD32 is a ProDOS
+// block device, so only the ProDOS-order layout is meaningful; a DOS-order or
+// nibble image is flagged but still mounted at its data offset (it simply will
+// not mount cleanly in ProDOS).
+// Returns false when this is not a 2IMG image.
+struct twoImgInfo {
+  uint32_t dataOff;
+  uint32_t dataLen; // 0 if the header doesn't say
+  bool locked;
+};
+
+static uint32_t le32(const uint8_t *p)
+{
+  return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static bool sniff2mg(int8_t fd, twoImgInfo *out)
 {
   uint8_t h[64];
   if (g_filemanager->lseek(fd, 0, SEEK_SET) != 0)
-    return 0;
+    return false;
   if (g_filemanager->read(fd, h, sizeof(h)) != (int)sizeof(h))
-    return 0;
+    return false;
   if (h[0] != '2' || h[1] != 'I' || h[2] != 'M' || h[3] != 'G')
-    return 0;
+    return false;
 
-  uint32_t format  = h[12] | (h[13] << 8) | (h[14] << 16) | (h[15] << 24);
-  uint32_t dataOff = h[24] | (h[25] << 8) | (h[26] << 16) | (h[27] << 24);
+  uint32_t format  = le32(&h[12]);
+  uint32_t flags   = le32(&h[16]);
+  uint32_t blocks  = le32(&h[20]);
+  uint32_t dataOff = le32(&h[24]);
+  uint32_t dataLen = le32(&h[28]);
   uint16_t hdrLen  = h[8]  | (h[9]  << 8);
 
   if (dataOff == 0)                 // some writers leave data offset at 0
     dataOff = hdrLen ? hdrLen : 64; // fall back to the header length, then 64
+  // and some leave the length at 0, which the block count can stand in for
+  if (dataLen == 0 && format == 1)
+    dataLen = blocks * HD32_BLOCKSIZE;
 
 #ifndef TEENSYDUINO
   if (format != 1) {
@@ -497,23 +521,39 @@ static uint32_t sniff2mgOffset(int8_t fd)
            "it will not mount cleanly as a hard disk\n", format);
   }
 #endif
-  return dataOff;
+  out->dataOff = dataOff;
+  out->dataLen = dataLen;
+  out->locked = (flags & 0x80000000) != 0;
+  return true;
+}
+
+bool HD32::pastEnd()
+{
+  return bounded[driveSelected] && diskBlock[driveSelected] >= blockCount[driveSelected];
 }
 
 void HD32::insertDisk(int8_t driveNum, const char *filename)
 {
   ejectDisk(driveNum);   // also drops any cached block of the old image
   fd[driveNum] = g_filemanager->openFile(filename);
-  hdrOffset[driveNum] = (fd[driveNum] != -1) ? sniff2mgOffset(fd[driveNum]) : 0;
+  twoImgInfo ti = { 0, 0, false };
+  bool twoImg = (fd[driveNum] != -1) && sniff2mg(fd[driveNum], &ti);
+  hdrOffset[driveNum] = ti.dataOff;
+  bounded[driveNum] = twoImg;
+  locked[driveNum] = ti.locked;
   // The ROM's STATUS call reports the volume size from the card, so measure
   // the image once here. ProDOS counts blocks in 16 bits, so a 32MB image
-  // (65536 blocks) is reported as 65535, the largest ProDOS volume.
+  // (65536 blocks) is reported as 65535, the largest ProDOS volume. A 2IMG
+  // image's data ends where its header says, if that's inside the file.
   blockCount[driveNum] = 0;
   if (fd[driveNum] != -1) {
     g_filemanager->seekToEnd(fd[driveNum]);
     uint32_t size = g_filemanager->getSeekPosition(fd[driveNum]);
     if (size > hdrOffset[driveNum]) {
-      uint32_t blocks = (size - hdrOffset[driveNum]) / HD32_BLOCKSIZE;
+      uint32_t len = size - hdrOffset[driveNum];
+      if (ti.dataLen && ti.dataLen < len)
+        len = ti.dataLen;
+      uint32_t blocks = len / HD32_BLOCKSIZE;
       blockCount[driveNum] = (blocks > 0xFFFF) ? 0xFFFF : blocks;
     }
   }
@@ -530,6 +570,8 @@ void HD32::ejectDisk(int8_t driveNum)
   }
   hdrOffset[driveNum] = 0;
   blockCount[driveNum] = 0;
+  bounded[driveNum] = false;
+  locked[driveNum] = false;
   if (cachedBlockDrive == driveNum) cachedBlockNum = -1;
   if (g_ui) g_ui->drawOnOffUIElement(driveNum ? UIeHD2_state : UIeHD_state, true);
 }

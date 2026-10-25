@@ -46,6 +46,7 @@ class HD32 : public Slot {
   uint8_t readNextByteFromSelectedDrive();
   bool readBlockFromSelectedDrive();
   bool writeBlockToSelectedDrive();
+  bool pastEnd();
 
  private:
   AppleMMU *mmu;
@@ -64,6 +65,11 @@ class HD32 : public Slot {
   uint32_t cursor[2]; // seek position on the given file handle
   uint32_t hdrOffset[2]; // bytes to skip before block 0 (2IMG header; 0 = raw image)
   uint16_t blockCount[2]; // image size in 512-byte blocks (0 = nothing mounted)
+  // A 2IMG image's blocks end where its header says, and its comment and
+  // creator data may follow them, so we refuse blocks past the end. A
+  // raw image has nothing after it, and a write past its end grows it.
+  bool bounded[2];
+  bool locked[2]; // the 2IMG header's write-protect flag
 
   // Activity light: lit by a block read or write, out after a short quiet
   // spell (0 means not lit).

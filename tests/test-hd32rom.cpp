@@ -116,7 +116,12 @@ static int failures = 0;
 #define IMG1_BLOCKS 300   // past 255, so the block number needs both bytes
 #define IMG2_BLOCKS 16
 
+#define IMG4_BLOCKS 12
+#define TWOIMG_HDR 64
+#define TWOIMG_COMMENT 512 // a whole block's worth, so a miscount shows
+
 static char img1Path[1024], img2Path[1024], img3Path[1024];
+static char img4Path[1024], img5Path[1024];
 
 // block b of image n: byte i = (n*31 + b*7 + i) & 0xFF, except that block
 // 0 of a bootable image starts with $01 (the ProDOS boot-block mark).
@@ -136,6 +141,53 @@ static void makeImage(const char *path, int image, int blocks, bool bootable)
     fwrite(buf, 1, BLK, f);
   }
   fclose(f);
+}
+
+static void put32(uint8_t *p, uint32_t v)
+{
+  p[0] = v; p[1] = v >> 8; p[2] = v >> 16; p[3] = v >> 24;
+}
+
+// A ProDOS-order 2IMG file: the header, the blocks, then a comment of
+// TWOIMG_COMMENT bytes of $C0. If withLength is false, the header's data
+// length is 0 and only its block count says how big the image is, as
+// some writers leave it.
+static void make2mg(const char *path, int image, int blocks, bool locked, bool withLength)
+{
+  uint8_t h[TWOIMG_HDR];
+  memset(h, 0, sizeof(h));
+  memcpy(h, "2IMG", 4);
+  memcpy(h + 4, "TEST", 4);
+  h[8] = TWOIMG_HDR;
+  h[10] = 1;
+  put32(h + 12, 1);                        // ProDOS order
+  put32(h + 16, locked ? 0x80000000 : 0);
+  put32(h + 20, blocks);
+  put32(h + 24, TWOIMG_HDR);
+  put32(h + 28, withLength ? blocks * BLK : 0);
+  put32(h + 32, TWOIMG_HDR + blocks * BLK);
+  put32(h + 36, TWOIMG_COMMENT);
+  FILE *f = fopen(path, "wb");
+  if (!f) { perror(path); exit(1); }
+  fwrite(h, 1, sizeof(h), f);
+  for (int b = 0; b < blocks; b++) {
+    uint8_t buf[BLK];
+    for (int i = 0; i < BLK; i++) buf[i] = patternByte(image, b, i, true);
+    fwrite(buf, 1, BLK, f);
+  }
+  uint8_t c[TWOIMG_COMMENT];
+  memset(c, 0xC0, sizeof(c));
+  fwrite(c, 1, sizeof(c), f);
+  fclose(f);
+}
+
+static long readWholeFile(const char *path, uint8_t *buf, long max)
+{
+  FILE *f = fopen(path, "rb");
+  if (!f) return -1;
+  long n = fread(buf, 1, max, f);
+  fclose(f);
+  return n;
 }
 
 // ---------------------------------------------------------------------
@@ -329,6 +381,10 @@ int main(int argc, char **argv)
   makeImage(img1Path, 1, IMG1_BLOCKS, true);
   makeImage(img2Path, 2, IMG2_BLOCKS, true);
   makeImage(img3Path, 3, 4, false);   // mounted but not bootable
+  snprintf(img4Path, sizeof(img4Path), "%s/test-hd32rom-4.%d.2mg", tmp, getpid());
+  snprintf(img5Path, sizeof(img5Path), "%s/test-hd32rom-5.%d.2mg", tmp, getpid());
+  make2mg(img4Path, 4, IMG4_BLOCKS, false, true);
+  make2mg(img5Path, 5, IMG4_BLOCKS, true, false);
 
   printf("HD32 slot ROM\n");
 
@@ -444,7 +500,62 @@ int main(int argc, char **argv)
   expectOk("SmartPort write unit 1 block 30", r);
   expectFileBlock("SmartPort write unit 1 block 30", img1Path, 30, want);
 
-  // ---- 6. BOOT. With an image: block 0 at $0800, entered at $0801 with
+  // ---- 6. 2IMG. Block 0 is past the header, and the image ends where the
+  // header says: the comment after it is neither a block to read nor one
+  // to write. A locked image refuses writes as write-protected.
+  printf(" 2IMG images\n");
+  {
+    static uint8_t before[TWOIMG_HDR + IMG4_BLOCKS * BLK + TWOIMG_COMMENT];
+    static uint8_t after[sizeof(before) + BLK];
+    hd->insertDisk(1, img4Path);
+    r = prodosCall(0, 0xF0, 0, 0);
+    expectOk("2IMG status", r);
+    if (r.x != IMG4_BLOCKS || r.y != 0)
+      fail("2IMG status", "size X=$%02X Y=$%02X, expected %d blocks", r.x, r.y, IMG4_BLOCKS);
+    guardBuffer(0x2000);
+    r = prodosCall(1, 0xF0, 0x2000, 0);
+    expectOk("2IMG read block 0", r);
+    expectBlock("2IMG read block 0", 0x2000, 4, 0);
+    guardBuffer(0x2000);
+    r = prodosCall(1, 0xF0, 0x2000, IMG4_BLOCKS - 1);
+    expectOk("2IMG read the last block", r);
+    expectBlock("2IMG read the last block", 0x2000, 4, IMG4_BLOCKS - 1);
+    r = prodosCall(1, 0xF0, 0x2000, IMG4_BLOCKS);
+    expectError("2IMG read the comment as a block", r, 0x27);
+
+    long nb = readWholeFile(img4Path, before, sizeof(before));
+    for (int i = 0; i < BLK; i++) { want[i] = (uint8_t)(0x96 ^ i); mmu->write(0x3000 + i, want[i]); }
+    r = prodosCall(2, 0xF0, 0x3000, 2);
+    expectOk("2IMG write block 2", r);
+    r = prodosCall(2, 0xF0, 0x3000, IMG4_BLOCKS);
+    expectError("2IMG write over the comment", r, 0x27);
+    long na = readWholeFile(img4Path, after, sizeof(after));
+    memcpy(before + TWOIMG_HDR + 2 * BLK, want, BLK);
+    if (na != nb) fail("2IMG write", "the file went from %ld to %ld bytes", nb, na);
+    else if (memcmp(before, after, nb)) {
+      long first = 0;
+      while (before[first] == after[first]) first++;
+      fail("2IMG write", "the file differs from what it should hold, first at byte %ld", first);
+    }
+
+    hd->insertDisk(1, img5Path);
+    r = prodosCall(0, 0xF0, 0, 0);
+    expectOk("locked 2IMG status (block count only)", r);
+    if (r.x != IMG4_BLOCKS || r.y != 0)
+      fail("locked 2IMG status (block count only)", "size X=$%02X Y=$%02X, expected %d blocks", r.x, r.y, IMG4_BLOCKS);
+    guardBuffer(0x2000);
+    r = prodosCall(1, 0xF0, 0x2000, 3);
+    expectOk("locked 2IMG read", r);
+    expectBlock("locked 2IMG read", 0x2000, 5, 3);
+    nb = readWholeFile(img5Path, before, sizeof(before));
+    r = prodosCall(2, 0xF0, 0x3000, 3);
+    expectError("locked 2IMG write", r, 0x2B);
+    na = readWholeFile(img5Path, after, sizeof(after));
+    if (na != nb || memcmp(before, after, nb)) fail("locked 2IMG write", "the file changed");
+    hd->insertDisk(1, img2Path);
+  }
+
+  // ---- 7. BOOT. With an image: block 0 at $0800, entered at $0801 with
   // X = slot*16, which is how the loader learns its slot. Otherwise the
   // floppy controller, for each reason it can happen.
   printf(" boot\n");
@@ -488,6 +599,8 @@ int main(int argc, char **argv)
   unlink(img1Path);
   unlink(img2Path);
   unlink(img3Path);
+  unlink(img4Path);
+  unlink(img5Path);
 
   if (failures) {
     printf("%d FAILURE%s\n", failures, failures == 1 ? "" : "S");
