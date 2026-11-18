@@ -316,6 +316,7 @@ optype_t opcodes[256] = {
 Cpu::Cpu()
 {
   mmu = NULL;
+  eventHook = NULL;
   Reset();
 }
 
@@ -359,6 +360,15 @@ bool Cpu::Deserialize(int8_t fd)
   deserialize8(flags);
   deserialize32(cycles);
   deserialize8(irqPending);
+  // The sources aren't saved. If the line was held, we don't know who held
+  // it, so the generic source keeps it held until that card releases it.
+  irqSources = irqPending ? IRQSRC_OTHER : 0;
+  irqReadyCycle = 0;
+  irqHoldOff = false;
+  irqLetThrough = false;
+  nmiPending = false;
+  opCycles = 1;
+  nextEventCycle = 0;   // let every card reschedule itself
   
   if (!mmu->Deserialize(fd)) {
     printf("MMU deserialization failed\n");
@@ -381,6 +391,14 @@ void Cpu::Reset()
   y = 0;
   flags = F_Z | F_UNK; // FIXME: is that F_UNK flag right here?
   irqPending = false;
+  irqSources = 0;
+  irqReadyCycle = 0;
+  irqHoldOff = false;
+  irqLetThrough = false;
+  nmiPending = false;
+  nmiReadyCycle = 0;
+  opCycles = 1;
+  nextEventCycle = INT64_MAX;
 
   if (mmu) {
     pc = readmem(0xFFFC) | (readmem(0xFFFD) << 8);
@@ -402,9 +420,18 @@ void Cpu::nmi()
   pushS16(pc);
   pushS8(flags);
   flags |= 0x20; // FIXME: what flag is this?
+  // Like IRQ, NMI masks IRQs, and the 65C02 clears decimal mode
+  flags |= F_I;
+  flags &= ~F_D;
 
   pc = readmem(0xFFFA) | (readmem(0xFFFB) << 8);
-  cycles += 2;
+  cycles += 7;
+}
+
+void Cpu::triggerNmi(int64_t when)
+{
+  nmiPending = true;
+  nmiReadyCycle = (when < 0) ? 0 : when + 2;
 }
 
 void Cpu::rst()
@@ -445,29 +472,32 @@ void Cpu::brk()
   cycles += 2;
 }
 
-void Cpu::assertIrq()
+void Cpu::assertIrq(uint8_t source, int64_t when)
 {
+  // The line is wired-OR: if someone already holds it, it fell back then
+  if (irqSources == 0)
+    irqReadyCycle = (when < 0) ? 0 : when + 2;
+  irqSources |= source;
   irqPending = true;
 }
 
-void Cpu::deassertIrq()
+void Cpu::deassertIrq(uint8_t source)
 {
-  irqPending = false;
+  irqSources &= ~source;
+  irqPending = (irqSources != 0);
 }
 
+// step() decides whether the I flag lets this through, since that depends on
+// when the last instruction sampled it.
 void Cpu::irq()
 {
-  // If interrupts are disabled, then do nothing
-  if (flags & F_I)
-    return;
-
   pushS16(pc);
   flags &= ~F_B; // clear BRK flag
   pushS8(flags);
   flags |= F_I; // set interrupt flag
 
   pc = readmem(0xFFFE) | (readmem(0xFFFF) << 8);
-  cycles += 2;
+  cycles += 7;
 }
 
 uint8_t Cpu::Run(uint8_t numSteps)
@@ -486,7 +516,17 @@ uint8_t Cpu::Run(uint8_t numSteps)
 
 uint8_t Cpu::step()
 {
-  if (irqPending) {
+  if (cycles >= nextEventCycle) {
+    nextEventCycle = INT64_MAX;
+    if (eventHook) eventHook();
+  }
+
+  bool irqOpen = ((flags & F_I) == 0 && !irqHoldOff) || irqLetThrough;
+  irqHoldOff = irqLetThrough = false;
+  if (nmiPending && cycles >= nmiReadyCycle) {
+    nmiPending = false;
+    nmi();
+  } else if (irqPending && irqOpen && cycles >= irqReadyCycle) {
     irq();
   }
 
@@ -527,6 +567,8 @@ uint8_t Cpu::step()
   uint8_t m = readmem(pc++);
 
   optype_t opcode = opcodes[m];
+  opCycles = opcode.cycles;
+  bool iBefore = (flags & F_I) != 0;
   if (opcode.op == O_ILLEGAL || opcode.mode == A_ILLEGAL) {
 #ifdef VERBOSE_CPU_ERRORS
     fprintf(stderr, "** Illegal opcode $%.2X at address $%.4x\n",
@@ -1176,6 +1218,14 @@ uint8_t Cpu::step()
 
   // And finally update our executed cycle count with the runtime
   cycles += cyclesThisStep;
+  opCycles = 1;
+  // Only CLI, SEI and PLP change I late. (RTI's P comes off the stack in
+  // time to count right away, and BRK is an interrupt sequence of its own.)
+  if (m == 0x58 || m == 0x78 || m == 0x28) {
+    bool iAfter = (flags & F_I) != 0;
+    irqHoldOff = iBefore && !iAfter;
+    irqLetThrough = !iBefore && iAfter;
+  }
 
 
   return cyclesThisStep;

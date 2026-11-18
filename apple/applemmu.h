@@ -111,6 +111,7 @@ class AppleMMU : public MMU {
   bool debugLocate(uint16_t address, const DebugBank &bank, bool forWrite,
 		   uint8_t **ramworks, uint32_t *ramAddr);
   bool handleNoSlotClock(uint16_t address, uint8_t *rv);
+  void slotRomAccess(uint16_t address);
 
   void resetDisplay();
   uint8_t readSwitches(uint16_t address);

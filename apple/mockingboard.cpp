@@ -3,6 +3,8 @@
 
 #include "globals.h"
 #include "cpu.h"
+#include "sc01params.h"
+#include "sc01.h"
 
 #ifdef TEENSYDUINO
 #include "teensy-println.h"
@@ -50,24 +52,88 @@ static const int16_t ayAmplitudes[16] = {
 // 6522 IFR/IER bits
 #define IFR_TIMER1 0x40
 #define IFR_TIMER2 0x20
+#define IFR_CB1    0x10
+#define IFR_CB2    0x08
 #define IFR_IRQ    0x80
 
-Mockingboard::Mockingboard()
+// 6522 PCR bits for port B's control lines
+#define PCR_CB1_POSITIVE 0x10   // CB1 flags on a rising edge (else falling)
+#define PCR_CB2_MODE     0xE0
+#define PCR_CB2_IND_MASK 0xA0   // CB2 input modes 001 and 011 are "independent":
+#define PCR_CB2_IND      0x20   //   an ORB access doesn't clear the CB2 flag
+#define PCR_CB2_STB_MASK 0xC0   // CB2 output modes 100 (handshake) and 101
+#define PCR_CB2_STB      0x80   //   (pulse) drop CB2 when ORB is written
+
+// How long the SC-01 takes from the strobe until A/R rises, in master clocks:
+// the chip commits the phoneme 72 clocks after the strobe, then runs 16 ticks
+// of DUR*4+1 updates of 36 clocks, plus 2 (aiie-docs/sc01-rom-analysis.md).
+// We clock the SC-01 from the Apple's own 1.023MHz, so a master clock is a CPU
+// cycle. The chip's nominal clock is 720kHz, so if that's right this card
+// talks about 1.42x faster than the datasheet. The real card has a rate pot,
+// and nobody has timed one yet.
+static int64_t sc01PhoneCycles(uint8_t phone)
 {
-  lastCycleCount = 0;
+  uint32_t dur = sc01Phones[phone & 0x3F].dur & 0x7F;
+  return 72 + 16 * (dur * 4 + 1) * 36 + 2;
+}
+
+// Every card that might have asked the CPU for a callback. The CPU has one
+// hook, so it updates all of us, and each asks again for its next event.
+#define MAX_MB_CARDS 4
+static Mockingboard *s_cards[MAX_MB_CARDS];
+
+void Mockingboard::eventHook()
+{
+  for (int i = 0; i < MAX_MB_CARDS; i++)
+    if (s_cards[i]) s_cards[i]->update(g_cpu->cycles);
+}
+
+Mockingboard::Mockingboard(bool soundSpeech)
+{
+  for (int i = 0; i < MAX_MB_CARDS; i++) {
+    if (!s_cards[i]) { s_cards[i] = this; break; }
+  }
+  hasSpeech = soundSpeech;
+  viaHasAY[0] = !soundSpeech;
+  viaHasAY[1] = true;
+  via1Nmi = soundSpeech;
+  // The Sound/Speech I has an AY-3-8910, and the Mockingboard A/C have
+  // AY-3-8913s
+  ayHasPorts = soundSpeech;
+  nmiLow = false;
+  irqSource = soundSpeech ? IRQSRC_SOUNDSPEECH : IRQSRC_MOCKINGBOARD;
+  // The real chip powers up in a random state. We start it idle on STOP with
+  // A/R high.
+  sc01.phone = 0x3F;
+  sc01.inflection = 0;
+  sc01.arHigh = true;
+  sc01.arRiseCycle = 0;
+  // Clocked from the Apple's 1.023MHz, like the A/R timing above
+  voice = soundSpeech ? new SC01Synth(1023000.0) : NULL;
+  lastUpdate = 0;
   Reset();
 }
 
-Mockingboard::~Mockingboard() {}
+Mockingboard::~Mockingboard()
+{
+  delete voice;
+  for (int i = 0; i < MAX_MB_CARDS; i++)
+    if (s_cards[i] == this) s_cards[i] = NULL;
+}
 
 void Mockingboard::Reset()
 {
-  lastCycleCount = 0;
   for (int i = 0; i < 2; i++) {
     memset(&via[i], 0, sizeof(Via6522));
     via[i].timer1latch = 0xFFFF;
-    via[i].timer2latch = 0xFFFF;
+    via[i].timer2latchLow = 0xFF;
+    via[i].t1Start = 0xFFFF;
+    via[i].t2Start = 0xFFFF;
+    via[i].t1NextFlag = INT64_MAX;
+    via[i].t2NextFlag = INT64_MAX;
+    via[i].paPins = 0xFF;
     memset(&ay[i], 0, sizeof(AY8910));
+    ay[i].latchedReg = 0xFF;
     ay[i].noiseShift = 1;
     ay[i].noisePeriod = 1;
     ay[i].envPeriod = 1;
@@ -77,6 +143,33 @@ void Mockingboard::Reset()
     }
     ay[i].envDirection = 1;
   }
+  // The 6522s' flags are clear now, so we're not holding the IRQ line. (The
+  // SC-01 has no reset pin, so it keeps going.)
+  nmiLow = false;
+  if (g_cpu) g_cpu->deassertIrq(irqSource);
+}
+
+// RES clears every 6522 register but the timers' counters and latches and
+// the shift register. With ACR at 0, T1 is one-shot and spent, so neither
+// timer flags again until it's written. The AYs and the SC-01 aren't on the
+// line.
+void Mockingboard::busReset()
+{
+  // The CPU's Reset() just restarted the cycle clock
+  update(g_cpu->cycles);
+  for (int i = 0; i < 2; i++) {
+    Via6522 &p = via[i];
+    p.orb = p.ora = 0;
+    p.ddrb = p.ddra = 0;
+    p.acr = p.pcr = 0;
+    p.ifr = p.ier = 0;
+    p.t1Armed = false;
+    p.t1NextFlag = INT64_MAX;
+    p.t2NextFlag = INT64_MAX;
+  }
+  nmiLow = false;
+  if (g_cpu) g_cpu->deassertIrq(irqSource);
+  scheduleNext();
 }
 
 bool Mockingboard::Serialize(int8_t fd) { return true; }
@@ -92,14 +185,14 @@ void Mockingboard::writeSwitches(uint8_t s, uint8_t v) {}
 
 uint8_t Mockingboard::readSlotRom(uint8_t addr)
 {
-  update(g_cpu->cycles);
+  update(g_cpu->busCycle());
   int whichVia = (addr & 0x80) ? 1 : 0;
   return viaRead(whichVia, addr & 0x0F);
 }
 
 void Mockingboard::writeSlotRom(uint8_t addr, uint8_t val)
 {
-  update(g_cpu->cycles);
+  update(g_cpu->busCycle());
 #ifndef TEENSYDUINO
   mbCaptureWrite(g_cpu->cycles, addr, val);
 #endif
@@ -124,32 +217,33 @@ uint8_t Mockingboard::viaRead(int v, uint8_t reg)
 
   switch (reg) {
   case 0x00:
+    viaOrbAccess(v);
     return (p.orb & p.ddrb) | (~p.ddrb & 0xFF);
   case 0x01:
   case 0x0F:
-    return p.ora;
+    // Output pins read back what we drive; input pins read what's on the
+    // wire, which is $FF unless an AY is putting a register there
+    return (p.ora & p.ddra) | (p.paPins & ~p.ddra);
   case 0x02:
     return p.ddrb;
   case 0x03:
     return p.ddra;
   case 0x04:
     p.ifr &= ~IFR_TIMER1;
-    p.timer1fired = false;
     viaUpdateIFR(v);
-    return p.timer1counter & 0xFF;
+    return t1Value(v, g_cpu->busCycle()) & 0xFF;
   case 0x05:
-    return (p.timer1counter >> 8) & 0xFF;
+    return t1Value(v, g_cpu->busCycle()) >> 8;
   case 0x06:
     return p.timer1latch & 0xFF;
   case 0x07:
     return (p.timer1latch >> 8) & 0xFF;
   case 0x08:
     p.ifr &= ~IFR_TIMER2;
-    p.timer2fired = false;
     viaUpdateIFR(v);
-    return p.timer2counter & 0xFF;
+    return t2Value(v, g_cpu->busCycle()) & 0xFF;
   case 0x09:
-    return (p.timer2counter >> 8) & 0xFF;
+    return t2Value(v, g_cpu->busCycle()) >> 8;
   case 0x0A:
     return p.sr;
   case 0x0B:
@@ -167,11 +261,24 @@ uint8_t Mockingboard::viaRead(int v, uint8_t reg)
 void Mockingboard::viaWrite(int v, uint8_t reg, uint8_t val)
 {
   Via6522 &p = via[v];
+  int64_t now = g_cpu->busCycle();
 
   switch (reg) {
   case 0x00:
     p.orb = (p.orb & ~p.ddrb) | (val & p.ddrb);
-    handleOrbChange(v);
+    viaOrbAccess(v);
+    // On a Sound/Speech I, the $Cn00 6522's port B feeds the SC-01's
+    // phoneme and inflection pins, and CB2 is its strobe. When CB2 is in a
+    // mode that drops on an ORB write, the write is a phoneme.
+    if (hasSpeech && v == 0) {
+      if ((p.pcr & PCR_CB2_STB_MASK) == PCR_CB2_STB) {
+        // Pins set as inputs float high
+        sc01Write((p.orb & p.ddrb) | (~p.ddrb & 0xFF));
+      }
+      break;
+    }
+    if (viaHasAY[v])
+      handleOrbChange(v);
     break;
   case 0x01:
   case 0x0F:
@@ -184,31 +291,32 @@ void Mockingboard::viaWrite(int v, uint8_t reg, uint8_t val)
     p.ddra = val;
     break;
   case 0x04:
-    p.timer1latch = (p.timer1latch & 0xFF00) | val;
+  case 0x06:
+    t1Rebase(v, now, (p.timer1latch & 0xFF00) | val);
     break;
   case 0x05:
+    // The counter takes the latch on the cycle after the write, and the
+    // flag comes when it rolls from 0 to $FFFF: N+2 cycles after the write
     p.timer1latch = (p.timer1latch & 0x00FF) | ((uint16_t)val << 8);
-    p.timer1counter = p.timer1latch;
-    p.timer1running = true;
-    p.timer1fired = false;
+    p.t1Base = now + 1;
+    p.t1Start = p.timer1latch;
+    p.t1Armed = true;
+    p.t1NextFlag = p.t1Base + p.t1Start + 1;
     p.ifr &= ~IFR_TIMER1;
     viaUpdateIFR(v);
     break;
-  case 0x06:
-    p.timer1latch = (p.timer1latch & 0xFF00) | val;
-    break;
   case 0x07:
-    p.timer1latch = (p.timer1latch & 0x00FF) | ((uint16_t)val << 8);
+    t1Rebase(v, now, (p.timer1latch & 0x00FF) | ((uint16_t)val << 8));
     p.ifr &= ~IFR_TIMER1;
     viaUpdateIFR(v);
     break;
   case 0x08:
-    p.timer2latch = val;
+    p.timer2latchLow = val;
     break;
   case 0x09:
-    p.timer2counter = ((uint16_t)val << 8) | (p.timer2latch & 0xFF);
-    p.timer2running = true;
-    p.timer2fired = false;
+    p.t2Base = now + 1;
+    p.t2Start = ((uint16_t)val << 8) | p.timer2latchLow;
+    p.t2NextFlag = p.t2Base + p.t2Start + 1;
     p.ifr &= ~IFR_TIMER2;
     viaUpdateIFR(v);
     break;
@@ -217,6 +325,7 @@ void Mockingboard::viaWrite(int v, uint8_t reg, uint8_t val)
     break;
   case 0x0B:
     p.acr = val;
+    t1Reschedule(v, now);
     break;
   case 0x0C:
     p.pcr = val;
@@ -235,19 +344,79 @@ void Mockingboard::viaWrite(int v, uint8_t reg, uint8_t val)
   }
 }
 
-void Mockingboard::viaUpdateIFR(int v)
+void Mockingboard::viaSetFlag(int v, uint8_t mask, int64_t when)
 {
+  via[v].ifr |= mask;
+  viaUpdateIFR(v, when);
+}
+
+// 'when' is the cycle a flag that just got set went up, so the CPU can see
+// the interrupt at the right instruction boundary. Anything else (a write to
+// IER, say) changes the line on the current bus cycle.
+void Mockingboard::viaUpdateIFR(int v, int64_t when)
+{
+  if (when < 0) when = g_cpu->busCycle();
   Via6522 &p = via[v];
   if (p.ifr & p.ier & 0x7F)
     p.ifr |= IFR_IRQ;
   else
     p.ifr &= ~IFR_IRQ;
 
-  bool anyIrq = (via[0].ifr & IFR_IRQ) || (via[1].ifr & IFR_IRQ);
+  bool anyIrq = (via[0].ifr & IFR_IRQ) != 0;
+  if (via1Nmi) {
+    // The $Cn80 6522 on a Sound/Speech I is wired to NMI, which only
+    // interrupts when the line falls
+    bool low = (via[1].ifr & IFR_IRQ) != 0;
+    if (low && !nmiLow)
+      g_cpu->triggerNmi(when);
+    nmiLow = low;
+  } else if (via[1].ifr & IFR_IRQ) {
+    anyIrq = true;
+  }
   if (anyIrq)
-    g_cpu->assertIrq();
+    g_cpu->assertIrq(irqSource, when);
   else
-    g_cpu->deassertIrq();
+    g_cpu->deassertIrq(irqSource);
+}
+
+// Reading or writing ORB clears the CB1 flag, and the CB2 flag too unless
+// CB2 is in one of its "independent" input modes.
+void Mockingboard::viaOrbAccess(int v)
+{
+  Via6522 &p = via[v];
+  uint8_t clear = IFR_CB1;
+  if ((p.pcr & PCR_CB2_IND_MASK) != PCR_CB2_IND)
+    clear |= IFR_CB2;
+  if (p.ifr & clear) {
+    p.ifr &= ~clear;
+    viaUpdateIFR(v);
+  }
+}
+
+// --- SC-01 (Sound/Speech I only) ---
+
+// The strobe: latch the phoneme, drop A/R, and schedule A/R to rise when the
+// phoneme's time is up. The 6522 sees A/R on CB1.
+void Mockingboard::sc01Write(uint8_t busValue)
+{
+  sc01.phone = busValue & 0x3F;
+  sc01.inflection = (busValue >> 6) & 0x03;
+  if (voice) voice->write(sc01.phone, sc01.inflection);
+  int64_t now = g_cpu->busCycle();
+  sc01SetAR(false, now);
+  sc01.arRiseCycle = now + sc01PhoneCycles(sc01.phone);
+  scheduleNext();
+}
+
+void Mockingboard::sc01SetAR(bool high, int64_t when)
+{
+  if (high == sc01.arHigh) return;
+  sc01.arHigh = high;
+  // CB1 flags on whichever edge PCR bit 4 picks. Speech software sets PCR
+  // to $B0, so it's the rising edge: "the last phoneme is done".
+  bool wantRising = (via[0].pcr & PCR_CB1_POSITIVE) != 0;
+  if (high == wantRising)
+    viaSetFlag(0, IFR_CB1, when);
 }
 
 // --- AY-3-8910 bus protocol ---
@@ -255,6 +424,9 @@ void Mockingboard::viaUpdateIFR(int v)
 void Mockingboard::handleOrbChange(int v)
 {
   uint8_t orb = via[v].orb;
+
+  // The AY only drives the bus while it's being read
+  via[v].paPins = 0xFF;
 
   if (!(orb & AY_RESET_PIN)) {
     ayReset(v);
@@ -273,29 +445,62 @@ void Mockingboard::handleOrbChange(int v)
   }
 }
 
+// What the AY sees on its data bus: port A's outputs, and $FF on any pin
+// that's an input (nothing else drives it)
+static uint8_t portABus(const Via6522 &p)
+{
+  return (p.ora & p.ddra) | (uint8_t)~p.ddra;
+}
+
+// The AY latches all 8 bits. It only answers to addresses whose top 4 bits
+// are 0, so anything else (and the state after a reset) selects nothing.
 void Mockingboard::ayLatchAddress(int a)
 {
-  ay[a].latchedReg = via[a].ora & 0x0F;
+  ay[a].latchedReg = portABus(via[a]);
 }
+
+// The AY-3-8913 only keeps the bits each register uses, and reads back 0 in
+// the rest. (A YM2149 keeps all 8, which is how software tells them apart.)
+static const uint8_t ayRegMask[AY_NUM_REGS] = {
+  0xFF, 0x0F, 0xFF, 0x0F, 0xFF, 0x0F, 0x1F, 0xFF,
+  0x1F, 0x1F, 0x1F, 0xFF, 0xFF, 0x0F, 0xFF, 0xFF
+};
 
 void Mockingboard::ayWriteReg(int a)
 {
   uint8_t reg = ay[a].latchedReg;
   if (reg >= AY_NUM_REGS) return;
-  ay[a].regs[reg] = via[a].ora;
-  ayRecalc(a);
+  uint8_t mask = ayRegMask[reg];
+  // The 8913 has no I/O ports, so it has no use for R7's port direction bits
+  if (reg == 7 && !ayHasPorts) mask = 0x3F;
+  ay[a].regs[reg] = portABus(via[a]) & mask;
+  // Writing the shape restarts the envelope, even with the same value
+  ayRecalc(a, reg == 13);
 }
 
 void Mockingboard::ayReadReg(int a)
 {
   uint8_t reg = ay[a].latchedReg;
   if (reg >= AY_NUM_REGS) return;
-  via[a].ora = ay[a].regs[reg];
+  uint8_t val = ay[a].regs[reg];
+  if (reg >= 14) {
+    if (!ayHasPorts) {
+      // The 8913 has no I/O ports and leaves the bus alone, so port A still
+      // holds the address we latched ($0E or $0F)
+      val = reg;
+    } else if (!(ay[a].regs[7] & (reg == 14 ? 0x40 : 0x80))) {
+      // An 8910 port set as an input reads its pins, which nothing on the
+      // card drives, so they're pulled up
+      val = 0xFF;
+    }
+  }
+  via[a].paPins = val;
 }
 
 void Mockingboard::ayReset(int a)
 {
   memset(&ay[a], 0, sizeof(AY8910));
+  ay[a].latchedReg = 0xFF;
   ay[a].noiseShift = 1;
   ay[a].noisePeriod = 1;
   ay[a].envPeriod = 1;
@@ -304,7 +509,7 @@ void Mockingboard::ayReset(int a)
   ay[a].envDirection = 1;
 }
 
-void Mockingboard::ayRecalc(int a)
+void Mockingboard::ayRecalc(int a, bool restartEnvelope)
 {
   AY8910 &psg = ay[a];
 
@@ -323,7 +528,7 @@ void Mockingboard::ayRecalc(int a)
   psg.envPeriod = (psg.regs[12] << 8) | psg.regs[11];
   if (psg.envPeriod == 0) psg.envPeriod = 1;
 
-  if (psg.regs[13] != 0xFF) {
+  if (restartEnvelope) {
     psg.envShape = psg.regs[13] & 0x0F;
     psg.envCounter = 0;
     psg.envHolding = false;
@@ -336,7 +541,6 @@ void Mockingboard::ayRecalc(int a)
       psg.envStep = 15;
     }
 
-    psg.regs[13] = 0xFF;
   }
 }
 
@@ -356,6 +560,7 @@ int16_t Mockingboard::renderOneSample()
   int32_t sum = 0;
 
   for (int a = 0; a < 2; a++) {
+    if (!viaHasAY[a]) continue;
     AY8910 &psg = ay[a];
     uint8_t mixer = psg.regs[7];
 
@@ -450,6 +655,9 @@ int16_t Mockingboard::renderOneSample()
     }
   }
 
+  if (voice)
+    sum += voice->render(SAMPLE_RATE);
+
   // Clamp to int16 range
   if (sum > 0x7FFF) sum = 0x7FFF;
   if (sum < -0x7FFF) sum = -0x7FFF;
@@ -457,56 +665,147 @@ int16_t Mockingboard::renderOneSample()
 }
 
 // Called from cpuMaintenance with the current cycle count.
-// Ticks timers and generates audio samples.
-void Mockingboard::update(uint64_t cpuCycles)
+// --- 6522 timers ---
+//
+// Timer 1 counts down from t1Start, which it held on cycle t1Base. When it
+// gets past 0 it shows $FFFF for a cycle, then reloads from the latch, in
+// one-shot mode too, so a period is latch+2 cycles. The flag goes up on the $FFFF cycle: every time in free-running
+// mode, and in one-shot mode only until the first one-shot timeout after a
+// T1C-H write.
+
+uint16_t Mockingboard::t1Value(int v, int64_t r)
 {
-  if (lastCycleCount == 0) {
-    lastCycleCount = cpuCycles;
-    return;
+  Via6522 &p = via[v];
+  int64_t k = r - p.t1Base;
+  if (k < 0) return p.t1Start;
+  if (k <= p.t1Start) return p.t1Start - k;
+  int64_t j = k - p.t1Start - 1;          // 0 is the first $FFFF cycle
+  if (j == 0) return 0xFFFF;
+  int64_t period = (int64_t)p.timer1latch + 2;
+  int64_t m = (j - 1) % period;
+  return (m <= p.timer1latch) ? p.timer1latch - m : 0xFFFF;
+}
+
+// The first cycle after r that T1 rolls to $FFFF
+int64_t Mockingboard::t1UnderflowAfter(int v, int64_t r)
+{
+  Via6522 &p = via[v];
+  int64_t a = p.t1Base + p.t1Start + 1;
+  if (a > r) return a;
+  int64_t period = (int64_t)p.timer1latch + 2;
+  return a + ((r - a) / period + 1) * period;
+}
+
+// The latch is changing at cycle r. The count in progress carries on, but
+// the reloads after it use the new latch, so start the arithmetic over from
+// here.
+void Mockingboard::t1Rebase(int v, int64_t r, uint16_t newLatch)
+{
+  Via6522 &p = via[v];
+  int64_t k = r - p.t1Base;
+  if (k > p.t1Start) {
+    int64_t j = k - p.t1Start - 1;
+    int64_t period = (int64_t)p.timer1latch + 2;
+    bool reloadNext = (j == 0) || ((j - 1) % period == period - 1);
+    if (reloadNext) {
+      // On the $FFFF cycle: the next one loads the new latch
+      p.timer1latch = newLatch;
+      p.t1Base = r + 1;
+      p.t1Start = newLatch;
+      t1Reschedule(v, r);
+      return;
+    }
   }
+  uint16_t now = t1Value(v, r);
+  p.timer1latch = newLatch;
+  p.t1Base = r;
+  p.t1Start = now;
+  t1Reschedule(v, r);
+}
 
-  uint64_t elapsed = cpuCycles - lastCycleCount;
-  lastCycleCount = cpuCycles;
+void Mockingboard::t1Reschedule(int v, int64_t r)
+{
+  Via6522 &p = via[v];
+  if ((p.acr & 0x40) || p.t1Armed)
+    p.t1NextFlag = t1UnderflowAfter(v, r);
+  else
+    p.t1NextFlag = INT64_MAX;
+}
 
-  // Tick 6522 timers — counters always decrement (even when "stopped"),
-  // matching real 6522 behavior. Only IFR flags depend on timer1running.
+// Timer 2 has no high latch: after 0 it carries on from $FFFF. It flags once
+// per T2C-H write.
+uint16_t Mockingboard::t2Value(int v, int64_t r)
+{
+  Via6522 &p = via[v];
+  int64_t k = r - p.t2Base;
+  if (k < 0) return p.t2Start;
+  return (uint16_t)((p.t2Start - k) & 0xFFFF);
+}
+
+// The CPU's cycle clock restarts on a reset (and jumps on a restore), and
+// everything here is stamped with it. Move our stamps by the same amount so
+// the timers and the SC-01 carry on where they were.
+void Mockingboard::rebaseClock(int64_t delta)
+{
   for (int v = 0; v < 2; v++) {
     Via6522 &p = via[v];
+    p.t1Base += delta;
+    p.t2Base += delta;
+    if (p.t1NextFlag != INT64_MAX) p.t1NextFlag += delta;
+    if (p.t2NextFlag != INT64_MAX) p.t2NextFlag += delta;
+  }
+  sc01.arRiseCycle += delta;
+  lastUpdate += delta;
+}
 
-    if (elapsed >= p.timer1counter) {
-      if (p.timer1running) {
-        p.ifr |= IFR_TIMER1;
-        p.timer1fired = true;
-        viaUpdateIFR(v);
-      }
+void Mockingboard::update(int64_t now)
+{
+  // A read or write is stamped a few cycles past the instruction boundary,
+  // so small steps backward are normal. A big one means the clock restarted.
+  if (now + 1000 < lastUpdate)
+    rebaseClock(now - lastUpdate);
+  if (now > lastUpdate) lastUpdate = now;
+
+  for (int v = 0; v < 2; v++) {
+    Via6522 &p = via[v];
+    if (p.t1NextFlag <= now) {
+      int64_t when = p.t1NextFlag;
+      // Only a one-shot timeout uses up the one-shot: switch a free-running
+      // timer to one-shot and it still flags once more
       if (p.acr & 0x40) {
-        uint32_t overflow = elapsed - p.timer1counter;
-        if (p.timer1latch > 0)
-          overflow %= (p.timer1latch + 2);
-        p.timer1counter = p.timer1latch - overflow;
+        p.t1NextFlag = t1UnderflowAfter(v, now);
       } else {
-        uint32_t overflow = elapsed - p.timer1counter;
-        p.timer1counter = 0xFFFF - (overflow % 0x10000);
-        p.timer1running = false;
+        p.t1Armed = false;
+        p.t1NextFlag = INT64_MAX;
       }
-    } else {
-      p.timer1counter -= elapsed;
+      viaSetFlag(v, IFR_TIMER1, when);
     }
-
-    if (elapsed >= p.timer2counter) {
-      if (p.timer2running) {
-        p.ifr |= IFR_TIMER2;
-        p.timer2fired = true;
-        viaUpdateIFR(v);
-      }
-      uint32_t overflow = elapsed - p.timer2counter;
-      p.timer2counter = 0xFFFF - (overflow % 0x10000);
-      p.timer2running = false;
-    } else {
-      p.timer2counter -= elapsed;
+    if (p.t2NextFlag <= now) {
+      int64_t when = p.t2NextFlag;
+      p.t2NextFlag = INT64_MAX;
+      viaSetFlag(v, IFR_TIMER2, when);
     }
   }
 
+  if (hasSpeech && !sc01.arHigh && sc01.arRiseCycle <= now)
+    sc01SetAR(true, sc01.arRiseCycle);
+
+  scheduleNext();
+}
+
+void Mockingboard::scheduleNext()
+{
+  if (!g_cpu) return;
+  g_cpu->eventHook = &Mockingboard::eventHook;
+  int64_t next = INT64_MAX;
+  for (int v = 0; v < 2; v++) {
+    if (via[v].t1NextFlag < next) next = via[v].t1NextFlag;
+    if (via[v].t2NextFlag < next) next = via[v].t2NextFlag;
+  }
+  if (hasSpeech && !sc01.arHigh && sc01.arRiseCycle < next)
+    next = sc01.arRiseCycle;
+  if (next != INT64_MAX)
+    g_cpu->scheduleEvent(next);
 }
 
 // Render 'count' samples directly into the caller's buffer.

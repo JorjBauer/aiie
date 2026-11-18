@@ -102,9 +102,13 @@ void TeensyAudio::update(void)
       audioRunning = 2;
   }
 
-  // Mockingboard: always render regardless of speaker priming state.
-  Mockingboard *mb = g_vm ? ((AppleVM *)g_vm)->mockingboard : NULL;
-  if (mb) {
+  // Mockingboard and Sound/Speech I: always render regardless of speaker
+  // priming state. We skip the Sound/Speech I when it isn't installed.
+  Mockingboard *mbs[2] = { g_vm ? ((AppleVM *)g_vm)->mockingboard : NULL,
+                           (g_vm && g_slotSoundSpeech) ? ((AppleVM *)g_vm)->soundspeech : NULL };
+  for (int c = 0; c < 2; c++) {
+    Mockingboard *mb = mbs[c];
+    if (!mb) continue;
     int16_t mbBuf[AUDIO_BLOCK_SAMPLES];
     mb->renderToBuffer(mbBuf, AUDIO_BLOCK_SAMPLES);
     for (int i = 0; i < AUDIO_BLOCK_SAMPLES; i++) {

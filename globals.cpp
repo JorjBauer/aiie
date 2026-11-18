@@ -28,6 +28,7 @@ uint8_t g_slotParallel = 1;
 uint8_t g_slotHD32 = 7;
 uint8_t g_slotMouse = 0;      // mouse ROM is slot-4-only; 0 = off. Valid: 0 or 4.
 uint8_t g_slotMockingboard = 4;
+uint8_t g_slotSoundSpeech = 0;   // Sound/Speech I; off by default
 uint8_t g_slotUthernet = 0; // 0 = disabled; set to a slot number to enable
 char g_wifiSSID[33] = {0};   // ESP WiFi credentials (Teensy Uthernet MAC-RAW)
 char g_wifiPass[64] = {0};

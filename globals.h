@@ -80,6 +80,7 @@ extern uint8_t g_slotParallel;
 extern uint8_t g_slotHD32;
 extern uint8_t g_slotMouse;
 extern uint8_t g_slotMockingboard;
+extern uint8_t g_slotSoundSpeech;
 extern uint8_t g_slotUthernet;
 
 // WiFi credentials for the Teensy's ESP co-processor (Uthernet MAC-RAW mode).

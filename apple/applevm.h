@@ -45,6 +45,7 @@ class AppleVM : public VM {
   DiskII *disk6;
   HD32 *hd32;
   Mockingboard *mockingboard;
+  Mockingboard *soundspeech;   // a Sound/Speech I, if one is installed
  protected:
   VMKeyboard *keyboard;
   ParallelCard *parallel;

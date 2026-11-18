@@ -59,7 +59,7 @@ TEENSY_SDIMAGE ?= AIIE.HEX
 # board in bootloader mode (you may need to press the button on the Teensy).
 PORT          ?=
 
-.PHONY: test-video7 test-vsplit test-floatingbus test-hd32rom test-mouserom test-parallelrom test-monovideo roms firmware clean teensy teensy-libs teensy-upload teensy-install teensy-clean teensy-sdimage
+.PHONY: test-video7 test-vsplit test-floatingbus test-c800latch test-hd32rom test-mouserom test-parallelrom test-monovideo roms firmware clean teensy teensy-libs teensy-upload teensy-install teensy-clean teensy-sdimage
 
 all:
 	@echo You want \'make sdl\', \'make linuxfb\', or \'make teensy\'.
@@ -179,6 +179,19 @@ test-floatingbus: roms $(FLOATBUSTEST_SRCS)
 	g++ $(FLOATBUSTEST_FLAGS) $(FLOATBUSTEST_SRCS) -o tests/test-floatingbus
 	./tests/test-floatingbus
 
+# Who owns $C800-$CFFF: the //e's INTC8ROM and the cards' latches. See
+# tests/test-c800latch.cpp.
+C800LATCHTEST_SRCS = tests/test-c800latch.cpp \
+                     apple/appledisplay.cpp apple/applemmu.cpp \
+                     apple/noslotclock.cpp nix/nix-clock.cpp \
+                     cpu.cpp vmram.cpp lcg.cpp LRingBuffer.cpp \
+                     nix/nix-filemanager.cpp physicaldisplay.cpp
+C800LATCHTEST_FLAGS = $(VIDEO7TEST_FLAGS)
+
+test-c800latch: roms $(C800LATCHTEST_SRCS)
+	g++ $(C800LATCHTEST_FLAGS) $(C800LATCHTEST_SRCS) -o tests/test-c800latch
+	./tests/test-c800latch
+
 # The hard-disk card's slot ROM, entered by the real CPU at each of its
 # entry points against images whose every block is known: see
 # tests/test-hd32rom.cpp.
@@ -233,6 +246,16 @@ MONOVIDEOTEST_FLAGS = $(VIDEO7TEST_FLAGS)
 test-monovideo: roms $(MONOVIDEOTEST_SRCS)
 	g++ $(MONOVIDEOTEST_FLAGS) $(MONOVIDEOTEST_SRCS) -o tests/test-monovideo
 	./tests/test-monovideo
+
+# The Sound/Speech I card: the SC-01's A/R handshake on CB1/CB2, its timing,
+# the IRQ, and the second 6522 and AY it doesn't have: see
+# tests/test-soundspeech.cpp.
+SOUNDSPEECHTEST_SRCS = tests/test-soundspeech.cpp apple/mockingboard.cpp apple/sc01.cpp cpu.cpp
+SOUNDSPEECHTEST_FLAGS = $(VIDEO7TEST_FLAGS)
+
+test-soundspeech: $(SOUNDSPEECHTEST_SRCS) apple/sc01params.h
+	g++ $(SOUNDSPEECHTEST_FLAGS) $(SOUNDSPEECHTEST_SRCS) -o tests/test-soundspeech
+	./tests/test-soundspeech
 
 # hd32.rom, mouse.rom and parallel.rom are the card ROMs assembled from
 # apple/hd32rom.s, apple/mouserom.s and apple/parallelrom.s. The assembled

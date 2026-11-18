@@ -136,6 +136,11 @@ extern optype_t opcodes[256];
 // Carry
 #define F_C (1<<0)
 
+// IRQ sources (see Cpu::assertIrq)
+#define IRQSRC_OTHER        0x01  // the mouse, and anything that doesn't say
+#define IRQSRC_MOCKINGBOARD 0x02
+#define IRQSRC_SOUNDSPEECH  0x04
+
 class Cpu {
  public:
   Cpu();
@@ -151,8 +156,35 @@ class Cpu {
   void brk();
   void irq();
 
-  void assertIrq();
-  void deassertIrq();
+  // The //e's IRQ line is wired-OR: any card can hold it low. Each source
+  // asserts and releases its own bit, so one card releasing the line doesn't
+  // drop another card's interrupt.
+  //
+  // 'when' is the bus cycle the line fell, for a card that knows it (the
+  // 6522s). The 65C02 samples its interrupt lines at the end of an
+  // instruction's next-to-last cycle, so we only take the interrupt at a
+  // boundary at least 2 cycles after that. Without 'when', it's taken at the
+  // next boundary.
+  void assertIrq(uint8_t source = IRQSRC_OTHER, int64_t when = -1);
+  void deassertIrq(uint8_t source = IRQSRC_OTHER);
+
+  // NMI is edge-triggered: a card calls this when its NMI line falls, and we
+  // take the interrupt at the next instruction boundary (with the same 'when'
+  // rule as assertIrq).
+  void triggerNmi(int64_t when = -1);
+
+  // The cycle the current instruction's last bus access lands on. Loads and
+  // stores touch their operand on their last cycle, and a card that counts
+  // cycles (the 6522) needs that, not the cycle the instruction started on.
+  // Outside of an instruction it's just 'cycles'.
+  int64_t busCycle() { return cycles + opCycles - 1; }
+
+  // A card that needs to act on a particular cycle (a 6522 timer running
+  // out) asks to be called back at the first instruction boundary on or after
+  // it. There's one hook; the VM points it at a function that updates every
+  // card that might have asked, and they each ask again for their next one.
+  void scheduleEvent(int64_t when) { if (when < nextEventCycle) nextEventCycle = when; }
+  void (*eventHook)();
 
   uint8_t Run(uint8_t numSteps);
   uint8_t step();
@@ -186,7 +218,18 @@ class Cpu {
 
   int64_t cycles;
 
-  bool irqPending;
+  bool irqPending;       // true while any bit of irqSources is set
+  uint8_t irqSources;
+  int64_t irqReadyCycle;   // earliest boundary to take the IRQ at
+  // The IRQ poll happens before an instruction's last cycle, so an
+  // instruction that changes I (CLI, SEI, PLP) only changes it for the
+  // boundary after next. These hold the old answer for one boundary.
+  bool irqHoldOff;         // I was just cleared: still masked this once
+  bool irqLetThrough;      // I was just set: still open this once
+  bool nmiPending;
+  int64_t nmiReadyCycle;
+  uint8_t opCycles;        // cycles of the instruction being run (1 between)
+  int64_t nextEventCycle;
   
   MMU *mmu;
 

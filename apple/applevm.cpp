@@ -32,6 +32,7 @@ AppleVM::AppleVM()
   hd32 = new HD32((AppleMMU *)mmu);
   mouse = new Mouse();
   mockingboard = new Mockingboard();
+  soundspeech = new Mockingboard(true);
   uthernet = new Uthernet2((AppleMMU *)mmu);
 
   // A stale or corrupt pref could name a slot that does not exist; coerce
@@ -44,6 +45,7 @@ AppleVM::AppleVM()
   if (g_slotHD32) ((AppleMMU *)mmu)->setSlot(g_slotHD32, hd32);
   if (g_slotMouse) ((AppleMMU *)mmu)->setSlot(g_slotMouse, mouse);
   if (g_slotMockingboard) ((AppleMMU *)mmu)->setSlot(g_slotMockingboard, mockingboard);
+  if (g_slotSoundSpeech) ((AppleMMU *)mmu)->setSlot(g_slotSoundSpeech, soundspeech);
   if (g_slotUthernet) ((AppleMMU *)mmu)->setSlot(g_slotUthernet, uthernet);
 }
 
@@ -61,6 +63,7 @@ void AppleVM::reassignSlots()
   if (g_slotHD32) ((AppleMMU *)mmu)->setSlot(g_slotHD32, hd32);
   if (g_slotMouse) ((AppleMMU *)mmu)->setSlot(g_slotMouse, mouse);
   if (g_slotMockingboard) ((AppleMMU *)mmu)->setSlot(g_slotMockingboard, mockingboard);
+  if (g_slotSoundSpeech) ((AppleMMU *)mmu)->setSlot(g_slotSoundSpeech, soundspeech);
   if (g_slotUthernet) ((AppleMMU *)mmu)->setSlot(g_slotUthernet, uthernet);
 
   // Apply any change to the RamWorks aux-expansion size.
@@ -167,6 +170,7 @@ void AppleVM::cpuMaintenance(int64_t cycles)
   hd32->maintenance(cycles);
   if (mouse) mouse->maintainMouse(cycles);
   if (mockingboard) mockingboard->update(cycles);
+  if (soundspeech) soundspeech->update(cycles);
   if (uthernet) uthernet->tick(cycles);
   g_speaker->maintainSpeaker(cycles, 0);
 }

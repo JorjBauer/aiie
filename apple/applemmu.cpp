@@ -384,20 +384,7 @@ uint8_t AppleMMU::readCore(uint16_t address)
     return rv;
   }
 
-  // If C800-CFFF isn't latched to a slot ROM, and we try to
-  // access a slot's memory space from C100-C7FF, then we need
-  // to latch in the slot's ROM.
-  if (slotLatch == -1 && address >= 0xc100 && address <= 0xc7ff) {
-    slotLatch = (address >> 8) & 0x07;
-    if (slotLatch == 3 && slot3rom) {
-      // Back off: UTA2E p. 5-28: don't latch in slot 3 ROM while
-      // the slot3rom flag is enabled
-      // fixme
-      slotLatch = 3;
-    } else {
-      updateMemoryPages();
-    }
-  }
+  slotRomAccess(address);
 
   // Cards that intercept their slot ROM space get reads routed
   // directly rather than going through the preloaded ROM page.
@@ -406,12 +393,6 @@ uint8_t AppleMMU::readCore(uint16_t address)
     if (slots[slotNum] && slots[slotNum]->interceptsSlotRom()) {
       return slots[slotNum]->readSlotRom(address & 0xFF);
     }
-  }
-
-  // If we access CFFF, that unlatches slot ROM.
-  if (address == 0xCFFF) {
-    slotLatch = -1;
-    updateMemoryPages();
   }
 
   // RamWorks: when a non-zero aux bank is selected, aux reads come from
@@ -576,6 +557,8 @@ void AppleMMU::write(uint16_t address, uint8_t v)
     return;
   }
 
+  slotRomAccess(address);
+
   // Cards that intercept their slot ROM space get writes routed.
   if (!intcxrom && address >= 0xC100 && address <= 0xC7FF) {
     uint8_t slotNum = (address >> 8) & 0x07;
@@ -626,6 +609,39 @@ void AppleMMU::write(uint16_t address, uint8_t v)
       display->modeChange();
     }
   }
+}
+
+// Who owns $C800-$CFFF. Any access counts, read or write (UTA2E p. 5-28):
+//
+// - $C3xx with SLOTC3ROM off sets INTC8ROM, the //e's own latch for its
+//   internal $C800 ROM. That happens even with INTCXROM on, so the internal
+//   ROM stays at $C800 after INTCXROM goes off, until $CFFF.
+// - $Cnxx with INTCXROM off is that card's I/O SELECT, and the card latches
+//   its own $C800 ROM. With INTCXROM on no card sees the access. (The
+//   internal IRQ handler runs at $C400; latching slot 4 from it put the
+//   mouse page over the 80-column firmware, and its JSR $CE03 hit a BRK.)
+// - $CFFF clears both.
+//
+// slotLatch is 3 for INTC8ROM and the card's slot otherwise. INTC8ROM wins
+// over a card, and nothing but $CFFF changes the latch once it's set, so
+// one value is enough. (Two cards latched at once would fight on the bus;
+// we keep the first.)
+void AppleMMU::slotRomAccess(uint16_t address)
+{
+  if (address < 0xC100 || address > 0xCFFF) return;
+
+  int8_t was = slotLatch;
+  if (address == 0xCFFF) {
+    slotLatch = -1;
+  } else if ((address >> 8) == 0xC3 && !slot3rom) {
+    slotLatch = 3;
+  } else if (address <= 0xC7FF && (address >> 8) != 0xC3 &&
+             !intcxrom && slotLatch == -1) {
+    // (Slot 3 can't hold a card here, so SLOTC3ROM on latches nothing.)
+    slotLatch = (address >> 8) & 0x07;
+  }
+  if (slotLatch != was)
+    updateMemoryPages();
 }
 
 bool AppleMMU::handleNoSlotClock(uint16_t address, uint8_t *rv)
@@ -1694,8 +1710,9 @@ void AppleMMU::updateMemoryPages()
   }
 
   // If slotLatch is set (!= -1), then we are mapping 2k of ROM
-  // for a given peripheral to C800..CFFF.
-  if (slotLatch != -1) {
+  // for a given peripheral to C800..CFFF. INTCXROM puts the internal ROM
+  // there whatever is latched.
+  if (slotLatch != -1 && !intcxrom) {
     // FIXME: this is a hacky mess. Slot 3 (the 80-col card) is
     // supported, as page "1"; and Slot 4 (the mouse card) is
     // supported as page "2".

@@ -67,9 +67,13 @@ static void audioCallback(void *unused, Uint8 *stream, int len)
       audioRunning = 1;
   }
 
-  // Mockingboard: always render regardless of speaker priming state.
-  Mockingboard *mb = ((AppleVM *)g_vm)->mockingboard;
-  if (mb) {
+  // Mockingboard and Sound/Speech I: always render regardless of speaker
+  // priming state. We skip the Sound/Speech I when it isn't installed.
+  Mockingboard *mbs[2] = { ((AppleVM *)g_vm)->mockingboard,
+                           g_slotSoundSpeech ? ((AppleVM *)g_vm)->soundspeech : NULL };
+  for (int c = 0; c < 2; c++) {
+    Mockingboard *mb = mbs[c];
+    if (!mb) continue;
     int16_t mbBuf[SDLSIZE];
     mb->renderToBuffer(mbBuf, outputCount);
     for (int i = 0; i < outputCount; i++) {

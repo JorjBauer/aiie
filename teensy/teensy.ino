@@ -380,6 +380,7 @@ void setup()
       }
       if (p.version >= 7)          g_ramworksSize = p.ramworksSize;
       if (p.version >= 13)         g_video7 = p.video7 ? true : false;
+      if (p.version >= 15 && p.slotSoundSpeech <= 7) g_slotSoundSpeech = p.slotSoundSpeech;
     }
   }
 
@@ -927,6 +928,8 @@ void readPrefs()
     g_ramworksSize = p.ramworksSize;
     if (p.version >= 13)
       g_video7 = p.video7 ? true : false;
+    if (p.version >= 15 && p.slotSoundSpeech <= 7)
+      g_slotSoundSpeech = p.slotSoundSpeech;
 
   } else {
     // Set some defaults!
@@ -977,6 +980,7 @@ void writePrefs()
   p.slotHD32 = g_slotHD32;
   p.slotMouse = g_slotMouse;
   p.slotMockingboard = g_slotMockingboard;
+  p.slotSoundSpeech = g_slotSoundSpeech;
   p.slotUthernet = g_slotUthernet;
   strncpy(p.wifiSSID, g_wifiSSID, sizeof(p.wifiSSID)); p.wifiSSID[sizeof(p.wifiSSID)-1]=0;
   strncpy(p.wifiPass, g_wifiPass, sizeof(p.wifiPass)); p.wifiPass[sizeof(p.wifiPass)-1]=0;

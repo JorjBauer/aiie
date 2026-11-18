@@ -44,7 +44,7 @@ AIIE_CORE_SRCS := $(addprefix $(AIIE_P),cpu.cpp apple/appledisplay.cpp apple/app
                     apple/applemmu.cpp apple/applevm.cpp LRingBuffer.cpp globals.cpp \
                     apple/parallelcard.cpp apple/fx80.cpp lcg.cpp apple/hd32.cpp images.cpp \
                     apple/appleui.cpp vmram.cpp bios.cpp apple/noslotclock.cpp apple/mouse.cpp \
-                    physicaldisplay.cpp wsola-speaker.cpp apple/mockingboard.cpp \
+                    physicaldisplay.cpp wsola-speaker.cpp apple/mockingboard.cpp apple/sc01.cpp \
                     apple/uthernet2.cpp apple/usernet.cpp debugger.cpp disassembler.cpp) \
                   $(AIIE_DISK_SRCS)
 

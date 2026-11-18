@@ -312,6 +312,7 @@ static uint8_t savedSlotParallel;
 static uint8_t savedSlotHD32;
 static uint8_t savedSlotMouse;
 static uint8_t savedSlotMockingboard;
+static uint8_t savedSlotSoundSpeech;
 static uint8_t savedSlotUthernet;
 static uint8_t savedRamworksSize;
 static bool cardsConfigChanged = false;
@@ -325,6 +326,7 @@ static void saveCardConfig()
   savedSlotHD32 = g_slotHD32;
   savedSlotMouse = g_slotMouse;
   savedSlotMockingboard = g_slotMockingboard;
+  savedSlotSoundSpeech = g_slotSoundSpeech;
   savedSlotUthernet = g_slotUthernet;
   savedRamworksSize = g_ramworksSize;
   cardsConfigChanged = false;
@@ -337,11 +339,12 @@ static bool slotsMatchSaved()
           g_slotHD32 == savedSlotHD32 &&
           g_slotMouse == savedSlotMouse &&
           g_slotMockingboard == savedSlotMockingboard &&
+          g_slotSoundSpeech == savedSlotSoundSpeech &&
           g_slotUthernet == savedSlotUthernet &&
           g_ramworksSize == savedRamworksSize);
 }
 
-#define NCARDS 6
+#define NCARDS 7
 static const struct {
   const char *name;
   uint8_t *slot;
@@ -351,6 +354,7 @@ static const struct {
   { "Hard disk",        &g_slotHD32 },
   { "Mouse",            &g_slotMouse },
   { "Mockingboard",     &g_slotMockingboard },
+  { "Sound/Speech I",   &g_slotSoundSpeech },
   { "Uthernet II",      &g_slotUthernet },
 };
 #define CARD_MOUSE 3
@@ -465,6 +469,7 @@ static void defaultCards()
   g_slotHD32 = 7;
   g_slotMouse = 0;   // off by default
   g_slotMockingboard = 4;
+  g_slotSoundSpeech = 0;
   g_slotUthernet = 0;
   g_ramworksSize = 0;
   cardsConfigChanged = !slotsMatchSaved();
