@@ -1634,6 +1634,13 @@ void BIOS::openBrowser(uint8_t kind, uint8_t drive)
   browseKind = kind;
   browseDrive = drive;
   findText[0] = 0;
+#ifndef TEENSYDUINO
+  // On a desktop host, files come and go in the folder while the machine
+  // runs (or while we sit in the BIOS), so reread it each time the picker
+  // opens. The Teensy's SD card can't change under us, so it keeps its
+  // cache.
+  numCacheEntries = 0;
+#endif
   cacheDirectory();
   refilter();
 }
