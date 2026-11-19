@@ -5,19 +5,25 @@
 // SLOTC3ROM off sets it, even with INTCXROM on, and it puts the internal
 // ROM at $C800. Each card has its own latch too, set by an access to its
 // $Cn00 page (only seen with INTCXROM off). Any access to $CFFF, read or
-// write, clears them all.
+// write, clears INTC8ROM; the cards see it through I/O STROBE, which the
+// MMU holds off while the internal ROM is at $C800 ("if INTCXROM OR
+// INTC8ROM is configured for internal response, then access to
+// $C800-$CFFF results in ROMEN1' low (active) and I/O STROBE' high
+// (inactive)"), so a card misses a $CFFF made while the internal ROM is
+// showing.
 //
 // aiie used to set the latch on reads only, never from $C3xx with INTCXROM
-// on, and kept a card latched through a later $C3xx access. Each case below
-// fails against that version.
+// on, kept a card latched through a later $C3xx access, and cleared every
+// latch on any $CFFF.
 //
-// A fake card in slot 4 supplies a $C800 ROM full of $A5, so a read of
-// $C800 says who owns it.
+// A fake card in slot 4 supplies a $C800 ROM full of $A5, so reading
+// $C800 shows whose ROM is there.
 
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <stdarg.h>
+#include <unistd.h>
 
 #include "cpu.h"
 #include "applemmu.h"
@@ -195,12 +201,32 @@ int main(int argc, char **argv)
   expect("until $CFFF", true);
   mmu->read(0xCFFF);
 
-  // INTC8ROM is set with INTCXROM on, and outlives it
+  // The cards only see $CFFF through I/O STROBE, which the MMU holds off
+  // while the internal ROM is at $C800. A card latched before INTC8ROM
+  // keeps its latch through that $CFFF, and shows up once INTC8ROM is gone.
+  mmu->read(0xC400);
+  mmu->read(0xC300);
+  mmu->read(0xCFFF);
+  expect("$CFFF under INTC8ROM clears INTC8ROM but not the card", true);
+  mmu->read(0xCFFF);
+  expect("and a second $CFFF, which the card sees, clears it", false);
+
+  // Same under INTCXROM
+  mmu->read(0xC400);
+  mmu->write(0xC007, 0);
+  mmu->read(0xCFFF);
+  mmu->write(0xC006, 0);
+  expect("$CFFF under INTCXROM doesn't reach the card", true);
+  mmu->read(0xCFFF);
+
+  // INTC8ROM is set with INTCXROM on, and stays set after INTCXROM goes off
   mmu->write(0xC007, 0);
   mmu->read(0xC300);
   mmu->write(0xC006, 0);
   mmu->read(0xC400);
   expect("INTC8ROM set under INTCXROM holds $C800 after INTCXROM goes off", false);
+  // (The card latched under INTC8ROM, so it takes two $CFFFs to clear)
+  mmu->read(0xCFFF);
   mmu->read(0xCFFF);
 
   // With INTCXROM on no card sees its page
@@ -225,6 +251,27 @@ int main(int argc, char **argv)
   expect("$C300 with SLOTC3ROM on doesn't set INTC8ROM", true);
   mmu->read(0xCFFF);
   mmu->write(0xC00A, 0);
+
+  // A suspend file keeps both latches: INTC8ROM over a latched card
+  {
+    const char *fn = "tests/test-c800latch.state";
+    mmu->read(0xC400);
+    mmu->read(0xC300);
+    int8_t fd = g_filemanager->openFile(fn);
+    bool ok = fd != -1 && mmu->Serialize(fd);
+    if (fd != -1) g_filemanager->closeFile(fd);
+    mmu->read(0xCFFF);
+    mmu->read(0xCFFF);
+    fd = g_filemanager->openFile(fn);
+    ok = ok && fd != -1 && mmu->Deserialize(fd);
+    if (fd != -1) g_filemanager->closeFile(fd);
+    unlink(fn);
+    if (!ok) fail("couldn't save and restore the MMU");
+    expect("after a restore, INTC8ROM holds $C800", false);
+    mmu->read(0xCFFF);
+    expect("and the restored card latch shows after one $CFFF", true);
+    mmu->read(0xCFFF);
+  }
 
   if (failures) {
     printf("%d failure%s\n", failures, failures == 1 ? "" : "s");

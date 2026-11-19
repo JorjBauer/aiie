@@ -221,7 +221,10 @@ bool AppleMMU::Serialize(int8_t fd)
   serialize8(altzp ? 1 : 0);
   serialize8(intcxrom ? 1 : 0);
   serialize8(slot3rom ? 1 : 0);
-  serialize8(slotLatch);
+  // INTC8ROM and the card's latch share the byte that used to hold only
+  // slotLatch, where 3 meant INTC8ROM: -1 is neither, 3 is INTC8ROM,
+  // $40|n is INTC8ROM over latched card n, and n is just card n.
+  serialize8(intc8rom ? (slotLatch == -1 ? 3 : (0x40 | slotLatch)) : slotLatch);
   serialize8(preWriteFlag ? 1 : 0);
   
   if (!g_ram.Serialize(fd)) {
@@ -270,7 +273,12 @@ bool AppleMMU::Deserialize(int8_t fd)
   deserialize8(altzp);
   deserialize8(intcxrom);
   deserialize8(slot3rom);
-  deserialize8(slotLatch);
+  {
+    int8_t latch;
+    deserialize8(latch);
+    intc8rom = (latch == 3 || (latch & 0xC0) == 0x40);
+    slotLatch = (latch == 3) ? -1 : (latch == -1 ? -1 : (latch & 0x07));
+  }
   deserialize8(preWriteFlag);
 
   if (!g_ram.Deserialize(fd)) {
@@ -615,32 +623,36 @@ void AppleMMU::write(uint16_t address, uint8_t v)
 //
 // - $C3xx with SLOTC3ROM off sets INTC8ROM, the //e's own latch for its
 //   internal $C800 ROM. That happens even with INTCXROM on, so the internal
-//   ROM stays at $C800 after INTCXROM goes off, until $CFFF.
+//   ROM stays at $C800 after INTCXROM goes off.
 // - $Cnxx with INTCXROM off is that card's I/O SELECT, and the card latches
 //   its own $C800 ROM. With INTCXROM on no card sees the access. (The
 //   internal IRQ handler runs at $C400; latching slot 4 from it put the
 //   mouse page over the 80-column firmware, and its JSR $CE03 hit a BRK.)
-// - $CFFF clears both.
+// - $CFFF clears INTC8ROM. The cards see it through I/O STROBE, which the
+//   MMU holds off while INTCXROM or INTC8ROM has the internal ROM there,
+//   so a $CFFF made then leaves a latched card latched.
 //
-// slotLatch is 3 for INTC8ROM and the card's slot otherwise. INTC8ROM wins
-// over a card, and nothing but $CFFF changes the latch once it's set, so
-// one value is enough. (Two cards latched at once would fight on the bus;
-// we keep the first.)
+// Only one card can have a $C800 ROM here, so slotLatch holds one slot.
+// (If two cards latched at once, both would drive the bus; we keep the
+// first.)
 void AppleMMU::slotRomAccess(uint16_t address)
 {
   if (address < 0xC100 || address > 0xCFFF) return;
 
+  bool wasInt = intc8rom;
   int8_t was = slotLatch;
+  uint8_t hi = address >> 8;
   if (address == 0xCFFF) {
-    slotLatch = -1;
-  } else if ((address >> 8) == 0xC3 && !slot3rom) {
-    slotLatch = 3;
-  } else if (address <= 0xC7FF && (address >> 8) != 0xC3 &&
-             !intcxrom && slotLatch == -1) {
+    if (!intcxrom && !intc8rom)
+      slotLatch = -1;
+    intc8rom = false;
+  } else if (hi == 0xC3 && !slot3rom) {
+    intc8rom = true;
+  } else if (hi <= 0xC7 && hi != 0xC3 && !intcxrom && slotLatch == -1) {
     // (Slot 3 can't hold a card here, so SLOTC3ROM on latches nothing.)
-    slotLatch = (address >> 8) & 0x07;
+    slotLatch = hi & 0x07;
   }
-  if (slotLatch != was)
+  if (slotLatch != was || intc8rom != wasInt)
     updateMemoryPages();
 }
 
@@ -1471,6 +1483,7 @@ void AppleMMU::resetRAM()
   intcxrom = false;
   slot3rom = false;
 
+  intc8rom = false;
   slotLatch = -1;
 
   preWriteFlag = false;
@@ -1709,21 +1722,11 @@ void AppleMMU::updateMemoryPages()
     }
   }
 
-  // If slotLatch is set (!= -1), then we are mapping 2k of ROM
-  // for a given peripheral to C800..CFFF. INTCXROM puts the internal ROM
-  // there whatever is latched.
-  if (slotLatch != -1 && !intcxrom) {
-    // FIXME: this is a hacky mess. Slot 3 (the 80-col card) is
-    // supported, as page "1"; and Slot 4 (the mouse card) is
-    // supported as page "2".
-    if (slotLatch == 3) {
-      for (int i=0xc8; i <= 0xcf; i++) {
-	readPages[i] = _pageNumberForRam(i, 1);
-      }
-    } else if (slotLatch == 4) {
-      for (int i=0xc8; i <= 0xcf; i++) {
-	readPages[i] = _pageNumberForRam(i, 2);
-      }
+  // A latched card's 2k ROM at C800..CFFF, unless INTCXROM or INTC8ROM
+  // puts the internal ROM there.
+  if (slotLatch == 4 && !intcxrom && !intc8rom) {
+    for (int i=0xc8; i <= 0xcf; i++) {
+      readPages[i] = _pageNumberForRam(i, 2);
     }
   }
 

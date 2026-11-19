@@ -143,7 +143,8 @@ class AppleMMU : public MMU {
   bool altzp;
   bool intcxrom;
   bool slot3rom;
-  int8_t slotLatch;
+  bool intc8rom;    // the //e's own $C800 latch (UTA2E p. 5-28)
+  int8_t slotLatch; // the card holding its $C800 ROM latched, or -1
 
   bool preWriteFlag;        // see UTA2E p. 5-23
 
